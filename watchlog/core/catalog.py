@@ -1,0 +1,154 @@
+"""Écriture en base des métadonnées venues des API (TVMaze pour les séries, TMDB pour les films).
+
+Utilisé par l'import Bingers ET par la synchronisation.
+Ces fonctions ne font pas de commit : c'est l'appelant qui décide quand enregistrer.
+"""
+
+import logging
+import re
+from pathlib import Path
+
+from sqlmodel import Session, select
+
+from watchlog.core.config import POSTERS_DIR
+from watchlog.core.dates import parse_date, parse_datetime_utc, utcnow
+from watchlog.core.models import Episode, Movie, Show
+from watchlog.core.tmdb import TMDBClient, extract_release_dates
+
+log = logging.getLogger(__name__)
+
+
+def clean_html(text: str | None) -> str | None:
+    """TVMaze renvoie des résumés en HTML (<p>, <b>...) : on garde le texte brut."""
+    if not text:
+        return None
+    return re.sub(r"<[^>]+>", "", text).strip() or None
+
+
+# --- Séries (TVMaze) ---------------------------------------------------------
+
+def _find_show(session: Session, tvmaze_id: int, tvdb_id: int | None) -> Show | None:
+    """Série déjà en base : par id TVMaze, sinon par id TVDB (série pas encore rattachée)."""
+    show = session.exec(select(Show).where(Show.tvmaze_id == tvmaze_id)).first()
+    if show is None and tvdb_id is not None:
+        show = session.exec(select(Show).where(Show.tvdb_id == tvdb_id,
+                                               Show.tvmaze_id.is_(None))).first()
+    return show
+
+
+def upsert_show_from_tvmaze(session: Session, data: dict, episodes: list[dict],
+                            title: str | None = None, original_title: str | None = None,
+                            tvdb_id: int | None = None, tmdb_id: int | None = None) -> Show:
+    """Crée ou met à jour une série et ses épisodes à partir des réponses TVMaze.
+
+    - data : réponse de get_show (avec `_embedded.episodes`, sans les spéciaux)
+    - episodes : réponse de get_episodes_with_specials (spéciaux compris)
+    Le titre (`title`) d'une série existante n'est jamais modifié.
+    `match_status` n'est pas touché pour une série existante.
+    """
+    externals = data.get("externals") or {}
+    show = _find_show(session, data["id"], tvdb_id)
+    if show is None:
+        show = Show(title=title or data.get("name") or "Sans titre",
+                    original_title=original_title or data.get("name"))
+    show.tvmaze_id = data["id"]
+    if show.original_title is None:
+        show.original_title = original_title or data.get("name")
+    if show.tvdb_id is None:
+        show.tvdb_id = tvdb_id or externals.get("thetvdb")
+    if tmdb_id is not None and show.tmdb_id is None:
+        show.tmdb_id = tmdb_id
+    show.imdb_id = externals.get("imdb") or show.imdb_id
+    show.status = data.get("status")
+    # Chaîne TV classique (network) ou plateforme (webChannel, ex. Netflix).
+    channel = data.get("network") or data.get("webChannel") or {}
+    show.network = channel.get("name")
+    show.premiered = parse_date(data.get("premiered"))
+    show.poster_url = (data.get("image") or {}).get("medium") or show.poster_url
+    show.summary = clean_html(data.get("summary"))
+    show.last_synced_at = utcnow()
+    session.add(show)
+    session.flush()  # pour avoir show.id
+
+    # Épisodes : la liste « avec spéciaux » + ceux de l'embed (au cas où la liste serait vide).
+    all_episodes = {ep["id"]: ep for ep in (data.get("_embedded") or {}).get("episodes", [])}
+    all_episodes.update({ep["id"]: ep for ep in episodes or []})
+
+    existing = {ep.tvmaze_episode_id: ep for ep in
+                session.exec(select(Episode).where(Episode.show_id == show.id))}
+    for ep_data in all_episodes.values():
+        episode = existing.get(ep_data["id"])
+        if episode is None:
+            # L'épisode a pu changer de série chez TVMaze (rare) : on le cherche partout.
+            episode = session.exec(select(Episode).where(
+                Episode.tvmaze_episode_id == ep_data["id"])).first()
+        if episode is None:
+            episode = Episode(show_id=show.id, season=0, tvmaze_episode_id=ep_data["id"])
+        number = ep_data.get("number")  # None = épisode spécial
+        episode.show_id = show.id
+        episode.season = ep_data.get("season") or 0
+        episode.number = number
+        episode.is_special = number is None
+        episode.title = ep_data.get("name")
+        episode.airdate = parse_date(ep_data.get("airdate"))
+        episode.airstamp = parse_datetime_utc(ep_data.get("airstamp"))
+        episode.runtime = ep_data.get("runtime")
+        session.add(episode)
+    session.flush()
+    return show
+
+
+def fetch_and_upsert_show(session: Session, tvmaze, tvmaze_id: int, force: bool = False,
+                          **kwargs) -> Show | None:
+    """Télécharge la fiche + les épisodes d'une série TVMaze et les enregistre.
+
+    Renvoie None si la série n'existe pas chez TVMaze. Une ApiError remonte à l'appelant.
+    `kwargs` : title, original_title, tvdb_id, tmdb_id (voir upsert_show_from_tvmaze).
+    """
+    data = tvmaze.get_show(tvmaze_id, force=force)
+    if data is None:
+        return None
+    episodes = tvmaze.get_episodes_with_specials(tvmaze_id, data.get("status"), force=force)
+    return upsert_show_from_tvmaze(session, data, episodes, **kwargs)
+
+
+# --- Films (TMDB) ------------------------------------------------------------
+
+def upsert_movie_from_tmdb(session: Session, data: dict) -> Movie:
+    """Crée ou met à jour un film à partir de la fiche TMDB (get_movie)."""
+    movie = session.exec(select(Movie).where(Movie.tmdb_id == data["id"])).first()
+    if movie is None:
+        movie = Movie(tmdb_id=data["id"], title=data.get("title") or "Sans titre")
+    release_fr, release_original = extract_release_dates(data)
+    movie.original_title = data.get("original_title") or movie.original_title
+    movie.imdb_id = data.get("imdb_id") or movie.imdb_id
+    movie.release_date_fr = release_fr
+    movie.release_date_original = release_original
+    if release_original:
+        movie.year = release_original.year
+    movie.runtime = data.get("runtime") or movie.runtime
+    movie.overview = data.get("overview") or movie.overview
+    movie.poster_url = TMDBClient.poster_url(data.get("poster_path")) or movie.poster_url
+    movie.last_synced_at = utcnow()
+    session.add(movie)
+    session.flush()
+    return movie
+
+
+# --- Affiches ----------------------------------------------------------------
+
+def ensure_poster(session: Session, obj: Show | Movie, client,
+                  posters_dir: Path = POSTERS_DIR) -> None:
+    """Télécharge l'affiche une seule fois dans posters_dir (show_<id>.jpg / movie_<id>.jpg).
+
+    `poster_path` contient le chemin relatif au dossier data/ (ex. "posters/show_3.jpg").
+    """
+    if not obj.poster_url or obj.id is None:
+        return
+    prefix = "show" if isinstance(obj, Show) else "movie"
+    dest = Path(posters_dir) / f"{prefix}_{obj.id}.jpg"
+    if obj.poster_path and dest.exists():
+        return
+    if client.download(obj.poster_url, dest):
+        obj.poster_path = f"posters/{dest.name}"
+        session.add(obj)

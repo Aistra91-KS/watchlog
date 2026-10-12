@@ -1,0 +1,44 @@
+{
+  "id": 693134,
+  "imdb_id": "tt15239678",
+  "title": "Dune : Deuxième partie",
+  "original_title": "Dune: Part Two",
+  "original_language": "en",
+  "overview": "Paul Atréides s'unit à Chani et aux Fremen pour mener la révolte contre ceux qui ont anéanti sa famille.",
+  "release_date": "2024-02-27",
+  "runtime": 167,
+  "status": "Released",
+  "poster_path": "/qXsONUHbqlntMmS7YGDMyGtV7zl.jpg",
+  "genres": [
+    {"id": 878, "name": "Science-Fiction"},
+    {"id": 12, "name": "Aventure"}
+  ],
+  "release_dates": {
+    "results": [
+      {
+        "iso_3166_1": "US",
+        "release_dates": [
+          {"certification": "", "note": "Premiere", "release_date": "2024-02-15T00:00:00.000Z", "type": 1},
+          {"certification": "PG-13", "note": "", "release_date": "2024-03-01T00:00:00.000Z", "type": 3}
+        ]
+      },
+      {
+        "iso_3166_1": "BE",
+        "release_dates": [
+          {"certification": "", "note": "", "release_date": "2024-02-21T00:00:00.000Z", "type": 3}
+        ]
+      },
+      {
+        "iso_3166_1": "FR",
+        "release_dates": [
+          {"certification": "", "note": "Avant-première Paris", "release_date": "2024-02-12T00:00:00.000Z", "type": 1},
+          {"certification": "", "note": "Séances limitées", "release_date": "2024-02-24T00:00:00.000Z", "type": 2},
+          {"certification": "TP", "note": "", "release_date": "2024-02-28T00:00:00.000Z", "type": 3},
+          {"certification": "TP", "note": "VOD", "release_date": "2024-04-24T00:00:00.000Z", "type": 4},
+          {"certification": "TP", "note": "Blu-ray", "release_date": "2024-06-26T00:00:00.000Z", "type": 5},
+          {"certification": "TP", "note": "Canal+", "release_date": "2025-01-10T00:00:00.000Z", "type": 6}
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,36 @@
+[
+ {
+  "id": 3031,
+  "url": "https://www.tvmaze.com/episodes/3031",
+  "name": "Pilot",
+  "season": 1,
+  "number": 1,
+  "type": "regular",
+  "airdate": "2022-03-01",
+  "airtime": "21:00",
+  "airstamp": "2022-03-01T20:00:00+00:00",
+  "runtime": 50,
+  "rating": {
+   "average": null
+  },
+  "image": null,
+  "summary": "<p>Pilot</p>"
+ },
+ {
+  "id": 3032,
+  "url": "https://www.tvmaze.com/episodes/3032",
+  "name": "Second",
+  "season": 1,
+  "number": 2,
+  "type": "regular",
+  "airdate": "2022-03-08",
+  "airtime": "21:00",
+  "airstamp": "2022-03-08T20:00:00+00:00",
+  "runtime": 50,
+  "rating": {
+   "average": null
+  },
+  "image": null,
+  "summary": "<p>Second</p>"
+ }
+]

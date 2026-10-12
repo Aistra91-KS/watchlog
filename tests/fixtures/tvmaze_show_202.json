@@ -1,0 +1,163 @@
+{
+ "id": 202,
+ "url": "https://www.tvmaze.com/shows/202",
+ "name": "Lupin",
+ "type": "Scripted",
+ "language": "English",
+ "genres": [
+  "Drama"
+ ],
+ "status": "Running",
+ "runtime": 50,
+ "premiered": "2021-01-08",
+ "officialSite": null,
+ "network": null,
+ "webChannel": {
+  "id": 1,
+  "name": "Netflix",
+  "country": null
+ },
+ "externals": {
+  "tvrage": null,
+  "thetvdb": 2002,
+  "imdb": "tt2002"
+ },
+ "image": {
+  "medium": "https://static.tvmaze.com/uploads/images/medium_portrait/202.jpg",
+  "original": "https://static.tvmaze.com/uploads/images/original/202.jpg"
+ },
+ "summary": "<p><b>Lupin</b> est une série de test.</p>",
+ "updated": 1700000000,
+ "_embedded": {
+  "seasons": [
+   {
+    "id": 21,
+    "number": 1,
+    "name": "",
+    "episodeOrder": 2,
+    "premiereDate": null,
+    "endDate": null
+   },
+   {
+    "id": 22,
+    "number": 2,
+    "name": "",
+    "episodeOrder": 2,
+    "premiereDate": null,
+    "endDate": null
+   },
+   {
+    "id": 23,
+    "number": 3,
+    "name": "",
+    "episodeOrder": 2,
+    "premiereDate": null,
+    "endDate": null
+   }
+  ],
+  "episodes": [
+   {
+    "id": 2021,
+    "url": "https://www.tvmaze.com/episodes/2021",
+    "name": "Chapitre 1",
+    "season": 1,
+    "number": 1,
+    "type": "regular",
+    "airdate": "2021-01-08",
+    "airtime": "21:00",
+    "airstamp": "2021-01-08T20:00:00+00:00",
+    "runtime": 50,
+    "rating": {
+     "average": null
+    },
+    "image": null,
+    "summary": "<p>Chapitre 1</p>"
+   },
+   {
+    "id": 2022,
+    "url": "https://www.tvmaze.com/episodes/2022",
+    "name": "Chapitre 2",
+    "season": 1,
+    "number": 2,
+    "type": "regular",
+    "airdate": "2021-01-08",
+    "airtime": "21:00",
+    "airstamp": "2021-01-08T20:00:00+00:00",
+    "runtime": 50,
+    "rating": {
+     "average": null
+    },
+    "image": null,
+    "summary": "<p>Chapitre 2</p>"
+   },
+   {
+    "id": 2031,
+    "url": "https://www.tvmaze.com/episodes/2031",
+    "name": "Chapitre 6",
+    "season": 2,
+    "number": 1,
+    "type": "regular",
+    "airdate": "2021-06-11",
+    "airtime": "21:00",
+    "airstamp": "2021-06-11T20:00:00+00:00",
+    "runtime": 50,
+    "rating": {
+     "average": null
+    },
+    "image": null,
+    "summary": "<p>Chapitre 6</p>"
+   },
+   {
+    "id": 2032,
+    "url": "https://www.tvmaze.com/episodes/2032",
+    "name": "Chapitre 7",
+    "season": 2,
+    "number": 2,
+    "type": "regular",
+    "airdate": "2021-06-11",
+    "airtime": "21:00",
+    "airstamp": "2021-06-11T20:00:00+00:00",
+    "runtime": 50,
+    "rating": {
+     "average": null
+    },
+    "image": null,
+    "summary": "<p>Chapitre 7</p>"
+   },
+   {
+    "id": 2041,
+    "url": "https://www.tvmaze.com/episodes/2041",
+    "name": "Chapitre 11",
+    "season": 3,
+    "number": 1,
+    "type": "regular",
+    "airdate": "2023-10-05",
+    "airtime": "21:00",
+    "airstamp": "2023-10-05T20:00:00+00:00",
+    "runtime": 50,
+    "rating": {
+     "average": null
+    },
+    "image": null,
+    "summary": "<p>Chapitre 11</p>"
+   },
+   {
+    "id": 2042,
+    "url": "https://www.tvmaze.com/episodes/2042",
+    "name": "Chapitre 12",
+    "season": 3,
+    "number": 2,
+    "type": "regular",
+    "airdate": "2023-10-05",
+    "airtime": "21:00",
+    "airstamp": "2023-10-05T20:00:00+00:00",
+    "runtime": 50,
+    "rating": {
+     "average": null
+    },
+    "image": null,
+    "summary": "<p>Chapitre 12</p>"
+   }
+  ]
+ }
+}

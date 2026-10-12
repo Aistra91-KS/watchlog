@@ -1,0 +1,158 @@
+{
+ "id": 101,
+ "url": "https://www.tvmaze.com/shows/101",
+ "name": "The Kingdom",
+ "type": "Scripted",
+ "language": "English",
+ "genres": [
+  "Drama"
+ ],
+ "status": "Ended",
+ "runtime": 50,
+ "premiered": "2020-01-05",
+ "officialSite": null,
+ "network": {
+  "id": 1,
+  "name": "HBO",
+  "country": {
+   "name": "United States",
+   "code": "US"
+  }
+ },
+ "webChannel": null,
+ "externals": {
+  "tvrage": null,
+  "thetvdb": 1001,
+  "imdb": "tt1001"
+ },
+ "image": {
+  "medium": "https://static.tvmaze.com/uploads/images/medium_portrait/101.jpg",
+  "original": "https://static.tvmaze.com/uploads/images/original/101.jpg"
+ },
+ "summary": "<p><b>The Kingdom</b> est une série de test.</p>",
+ "updated": 1700000000,
+ "_embedded": {
+  "seasons": [
+   {
+    "id": 1,
+    "number": 1,
+    "name": "",
+    "episodeOrder": 3,
+    "premiereDate": null,
+    "endDate": null
+   },
+   {
+    "id": 2,
+    "number": 2,
+    "name": "",
+    "episodeOrder": 3,
+    "premiereDate": null,
+    "endDate": null
+   }
+  ],
+  "episodes": [
+   {
+    "id": 1011,
+    "url": "https://www.tvmaze.com/episodes/1011",
+    "name": "Le début",
+    "season": 1,
+    "number": 1,
+    "type": "regular",
+    "airdate": "2020-01-05",
+    "airtime": "21:00",
+    "airstamp": "2020-01-05T20:00:00+00:00",
+    "runtime": 50,
+    "rating": {
+     "average": null
+    },
+    "image": null,
+    "summary": "<p>Le début</p>"
+   },
+   {
+    "id": 1012,
+    "url": "https://www.tvmaze.com/episodes/1012",
+    "name": "La suite",
+    "season": 1,
+    "number": 2,
+    "type": "regular",
+    "airdate": "2020-01-12",
+    "airtime": "21:00",
+    "airstamp": "2020-01-12T20:00:00+00:00",
+    "runtime": 50,
+    "rating": {
+     "average": null
+    },
+    "image": null,
+    "summary": "<p>La suite</p>"
+   },
+   {
+    "id": 1013,
+    "url": "https://www.tvmaze.com/episodes/1013",
+    "name": "La fin de saison",
+    "season": 1,
+    "number": 3,
+    "type": "regular",
+    "airdate": "2020-01-19",
+    "airtime": "21:00",
+    "airstamp": "2020-01-19T20:00:00+00:00",
+    "runtime": 50,
+    "rating": {
+     "average": null
+    },
+    "image": null,
+    "summary": "<p>La fin de saison</p>"
+   },
+   {
+    "id": 1021,
+    "url": "https://www.tvmaze.com/episodes/1021",
+    "name": "Le retour",
+    "season": 2,
+    "number": 1,
+    "type": "regular",
+    "airdate": "2021-01-03",
+    "airtime": "21:00",
+    "airstamp": "2021-01-03T20:00:00+00:00",
+    "runtime": 50,
+    "rating": {
+     "average": null
+    },
+    "image": null,
+    "summary": "<p>Le retour</p>"
+   },
+   {
+    "id": 1022,
+    "url": "https://www.tvmaze.com/episodes/1022",
+    "name": "Le doute",
+    "season": 2,
+    "number": 2,
+    "type": "regular",
+    "airdate": "2021-01-10",
+    "airtime": "21:00",
+    "airstamp": "2021-01-10T20:00:00+00:00",
+    "runtime": 50,
+    "rating": {
+     "average": null
+    },
+    "image": null,
+    "summary": "<p>Le doute</p>"
+   },
+   {
+    "id": 1023,
+    "url": "https://www.tvmaze.com/episodes/1023",
+    "name": "Épisode jamais diffusé",
+    "season": 2,
+    "number": 3,
+    "type": "regular",
+    "airdate": "",
+    "airtime": "21:00",
+    "airstamp": null,
+    "runtime": 50,
+    "rating": {
+     "average": null
+    },
+    "image": null,
+    "summary": "<p>Épisode jamais diffusé</p>"
+   }
+  ]
+ }
+}

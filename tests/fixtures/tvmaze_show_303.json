@@ -1,0 +1,82 @@
+{
+ "id": 303,
+ "url": "https://www.tvmaze.com/shows/303",
+ "name": "The Hidden One",
+ "type": "Scripted",
+ "language": "English",
+ "genres": [
+  "Drama"
+ ],
+ "status": "Running",
+ "runtime": 50,
+ "premiered": "2022-03-01",
+ "officialSite": null,
+ "network": {
+  "id": 1,
+  "name": "HBO",
+  "country": {
+   "name": "United States",
+   "code": "US"
+  }
+ },
+ "webChannel": null,
+ "externals": {
+  "tvrage": null,
+  "thetvdb": null,
+  "imdb": "ttNone"
+ },
+ "image": {
+  "medium": "https://static.tvmaze.com/uploads/images/medium_portrait/303.jpg",
+  "original": "https://static.tvmaze.com/uploads/images/original/303.jpg"
+ },
+ "summary": "<p><b>The Hidden One</b> est une série de test.</p>",
+ "updated": 1700000000,
+ "_embedded": {
+  "seasons": [
+   {
+    "id": 31,
+    "number": 1,
+    "name": "",
+    "episodeOrder": 2,
+    "premiereDate": null,
+    "endDate": null
+   }
+  ],
+  "episodes": [
+   {
+    "id": 3031,
+    "url": "https://www.tvmaze.com/episodes/3031",
+    "name": "Pilot",
+    "season": 1,
+    "number": 1,
+    "type": "regular",
+    "airdate": "2022-03-01",
+    "airtime": "21:00",
+    "airstamp": "2022-03-01T20:00:00+00:00",
+    "runtime": 50,
+    "rating": {
+     "average": null
+    },
+    "image": null,
+    "summary": "<p>Pilot</p>"
+   },
+   {
+    "id": 3032,
+    "url": "https://www.tvmaze.com/episodes/3032",
+    "name": "Second",
+    "season": 1,
+    "number": 2,
+    "type": "regular",
+    "airdate": "2022-03-08",
+    "airtime": "21:00",
+    "airstamp": "2022-03-08T20:00:00+00:00",
+    "runtime": 50,
+    "rating": {
+     "average": null
+    },
+    "image": null,
+    "summary": "<p>Second</p>"
+   }
+  ]
+ }
+}

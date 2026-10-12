@@ -1,0 +1,17 @@
+# Secrets : ne jamais versionner
+.env
+
+# Données locales (base, cache, affiches, logs, sauvegardes)
+data/
+
+# Exports Bingers (données perso)
+*.zip
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Exports générés
+exports/

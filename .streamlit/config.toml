@@ -1,0 +1,19 @@
+# Configuration Streamlit propre au projet (lue depuis le dossier de lancement).
+
+[browser]
+# Pas de statistiques d'usage envoyées à Streamlit.
+gatherUsageStats = false
+
+[server]
+# false : Streamlit ouvre le navigateur au lancement.
+headless = false
+# Pas de question « Email: » dans le terminal au premier lancement
+# (sinon la tâche VS Code resterait bloquée en attente d'une réponse).
+showEmailPrompt = false
+
+[theme]
+base = "light"
+primaryColor = "#2f5d8a"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f3f5f7"
+textColor = "#1f2933"

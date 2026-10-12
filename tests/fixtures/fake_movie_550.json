@@ -1,0 +1,19 @@
+{
+ "id": 550,
+ "imdb_id": "tt0137523",
+ "title": "Fight Club",
+ "original_title": "Fight Club",
+ "overview": "Le narrateur, sans identité précise, vit seul.",
+ "poster_path": "/fakeposter550.jpg",
+ "release_date": "1999-10-15",
+ "runtime": 139,
+ "release_dates": {
+  "results": [
+   {"iso_3166_1": "US", "release_dates": [{"type": 3, "release_date": "1999-10-15T00:00:00.000Z"}]},
+   {"iso_3166_1": "FR", "release_dates": [
+    {"type": 1, "release_date": "1999-09-01T00:00:00.000Z"},
+    {"type": 3, "release_date": "1999-11-10T00:00:00.000Z"}
+   ]}
+  ]
+ }
+}
