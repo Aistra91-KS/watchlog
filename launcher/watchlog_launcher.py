@@ -1,4 +1,4 @@
-"""Lanceur Windows de Watchlog (compilé en Watchlog.exe par launcher/build.ps1).
+"""Lanceur Windows de Watchlog (raccourcis « Watchlog » créés par launcher/install.ps1).
 
 - Si l'outil tourne déjà : ouvre simplement le navigateur.
 - Sinon : démarre le serveur Streamlit en arrière-plan (sans fenêtre), attend qu'il
@@ -7,7 +7,7 @@
   le relance, sans ouvrir de nouvel onglet (l'onglet ouvert se reconnecte tout seul).
 Pour arrêter l'outil : bouton « Arrêter Watchlog » dans le menu de l'interface.
 
-Bibliothèque standard uniquement : l'exe reste petit et utilise le .venv du projet.
+Bibliothèque standard uniquement ; lancé avec le pythonw.exe du .venv (sans console).
 """
 
 import ctypes
@@ -26,9 +26,7 @@ STARTUP_TIMEOUT = 90  # secondes (premier lancement plus lent : compilation Pyth
 
 
 def project_root() -> Path:
-    """Dossier du projet : celui de Watchlog.exe (ou le parent de launcher/ en mode script)."""
-    if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent
+    """Dossier du projet : le parent de launcher/."""
     return Path(__file__).resolve().parents[1]
 
 
@@ -63,7 +61,7 @@ def main(argv: list[str]) -> int:
     python = root / ".venv" / "Scripts" / "pythonw.exe"
     if not python.exists():
         message(f"Environnement Python introuvable :\n{python}\n\n"
-                "Watchlog.exe doit rester dans le dossier du projet (à côté de .venv).")
+                "Si le projet a été déplacé, relance launcher\\install.ps1.")
         return 1
 
     log_dir = root / "data"

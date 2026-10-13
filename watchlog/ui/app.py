@@ -112,7 +112,7 @@ startup_genres()
 
 
 def stop_server() -> None:
-    """Arrête Watchlog (utile quand il est lancé par Watchlog.exe, sans fenêtre de terminal)."""
+    """Arrête Watchlog (utile quand il est lancé par le raccourci, sans fenêtre de terminal)."""
     st.session_state["stopping"] = True
     # Petit délai : le message « arrêté » a le temps d'arriver dans le navigateur.
     threading.Timer(1.5, os._exit, args=(0,)).start()
@@ -140,7 +140,7 @@ with st.sidebar:
     connected, _message = common.tmdb_status()
     st.caption("TMDB : connecté" if connected else "TMDB : non connecté (voir Paramètres)")
     st.button("Arrêter Watchlog", on_click=stop_server, type="tertiary",
-              help="Ferme l'outil. Pour le rouvrir : Watchlog.exe ou le raccourci du Bureau.")
+              help="Ferme l'outil. Pour le rouvrir : le raccourci Watchlog (Bureau ou menu Démarrer).")
 
 if st.session_state.get("stopping"):
     st.info("Watchlog est arrêté. Tu peux fermer cet onglet.")

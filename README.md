@@ -24,14 +24,16 @@ de l'application Bingers. L'interface s'ouvre dans le navigateur (Streamlit).
 
 ## Lancer l'outil
 
-- **Sans VS Code** : double-clic sur **Watchlog** (raccourci du Bureau) ou sur `Watchlog.exe`
-  dans le dossier du projet. L'outil démarre en arrière-plan (sans fenêtre) et s'ouvre dans le
-  navigateur ; s'il tourne déjà, le navigateur s'ouvre directement. Pour l'arrêter : bouton
-  **Arrêter Watchlog** en bas du menu de gauche. Journal du serveur : `data/serveur.log`.
+- **Sans VS Code** : double-clic sur le raccourci **Watchlog** (Bureau ou menu Démarrer).
+  L'outil démarre en arrière-plan (sans fenêtre) et s'ouvre dans le navigateur ; s'il tourne
+  déjà, le navigateur s'ouvre directement. Pour l'arrêter : bouton **Arrêter Watchlog** en bas
+  du menu de gauche. Journal du serveur : `data/serveur.log`.
+- Raccourcis à (re)créer, par exemple si le projet est déplacé :
+  `powershell -ExecutionPolicy Bypass -File launcher\install.ps1`. Ils lancent
+  `launcher\watchlog_launcher.py` avec le `pythonw.exe` du `.venv` (pas d'exe maison : les
+  antivirus bloquent souvent par erreur les exe Python « empaquetés »).
 - Après une mise à jour du code, l'interface affiche « Watchlog a été mis à jour » avec un bouton
   **Redémarrer Watchlog** : il relance le serveur et la page se recharge toute seule.
-- `Watchlog.exe` doit rester à la racine du projet (il utilise le `.venv`). Pour le reconstruire
-  (et recréer le raccourci) : `powershell -ExecutionPolicy Bypass -File launcheruild.ps1`.
 - Dans VS Code : **Ctrl+Maj+B** (tâche « Lancer Watchlog »). Le navigateur s'ouvre
   sur http://localhost:8501.
 - Si le port 8501 est déjà pris, c'est en général que l'outil tourne déjà :
