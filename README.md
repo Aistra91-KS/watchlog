@@ -43,6 +43,7 @@ mémorisé par le navigateur.
 | À regarder | épisodes et films non vus, en une seule liste triée par date de sortie ; filtres (type, série, disponibilité, statut, prochain épisode seulement, spéciaux) ; boutons « Vu » et « Vu jusqu'ici » |
 | Bibliothèque | toutes les séries et tous les films suivis, avec leur statut et leur progression |
 | Calendrier | sorties non vues des 60 prochains jours, groupées par semaine |
+| Suggestions | séries et films à découvrir, d'après les recommandations TMDB des titres de la bibliothèque (favoris et bonnes notes comptent plus, séries arrêtées et mauvaises notes éloignent les titres semblables) ; filtre par genre, « Ajouter » ou « Pas intéressé ». Premier calcul : jusqu'à une minute, ensuite en cache 30 jours |
 | Ajouter | ajout d'une série (recherche TVMaze) ou d'un film (recherche TMDB), ou ajout manuel |
 | Statistiques | chiffres clés, épisodes et films vus par mois, temps passé, séries terminées, meilleures notes |
 | Paramètres | connexion TMDB, correspondances à vérifier, import Bingers, synchronisation, export, sauvegardes |

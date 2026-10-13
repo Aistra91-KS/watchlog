@@ -157,6 +157,18 @@ class PendingWatch(SQLModel, table=True):
     reason: str = ""
 
 
+class DismissedSuggestion(SQLModel, table=True):
+    """Titre écarté de la page Suggestions (« Pas intéressé ») : il n'y revient plus."""
+
+    __table_args__ = (UniqueConstraint("kind", "tmdb_id"),)
+
+    id: int | None = Field(default=None, primary_key=True)
+    kind: str                                 # show / movie
+    tmdb_id: int
+    title: str | None = None                  # pour la liste des titres écartés
+    dismissed_at: NaiveDatetime | None = None
+
+
 class ApiCache(SQLModel, table=True):
     url: str = Field(primary_key=True)        # chemin + paramètres publics (jamais la clé)
     response_json: str

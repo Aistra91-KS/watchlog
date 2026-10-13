@@ -102,6 +102,40 @@ class TMDBClient:
                                   ttl=timedelta(days=1))
         return (data or {}).get("results", [])
 
+    def recommendations(self, media: str, tmdb_id: int) -> list[dict]:
+        """Titres recommandés par TMDB pour un film (media="movie") ou une série ("tv").
+
+        Première page seulement (20 titres, les plus pertinents). Liste vide si TMDB est indisponible.
+        """
+        if not self.available:
+            return []
+        data = self.http.get_json(f"/{media}/{tmdb_id}/recommendations", {"language": "fr-FR"},
+                                  ttl=timedelta(days=30))
+        return (data or {}).get("results", [])
+
+    def genres(self, media: str) -> dict[int, str]:
+        """{id du genre: nom en français} pour media = "movie" ou "tv"."""
+        if not self.available:
+            return {}
+        data = self.http.get_json(f"/genre/{media}/list", {"language": "fr-FR"},
+                                  ttl=timedelta(days=30))
+        return {g["id"]: g["name"] for g in (data or {}).get("genres", [])}
+
+    def tv_external_ids(self, tmdb_id: int) -> dict:
+        """Identifiants externes d'une série TMDB (tvdb_id, imdb_id...). {} si inconnue."""
+        if not self.available:
+            return {}
+        return self.http.get_json(f"/tv/{tmdb_id}/external_ids", ttl=timedelta(days=30)) or {}
+
+    def find_tv_by_tvdb(self, tvdb_id: int) -> int | None:
+        """Id TMDB de la série qui a cet id TVDB, sinon None."""
+        if not self.available:
+            return None
+        data = self.http.get_json(f"/find/{tvdb_id}", {"external_source": "tvdb_id"},
+                                  ttl=timedelta(days=30)) or {}
+        results = data.get("tv_results") or []
+        return results[0]["id"] if results else None
+
     @staticmethod
     def poster_url(poster_path: str | None) -> str | None:
         return f"{POSTER_BASE}{poster_path}" if poster_path else None

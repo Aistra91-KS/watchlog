@@ -31,6 +31,10 @@ class TVMazeClient:
         """Série TVMaze correspondant à un id TVDB (la redirection 301 est suivie). None si inconnue."""
         return self.http.get_json("/lookup/shows", {"thetvdb": tvdb_id}, ttl=timedelta(days=30))
 
+    def lookup_imdb(self, imdb_id: str) -> dict | None:
+        """Série TVMaze correspondant à un id IMDb (ex. "tt0944947"). None si inconnue."""
+        return self.http.get_json("/lookup/shows", {"imdb": imdb_id}, ttl=timedelta(days=30))
+
     def search(self, query: str) -> list[dict]:
         """Recherche par titre : liste de {"score": float, "show": {...}}."""
         return self.http.get_json("/search/shows", {"q": query}, ttl=timedelta(days=1)) or []

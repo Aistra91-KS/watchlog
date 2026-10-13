@@ -22,6 +22,7 @@ PAGE_MOVIE = "views/film.py"
 PAGE_ADD = "views/ajouter.py"
 PAGE_CALENDAR = "views/calendrier.py"
 PAGE_STATS = "views/statistiques.py"
+PAGE_SUGGESTIONS = "views/suggestions.py"
 PAGE_SETTINGS = "views/parametres.py"
 
 
@@ -75,14 +76,13 @@ def show_poster(poster_path: str | None, width: int | None = None) -> None:
     if path:
         st.image(path, width=width or "stretch")
     else:
-        st.markdown(
         # Gris semi-transparent : lisible en thème clair comme en sombre.
+        st.markdown(
             "<div style='aspect-ratio:2/3;background:rgba(128,128,128,0.15);border-radius:4px;"
             "display:flex;align-items:center;justify-content:center;color:rgba(128,128,128,0.9);"
             "font-size:0.8rem'>Pas d'affiche</div>", unsafe_allow_html=True)
 
 
-def status_label(status: str) -> str:
 def is_dark_theme() -> bool:
     """Vrai si l'utilisateur affiche le thème sombre (menu ⋮ > Settings ou système)."""
     try:
@@ -96,6 +96,7 @@ def primary_color() -> str:
     return "#6fa3d6" if is_dark_theme() else "#2f5d8a"
 
 
+def status_label(status: str) -> str:
     return STATUS_LABELS.get(status, status)
 
 
