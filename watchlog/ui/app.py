@@ -4,8 +4,10 @@ Lancement : python -m streamlit run watchlog/ui/app.py (ou Ctrl+Maj+B dans VS Co
 """
 
 import os
+import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 # Streamlit lance ce script depuis watchlog/ui : on ajoute la racine du projet
@@ -20,6 +22,39 @@ from watchlog.core.config import setup_logging  # noqa: E402
 from watchlog.ui import common  # noqa: E402
 
 setup_logging()
+
+
+@st.cache_resource
+def server_started_at() -> float:
+    """Heure de démarrage du serveur (première exécution de cette fonction dans le processus)."""
+    return time.time()
+
+
+def code_changed_since_start() -> bool:
+    """Vrai si un fichier .py du projet a changé depuis le démarrage du serveur.
+
+    Streamlit recharge les pages modifiées, mais pas toujours les modules qu'elles importent
+    (watchlog/core...) : après une mise à jour, il faut redémarrer le serveur.
+    """
+    started = server_started_at()
+    return any(path.stat().st_mtime > started for path in (ROOT / "watchlog").rglob("*.py"))
+
+
+def restart_server() -> None:
+    """Relance Watchlog : le lanceur attend l'arrêt de ce serveur, puis en démarre un nouveau."""
+    python = Path(sys.executable)
+    pythonw = python.with_name("pythonw.exe")
+    subprocess.Popen([str(pythonw if pythonw.exists() else python),
+                      str(ROOT / "launcher" / "watchlog_launcher.py"), "--restart"],
+                     cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL,
+                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                     | getattr(subprocess, "DETACHED_PROCESS", 0))
+    st.session_state["restarting"] = True
+    threading.Timer(1.5, os._exit, args=(0,)).start()
+
+
+server_started_at()
 st.set_page_config(page_title="Watchlog", page_icon=str(ROOT / "assets" / "watchlog.png"),
                    layout="wide")
 
@@ -33,6 +68,33 @@ def startup_backup() -> None:
         return
     make_backup()
 
+
+# Recharge la page quand le nouveau serveur répond (après la coupure de l'ancien).
+RELOAD_WHEN_BACK = """<script>
+(() => {
+  let down = false;
+  const started = Date.now();
+  async function check() {
+    try {
+      const r = await fetch("/_stcore/health", {cache: "no-store"});
+      if (r.ok && down) { window.location.reload(); return; }
+      if (!r.ok) down = true;
+    } catch (e) { down = true; }
+    if (Date.now() - started < 120000) setTimeout(check, 700);
+  }
+  setTimeout(check, 500);
+})();
+</script>"""
+
+if st.session_state.get("restarting"):
+    st.info("Redémarrage de Watchlog… La page se recharge toute seule dans quelques secondes.")
+    st.html(RELOAD_WHEN_BACK, unsafe_allow_javascript=True)
+    st.stop()
+if code_changed_since_start():
+    st.warning("Watchlog a été mis à jour depuis son démarrage : redémarre-le pour charger "
+               "la nouvelle version (sinon certaines pages peuvent afficher des erreurs).")
+    st.button("Redémarrer Watchlog", type="primary", on_click=restart_server)
+    st.stop()
 
 startup_backup()
 

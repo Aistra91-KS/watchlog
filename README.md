@@ -28,6 +28,8 @@ de l'application Bingers. L'interface s'ouvre dans le navigateur (Streamlit).
   dans le dossier du projet. L'outil démarre en arrière-plan (sans fenêtre) et s'ouvre dans le
   navigateur ; s'il tourne déjà, le navigateur s'ouvre directement. Pour l'arrêter : bouton
   **Arrêter Watchlog** en bas du menu de gauche. Journal du serveur : `data/serveur.log`.
+- Après une mise à jour du code, l'interface affiche « Watchlog a été mis à jour » avec un bouton
+  **Redémarrer Watchlog** : il relance le serveur et la page se recharge toute seule.
 - `Watchlog.exe` doit rester à la racine du projet (il utilise le `.venv`). Pour le reconstruire
   (et recréer le raccourci) : `powershell -ExecutionPolicy Bypass -File launcheruild.ps1`.
 - Dans VS Code : **Ctrl+Maj+B** (tâche « Lancer Watchlog »). Le navigateur s'ouvre

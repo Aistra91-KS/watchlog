@@ -3,6 +3,8 @@
 - Si l'outil tourne déjà : ouvre simplement le navigateur.
 - Sinon : démarre le serveur Streamlit en arrière-plan (sans fenêtre), attend qu'il
   réponde, puis ouvre http://localhost:8501.
+- Avec --restart (bouton « Redémarrer » de l'interface) : attend l'arrêt de l'ancien serveur,
+  le relance, sans ouvrir de nouvel onglet (l'onglet ouvert se reconnecte tout seul).
 Pour arrêter l'outil : bouton « Arrêter Watchlog » dans le menu de l'interface.
 
 Bibliothèque standard uniquement : l'exe reste petit et utilise le .venv du projet.
@@ -42,9 +44,19 @@ def is_running() -> bool:
         return False
 
 
-def main() -> int:
+def wait_stopped(timeout: float = 20) -> None:
+    """Attend que l'ancien serveur ait libéré le port (redémarrage)."""
+    deadline = time.monotonic() + timeout
+    while is_running() and time.monotonic() < deadline:
+        time.sleep(0.3)
+
+
+def main(argv: list[str]) -> int:
     root = project_root()
-    if is_running():
+    restart = "--restart" in argv
+    if restart:
+        wait_stopped()
+    elif is_running():
         webbrowser.open(URL)
         return 0
 
@@ -66,7 +78,8 @@ def main() -> int:
     deadline = time.monotonic() + STARTUP_TIMEOUT
     while time.monotonic() < deadline:
         if is_running():
-            webbrowser.open(URL)
+            if not restart:
+                webbrowser.open(URL)
             return 0
         time.sleep(0.5)
     message("Watchlog ne répond pas après le démarrage.\n"
@@ -75,4 +88,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))
