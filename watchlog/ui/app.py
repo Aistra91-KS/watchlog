@@ -3,7 +3,9 @@
 Lancement : python -m streamlit run watchlog/ui/app.py (ou Ctrl+Maj+B dans VS Code).
 """
 
+import os
 import sys
+import threading
 from pathlib import Path
 
 # Streamlit lance ce script depuis watchlog/ui : on ajoute la racine du projet
@@ -18,7 +20,8 @@ from watchlog.core.config import setup_logging  # noqa: E402
 from watchlog.ui import common  # noqa: E402
 
 setup_logging()
-st.set_page_config(page_title="Watchlog", layout="wide")
+st.set_page_config(page_title="Watchlog", page_icon=str(ROOT / "assets" / "watchlog.png"),
+                   layout="wide")
 
 
 @st.cache_resource
@@ -32,6 +35,13 @@ def startup_backup() -> None:
 
 
 startup_backup()
+
+
+def stop_server() -> None:
+    """Arrête Watchlog (utile quand il est lancé par Watchlog.exe, sans fenêtre de terminal)."""
+    st.session_state["stopping"] = True
+    # Petit délai : le message « arrêté » a le temps d'arriver dans le navigateur.
+    threading.Timer(1.5, os._exit, args=(0,)).start()
 
 pages = [
     st.Page(common.PAGE_QUEUE, title="À regarder", default=True),
@@ -54,6 +64,12 @@ with st.sidebar:
         st.page_link(p)
     connected, _message = common.tmdb_status()
     st.caption("TMDB : connecté" if connected else "TMDB : non connecté (voir Paramètres)")
+    st.button("Arrêter Watchlog", on_click=stop_server, type="tertiary",
+              help="Ferme l'outil. Pour le rouvrir : Watchlog.exe ou le raccourci du Bureau.")
+
+if st.session_state.get("stopping"):
+    st.info("Watchlog est arrêté. Tu peux fermer cet onglet.")
+    st.stop()
 
 page.run()
 common.footer()

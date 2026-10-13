@@ -24,6 +24,12 @@ de l'application Bingers. L'interface s'ouvre dans le navigateur (Streamlit).
 
 ## Lancer l'outil
 
+- **Sans VS Code** : double-clic sur **Watchlog** (raccourci du Bureau) ou sur `Watchlog.exe`
+  dans le dossier du projet. L'outil démarre en arrière-plan (sans fenêtre) et s'ouvre dans le
+  navigateur ; s'il tourne déjà, le navigateur s'ouvre directement. Pour l'arrêter : bouton
+  **Arrêter Watchlog** en bas du menu de gauche. Journal du serveur : `data/serveur.log`.
+- `Watchlog.exe` doit rester à la racine du projet (il utilise le `.venv`). Pour le reconstruire
+  (et recréer le raccourci) : `powershell -ExecutionPolicy Bypass -File launcheruild.ps1`.
 - Dans VS Code : **Ctrl+Maj+B** (tâche « Lancer Watchlog »). Le navigateur s'ouvre
   sur http://localhost:8501.
 - Si le port 8501 est déjà pris, c'est en général que l'outil tourne déjà :
