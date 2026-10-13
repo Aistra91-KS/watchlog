@@ -3,7 +3,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from sqlalchemy import Engine, event
+from sqlalchemy import Engine, event, inspect, text
 from sqlmodel import Session, SQLModel, create_engine
 
 from watchlog.core import models  # noqa: F401  (enregistre les tables)
@@ -23,7 +23,29 @@ def make_engine(db_path: Path = DB_PATH) -> Engine:
         cur.close()
 
     SQLModel.metadata.create_all(engine)
+    add_missing_columns(engine)
     return engine
+
+
+def add_missing_columns(engine: Engine) -> list[str]:
+    """Migration simple : ajoute aux tables existantes les colonnes nouvelles du modèle.
+
+    create_all ne crée que les tables absentes. Une nouvelle colonne (toujours facultative,
+    sans valeur par défaut) est ajoutée par ALTER TABLE ; les données ne sont pas touchées.
+    Renvoie la liste « table.colonne » ajoutée.
+    """
+    added = []
+    inspector = inspect(engine)
+    with engine.begin() as conn:
+        for table in SQLModel.metadata.sorted_tables:
+            existing = {col["name"] for col in inspector.get_columns(table.name)}
+            for column in table.columns:
+                if column.name in existing or not column.nullable:
+                    continue
+                kind = column.type.compile(dialect=engine.dialect)
+                conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {kind}'))
+                added.append(f"{table.name}.{column.name}")
+    return added
 
 
 @lru_cache

@@ -18,6 +18,35 @@ from watchlog.core.tmdb import TMDBClient, extract_release_dates
 log = logging.getLogger(__name__)
 
 
+# Genres TVMaze (anglais) -> libellés français, alignés sur ceux de TMDB quand ils existent.
+TVMAZE_GENRES = {
+    "Drama": "Drame", "Comedy": "Comédie", "Action": "Action", "Adventure": "Aventure",
+    "Science-Fiction": "Science-Fiction", "Fantasy": "Fantastique", "Crime": "Crime",
+    "Thriller": "Thriller", "Horror": "Horreur", "Mystery": "Mystère", "Romance": "Romance",
+    "Family": "Familial", "Children": "Jeunesse", "Anime": "Anime", "Supernatural": "Surnaturel",
+    "Music": "Musique", "Medical": "Médical", "Legal": "Judiciaire", "Espionage": "Espionnage",
+    "History": "Histoire", "War": "Guerre", "Western": "Western", "Sports": "Sport",
+    "Food": "Cuisine", "Travel": "Voyage", "Nature": "Nature", "DIY": "Bricolage",
+    "Adult": "Adulte",
+}
+
+
+def show_genres(data: dict) -> str | None:
+    """Genres d'une fiche TVMaze, traduits : « Drame, Science-Fiction » (None si aucun)."""
+    names = [TVMAZE_GENRES.get(g, g) for g in data.get("genres") or []]
+    return ", ".join(names) or None
+
+
+def movie_genres(data: dict) -> str | None:
+    """Genres d'une fiche TMDB (déjà en français) : « Action, Comédie » (None si aucun)."""
+    names = [g["name"] for g in data.get("genres") or [] if g.get("name")]
+    return ", ".join(names) or None
+
+
+def split_genres(genres: str | None) -> list[str]:
+    return [g.strip() for g in (genres or "").split(",") if g.strip()]
+
+
 def clean_html(text: str | None) -> str | None:
     """TVMaze renvoie des résumés en HTML (<p>, <b>...) : on garde le texte brut."""
     if not text:
@@ -66,6 +95,7 @@ def upsert_show_from_tvmaze(session: Session, data: dict, episodes: list[dict],
     show.premiered = parse_date(data.get("premiered"))
     show.poster_url = (data.get("image") or {}).get("medium") or show.poster_url
     show.summary = clean_html(data.get("summary"))
+    show.genres = show_genres(data) or show.genres
     show.last_synced_at = utcnow()
     session.add(show)
     session.flush()  # pour avoir show.id
@@ -128,6 +158,7 @@ def upsert_movie_from_tmdb(session: Session, data: dict) -> Movie:
         movie.year = release_original.year
     movie.runtime = data.get("runtime") or movie.runtime
     movie.overview = data.get("overview") or movie.overview
+    movie.genres = movie_genres(data) or movie.genres
     movie.poster_url = TMDBClient.poster_url(data.get("poster_path")) or movie.poster_url
     movie.last_synced_at = utcnow()
     session.add(movie)
@@ -152,3 +183,31 @@ def ensure_poster(session: Session, obj: Show | Movie, client,
     if client.download(obj.poster_url, dest):
         obj.poster_path = f"posters/{dest.name}"
         session.add(obj)
+
+
+# --- Genres des titres importés avant leur ajout ---------------------------------
+
+def backfill_genres(session: Session, tvmaze, tmdb) -> int:
+    """Complète les genres manquants à partir des réponses déjà en cache (aucun appel réseau).
+
+    Les titres sans réponse en cache seront complétés à la prochaine synchronisation.
+    Pas de commit. Renvoie le nombre de titres complétés.
+    """
+    count = 0
+    for show in session.exec(select(Show).where(Show.genres.is_(None),
+                                                Show.tvmaze_id.is_not(None))).all():
+        data = tvmaze.http.peek(f"/shows/{show.tvmaze_id}",
+                                [("embed[]", "seasons"), ("embed[]", "episodes")])
+        if data and show_genres(data):
+            show.genres = show_genres(data)
+            session.add(show)
+            count += 1
+    for movie in session.exec(select(Movie).where(Movie.genres.is_(None),
+                                                  Movie.tmdb_id.is_not(None))).all():
+        data = tmdb.http.peek(f"/movie/{movie.tmdb_id}",
+                              {"language": "fr-FR", "append_to_response": "release_dates"})
+        if data and movie_genres(data):
+            movie.genres = movie_genres(data)
+            session.add(movie)
+            count += 1
+    return count

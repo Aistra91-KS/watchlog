@@ -106,6 +106,23 @@ def is_dark_theme() -> bool:
         return False
 
 
+# Couleurs des graphiques (palette validée daltonisme + contraste, clair et sombre).
+# La couleur suit l'entité : épisodes / séries = bleu, films = orange, partout.
+CHART_COLORS = {
+    "light": {"episodes": "#2a78d6", "films": "#eb6834", "surface": "#ffffff",
+              "empty": "#ebedf0",
+              "ramp": ["#cde2fb", "#86b6ef", "#3987e5", "#1c5cab", "#0d366b"]},
+    "dark": {"episodes": "#3987e5", "films": "#d95926", "surface": "#14181d",
+             "empty": "#232a32",
+             "ramp": ["#184f95", "#256abf", "#3987e5", "#6da7ec", "#b7d3f6"]},
+}
+
+
+def chart_colors() -> dict:
+    """Couleurs des graphiques pour le thème affiché."""
+    return CHART_COLORS["dark" if is_dark_theme() else "light"]
+
+
 def primary_color() -> str:
     """Couleur principale du thème affiché (.streamlit/config.toml), pour les graphiques."""
     return "#6fa3d6" if is_dark_theme() else "#2f5d8a"

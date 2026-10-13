@@ -49,6 +49,7 @@ class Show(SQLModel, table=True):
     poster_url: str | None = None
     poster_path: str | None = None            # chemin local, relatif à data/
     summary: str | None = None
+    genres: str | None = None                 # « Drame, Comédie » (traduits en français)
     match_status: str = MATCH_OK
     match_note: str | None = None             # explication lisible (rapport d'import)
     candidate_tvmaze_id: int | None = None    # proposition à confirmer si match incertain
@@ -84,6 +85,7 @@ class Movie(SQLModel, table=True):
     poster_url: str | None = None
     poster_path: str | None = None
     overview: str | None = None
+    genres: str | None = None                 # « Drame, Comédie » (TMDB, en français)
     is_manual: bool = False
     last_synced_at: NaiveDatetime | None = None    # None = jamais récupéré depuis TMDB
 

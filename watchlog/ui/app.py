@@ -37,6 +37,18 @@ def startup_backup() -> None:
 startup_backup()
 
 
+@st.cache_resource
+def startup_genres() -> None:
+    """Genres manquants (titres importés avant cette fonction), lus dans le cache des API."""
+    from watchlog.core import catalog
+    with common.db() as session:
+        catalog.backfill_genres(session, *common.clients())
+        session.commit()
+
+
+startup_genres()
+
+
 def stop_server() -> None:
     """Arrête Watchlog (utile quand il est lancé par Watchlog.exe, sans fenêtre de terminal)."""
     st.session_state["stopping"] = True

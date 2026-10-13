@@ -77,6 +77,11 @@ class CachedClient:
         with Session(self.engine) as s:
             return s.get(ApiCache, key)
 
+    def peek(self, path: str, params: list[tuple] | dict | None = None):
+        """Réponse en cache pour cette requête, même ancienne, sans appel réseau. None si absente."""
+        cached = self._cache_get(self.cache_key(path, params))
+        return json.loads(cached.response_json) if cached else None
+
     def _cache_put(self, key: str, data) -> None:
         with Session(self.engine) as s:
             row = s.get(ApiCache, key) or ApiCache(url=key, response_json="", fetched_at=utcnow())
