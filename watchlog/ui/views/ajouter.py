@@ -187,7 +187,9 @@ def manual_movie_form() -> None:
 # --- Page ---------------------------------------------------------------------------------
 
 st.title("Ajouter")
-tab_show, tab_movie, tab_manual = st.tabs(["Série", "Film", "Saisie manuelle"])
+# key + on_change : l'onglet choisi est gardé quand la page se recharge (après un ajout).
+tab_show, tab_movie, tab_manual = st.tabs(["Série", "Film", "Saisie manuelle"],
+                                          key="add_tab", on_change="rerun")
 
 with tab_show:
     show_messages(SHOW)

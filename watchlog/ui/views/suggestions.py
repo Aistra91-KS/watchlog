@@ -167,11 +167,15 @@ st.button("Recalculer", on_click=recompute,
           help="Les recommandations TMDB restent en cache 30 jours ; ce bouton refait le calcul "
                "avec l'état actuel de la bibliothèque.")
 
-tab_show, tab_movie = st.tabs(["Séries", "Films"])
-with tab_show:
-    show_tab(SHOW)
-with tab_movie:
-    show_tab(MOVIE)
+# key + on_change : l'onglet choisi est gardé quand la page se recharge (après un ajout...),
+# et seul l'onglet ouvert est calculé.
+tab_show, tab_movie = st.tabs(["Séries", "Films"], key="sugg_tab", on_change="rerun")
+if tab_show.open:
+    with tab_show:
+        show_tab(SHOW)
+if tab_movie.open:
+    with tab_movie:
+        show_tab(MOVIE)
 
 with common.db() as session:
     removed = suggestions.dismissed(session)
