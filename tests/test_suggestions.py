@@ -266,3 +266,62 @@ def test_tmdb_client_unavailable_returns_empty(engine):
     assert client.genres("tv") == {}
     assert client.tv_external_ids(42) == {}
     assert client.find_tv_by_tvdb(1001) is None
+
+
+# --- Score de correspondance, plateformes, filtres ------------------------------------------
+
+def make(kind=MOVIE, tmdb_id=1, year=2020, genres=("Drame",), vote=7.0, match=50, streaming=()):
+    return suggestions.Suggestion(
+        kind=kind, tmdb_id=tmdb_id, title=f"T{tmdb_id}", original_title=None, year=year,
+        overview="", poster_url=None, genres=list(genres), vote_average=vote, match=match,
+        score=match / 10, streaming=list(streaming))
+
+
+def test_compute_match_relative_to_best(session):
+    add_movie(session, "A", status=COMPLETED, favorite=True, tmdb_id=1)
+    add_movie(session, "B", status=COMPLETED, tmdb_id=2)
+    session.flush()
+    tmdb = RecoTMDB(recos={("movie", 1): [rec(10, "Top"), rec(11, "Moins")],
+                           ("movie", 2): [rec(10, "Top")]})
+
+    result = suggestions.compute(session, tmdb, MOVIE)
+
+    assert result[0].title == "Top" and result[0].match == 100
+    assert 0 < result[1].match < 100
+    assert result[0].vote_count == 100
+
+
+def test_attach_availability():
+    class AvailTMDB(RecoTMDB):
+        def watch_providers(self, media, tmdb_id):
+            if tmdb_id == 1:
+                return {"FR": {"flatrate": [{"provider_name": "Netflix"}],
+                               "free": [{"provider_name": "arte"}, {"provider_name": "Netflix"}],
+                               "rent": [{"provider_name": "Apple TV"}]}}
+            return {}
+
+    items = [make(tmdb_id=1), make(tmdb_id=2)]
+    suggestions.attach_availability(AvailTMDB(), items)
+
+    assert items[0].streaming == ["Netflix", "arte"] and items[0].rent_or_buy
+    assert items[1].streaming == [] and not items[1].rent_or_buy
+
+
+def test_filter_items_criteria():
+    items = [
+        make(SHOW, 1, year=2015, genres=("Drame",), vote=8.0, match=90, streaming=("Netflix",)),
+        make(MOVIE, 2, year=2022, genres=("Horreur",), vote=6.0, match=100),
+        make(MOVIE, 3, year=None, genres=("Drame", "Horreur"), vote=7.5, match=40,
+             streaming=("Canal+",)),
+    ]
+    ids = lambda **kw: [s.tmdb_id for s in suggestions.filter_items(items, **kw)]
+
+    assert ids() == [2, 1, 3]                                   # pertinence
+    assert ids(kinds=(MOVIE,)) == [2, 3]
+    assert ids(genres=("Drame",)) == [1, 3]
+    assert ids(platforms=("Netflix", "Disney+")) == [1]
+    assert ids(streaming_only=True) == [1, 3]
+    assert ids(years=(2010, 2020)) == [1]                       # sans année : exclu
+    assert ids(min_vote=7.0) == [1, 3]
+    assert ids(sort=suggestions.SORT_RATING) == [1, 3, 2]
+    assert ids(sort=suggestions.SORT_RECENT) == [2, 1, 3]

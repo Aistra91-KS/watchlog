@@ -54,6 +54,7 @@ pages = [
     # Fiches : accessibles depuis les autres pages (pas dans le menu).
     st.Page(common.PAGE_SHOW, title="Fiche série", url_path="serie"),
     st.Page(common.PAGE_MOVIE, title="Fiche film", url_path="film"),
+    st.Page(common.PAGE_PREVIEW, title="Aperçu", url_path="apercu"),
 ]
 page = st.navigation(pages, position="hidden")
 

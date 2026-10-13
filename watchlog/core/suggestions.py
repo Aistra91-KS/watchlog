@@ -14,11 +14,11 @@ Les réponses TMDB sont gardées 30 jours en cache : seul le premier calcul est 
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlmodel import Session, select
 
-from watchlog.core import adding
+from watchlog.core import adding, providers
 from watchlog.core.dates import utcnow
 from watchlog.core.http import ApiError
 from watchlog.core.models import (FOR_LATER, MOVIE, SHOW, STOPPED, TO_WATCH,
@@ -58,8 +58,12 @@ class Suggestion:
     poster_url: str | None
     genres: list[str]
     vote_average: float
+    vote_count: int = 0
     score: float = 0.0
+    match: int = 0                # correspondance en % (100 = meilleure suggestion du type)
     because: list[str] = field(default_factory=list)  # titres de la bibliothèque à l'origine
+    streaming: list[str] = field(default_factory=list)  # plateformes abonnement / gratuites (FR)
+    rent_or_buy: bool = False     # disponible en location ou à l'achat (FR)
 
 
 def source_weight(status: str, favorite: bool, rating: int | None) -> float:
@@ -137,7 +141,8 @@ def _to_suggestion(kind: str, data: dict, genre_names: dict[int, str]) -> Sugges
         overview=adding.short_text(data.get("overview"), length=300),
         poster_url=TMDBClient.poster_url(data.get("poster_path")),
         genres=[genre_names[g] for g in data.get("genre_ids", []) if g in genre_names],
-        vote_average=float(data.get("vote_average") or 0))
+        vote_average=float(data.get("vote_average") or 0),
+        vote_count=int(data.get("vote_count") or 0))
 
 
 def compute(session: Session, tmdb, kind: str, limit: int = 60,
@@ -184,10 +189,28 @@ def compute(session: Session, tmdb, kind: str, limit: int = 60,
 
     ranked = sorted((s for s in candidates.values() if s.score > 0),
                     key=lambda s: (s.score, s.vote_average), reverse=True)[:limit]
+    top = ranked[0].score if ranked else 1
     for suggestion in ranked:
         titles = reasons[suggestion.tmdb_id]
         suggestion.because = sorted(titles, key=titles.get, reverse=True)[:MAX_REASONS]
+        suggestion.match = max(1, round(100 * suggestion.score / top))
     return ranked
+
+
+STREAMING_OFFERS = ("Abonnement", "Gratuit", "Gratuit avec pub")
+
+
+def attach_availability(tmdb, items: list[Suggestion]) -> None:
+    """Complète chaque suggestion avec ses plateformes en France (pour les filtres)."""
+    for item in items:
+        data = providers.availability(tmdb, item.kind, item.tmdb_id)
+        if data is None:
+            continue
+        names = []
+        for offer in STREAMING_OFFERS:
+            names += [p.name for p in data.offers.get(offer, []) if p.name not in names]
+        item.streaming = names
+        item.rent_or_buy = bool(data.offers.get("Location") or data.offers.get("Achat"))
 
 
 # --- Actions depuis la page Suggestions --------------------------------------------
@@ -239,5 +262,45 @@ def add_suggested_show(session: Session, tmdb, tvmaze, tmdb_id: int, status: str
     return show
 
 
-def add_suggested_movie(session: Session, tmdb, tmdb_id: int, status: str) -> Movie:
-    return adding.add_movie(session, tmdb, tmdb_id, status)
+def add_suggested_movie(session: Session, tmdb, tmdb_id: int, status: str,
+                        watched_on: date | None = None) -> Movie:
+    return adding.add_movie(session, tmdb, tmdb_id, status, watched_on=watched_on)
+
+
+# --- Filtres et tri (page Suggestions) ---------------------------------------------
+
+SORT_RELEVANCE, SORT_RATING, SORT_RECENT = "Pertinence", "Note TMDB", "Plus récents"
+SORTS = (SORT_RELEVANCE, SORT_RATING, SORT_RECENT)
+
+
+def filter_items(items: list[Suggestion], kinds: tuple[str, ...] = (SHOW, MOVIE),
+                 genres: tuple[str, ...] = (), platforms: tuple[str, ...] = (),
+                 streaming_only: bool = False, years: tuple[int, int] | None = None,
+                 min_vote: float = 0.0, sort: str = SORT_RELEVANCE) -> list[Suggestion]:
+    """Suggestions filtrées puis triées.
+
+    genres / platforms : au moins un en commun (vide = pas de filtre). years : (min, max)
+    inclus ; un titre sans année n'est gardé que si aucun filtre d'années n'est donné.
+    """
+    result = []
+    for item in items:
+        if item.kind not in kinds:
+            continue
+        if genres and not set(genres) & set(item.genres):
+            continue
+        if platforms and not set(platforms) & set(item.streaming):
+            continue
+        if streaming_only and not item.streaming:
+            continue
+        if years and (item.year is None or not years[0] <= item.year <= years[1]):
+            continue
+        if item.vote_average < min_vote:
+            continue
+        result.append(item)
+    if sort == SORT_RATING:
+        result.sort(key=lambda s: (s.vote_average, s.vote_count), reverse=True)
+    elif sort == SORT_RECENT:
+        result.sort(key=lambda s: (s.year or 0, s.match), reverse=True)
+    else:
+        result.sort(key=lambda s: (s.match, s.score), reverse=True)
+    return result

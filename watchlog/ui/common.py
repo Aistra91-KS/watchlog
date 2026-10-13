@@ -25,6 +25,7 @@ PAGE_ADD = "views/ajouter.py"
 PAGE_CALENDAR = "views/calendrier.py"
 PAGE_STATS = "views/statistiques.py"
 PAGE_SUGGESTIONS = "views/suggestions.py"
+PAGE_PREVIEW = "views/apercu.py"
 PAGE_SETTINGS = "views/parametres.py"
 
 
@@ -126,6 +127,41 @@ def show_availability(kind: str, tmdb_id: int | None, compact: bool = False) -> 
     st.markdown(separator.join(parts), unsafe_allow_html=True)
     if not compact and data.link:  # source JustWatch citée en bas de page (footer)
         st.caption(f"[Voir les offres et les prix]({data.link})")
+
+
+def add_from_tmdb(kind: str, tmdb_id: int, status: str, title: str | None = None,
+                  watched_on=None) -> tuple[int, str]:
+    """Ajoute à la bibliothèque un titre connu par son id TMDB (suggestion, aperçu).
+
+    Série : fiche TVMaze retrouvée via TVDB / IMDb. Renvoie (id en base, titre).
+    ApiError / ValueError remontent à l'appelant (message à afficher).
+    """
+    from watchlog.core import catalog, suggestions
+    from watchlog.core.models import SHOW
+
+    with db() as session:
+        if kind == SHOW:
+            client = tvmaze_client()
+            obj = suggestions.add_suggested_show(session, tmdb_client(), client, tmdb_id,
+                                                 status, title=title)
+        else:
+            client = tmdb_client()
+            obj = suggestions.add_suggested_movie(session, client, tmdb_id, status,
+                                                  watched_on=watched_on)
+        session.commit()
+        obj_id, obj_title = obj.id, obj.title
+        try:
+            catalog.ensure_poster(session, obj, client)
+            session.commit()
+        except Exception:  # noqa: BLE001  (une affiche ratée n'est pas grave)
+            session.rollback()
+    return obj_id, obj_title
+
+
+def preview_params(kind: str, tmdb_id: int) -> dict:
+    """Paramètres d'URL de la page Aperçu (?type=serie|film&id=<id TMDB>)."""
+    from watchlog.core.models import SHOW
+    return {"type": "serie" if kind == SHOW else "film", "id": tmdb_id}
 
 
 def status_label(status: str) -> str:

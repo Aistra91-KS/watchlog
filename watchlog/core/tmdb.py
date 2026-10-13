@@ -121,6 +121,18 @@ class TMDBClient:
                                   ttl=timedelta(days=30))
         return {g["id"]: g["name"] for g in (data or {}).get("genres", [])}
 
+    def details(self, media: str, tmdb_id: int) -> dict | None:
+        """Fiche complète d'un film ("movie") ou d'une série ("tv") avec casting et vidéos.
+
+        Vidéos en français, sinon en anglais. None si inconnu ou TMDB indisponible.
+        """
+        if not self.available:
+            return None
+        return self.http.get_json(f"/{media}/{tmdb_id}",
+                                  {"language": "fr-FR", "append_to_response": "credits,videos",
+                                   "include_video_language": "fr,en,null"},
+                                  ttl=timedelta(days=7))
+
     def watch_providers(self, media: str, tmdb_id: int) -> dict:
         """Plateformes par pays ({"FR": {"flatrate": [...], "rent": [...], ...}}), données JustWatch.
 
