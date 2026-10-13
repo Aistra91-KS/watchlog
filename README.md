@@ -1,5 +1,6 @@
 # Watchlog
 
+
 Suivi personnel de séries et de films, en local. Les fiches des séries viennent de
 TVMaze, celles des films de TMDB. L'historique peut être importé depuis un export
 de l'application Bingers. L'interface s'ouvre dans le navigateur (Streamlit).
