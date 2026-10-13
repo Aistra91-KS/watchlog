@@ -7,8 +7,6 @@ import streamlit as st
 from watchlog.core import stats
 from watchlog.ui import common
 
-BAR_COLOR = "#2f5d8a"  # couleur principale du thème (.streamlit/config.toml)
-
 st.title("Statistiques")
 
 with common.db() as session:
@@ -31,7 +29,7 @@ cols[4].metric("Films vus", counts["movies_watched"])
 def month_chart(frame: pd.DataFrame, column: str, label: str) -> alt.Chart:
     """Histogramme simple : un mois par barre, une seule couleur."""
     return (alt.Chart(frame)
-            .mark_bar(color=BAR_COLOR)
+            .mark_bar(color=common.primary_color())
             .encode(x=alt.X("libelle:N", sort=None, title=None, axis=alt.Axis(labelAngle=0)),
                     y=alt.Y(f"{column}:Q", title=label, axis=alt.Axis(tickMinStep=1)),
                     tooltip=[alt.Tooltip("libelle:N", title="Mois"),

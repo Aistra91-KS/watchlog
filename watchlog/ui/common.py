@@ -76,12 +76,26 @@ def show_poster(poster_path: str | None, width: int | None = None) -> None:
         st.image(path, width=width or "stretch")
     else:
         st.markdown(
-            "<div style='aspect-ratio:2/3;background:#e6e9ed;border-radius:4px;"
-            "display:flex;align-items:center;justify-content:center;color:#7b8794;"
+        # Gris semi-transparent : lisible en thème clair comme en sombre.
+            "<div style='aspect-ratio:2/3;background:rgba(128,128,128,0.15);border-radius:4px;"
+            "display:flex;align-items:center;justify-content:center;color:rgba(128,128,128,0.9);"
             "font-size:0.8rem'>Pas d'affiche</div>", unsafe_allow_html=True)
 
 
 def status_label(status: str) -> str:
+def is_dark_theme() -> bool:
+    """Vrai si l'utilisateur affiche le thème sombre (menu ⋮ > Settings ou système)."""
+    try:
+        return st.context.theme.type == "dark"
+    except AttributeError:  # thème pas encore connu au tout premier affichage
+        return False
+
+
+def primary_color() -> str:
+    """Couleur principale du thème affiché (.streamlit/config.toml), pour les graphiques."""
+    return "#6fa3d6" if is_dark_theme() else "#2f5d8a"
+
+
     return STATUS_LABELS.get(status, status)
 
 

@@ -11,9 +11,17 @@ headless = false
 # (sinon la tâche VS Code resterait bloquée en attente d'une réponse).
 showEmailPrompt = false
 
-[theme]
-base = "light"
+# Deux thèmes, clair et sombre. Choix dans le menu ⋮ > Settings (Light / Dark /
+# Use system setting) ; par défaut, celui du système. Ne pas remettre
+# `base` dans [theme] : il imposerait un seul thème.
+[theme.light]
 primaryColor = "#2f5d8a"
 backgroundColor = "#ffffff"
 secondaryBackgroundColor = "#f3f5f7"
 textColor = "#1f2933"
+
+[theme.dark]
+primaryColor = "#6fa3d6"
+backgroundColor = "#14181d"
+secondaryBackgroundColor = "#1f262e"
+textColor = "#e4e7eb"
