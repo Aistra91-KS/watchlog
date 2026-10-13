@@ -6,14 +6,13 @@ ou sans date sont inclus (l'interface les grise), les sans-date à la fin.
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
 
 from sqlmodel import Session, select
 
+from watchlog.core.dates import LOCAL_TZ
 from watchlog.core.models import (EPISODE, FOR_LATER, MATCH_OK, MATCH_REMAPPED, MOVIE, SHOW, TO_WATCH,
                                   WATCHING, Episode, LibraryItem, Movie, Show, Watch)
 
-LOCAL_TZ = ZoneInfo("Europe/Paris")
 
 # Disponibilité d'un élément
 RELEASED, UPCOMING, NO_DATE = "released", "upcoming", "no_date"

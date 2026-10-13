@@ -1,5 +1,6 @@
 """Outils partagés par les pages Streamlit (clients API, affiches, navigation, mentions)."""
 
+import html
 import os
 import re
 from pathlib import Path
@@ -7,6 +8,7 @@ from pathlib import Path
 import streamlit as st
 from sqlmodel import Session
 
+from watchlog.core import providers
 from watchlog.core import tmdb as tmdb_module
 from watchlog.core import tvmaze as tvmaze_module
 from watchlog.core.config import DATA_DIR
@@ -96,6 +98,36 @@ def primary_color() -> str:
     return "#6fa3d6" if is_dark_theme() else "#2f5d8a"
 
 
+def show_availability(kind: str, tmdb_id: int | None, compact: bool = False) -> None:
+    """Plateformes où regarder en France : logos par type d'offre (abonnement, location...).
+
+    compact=True (cartes de suggestions) : une seule ligne, sans titre ni lien.
+    Rien n'est affiché si TMDB est indisponible ou si le titre n'a pas d'id TMDB.
+    """
+    data = providers.availability(tmdb_client(), kind, tmdb_id)
+    if data is None:
+        return
+    if data.empty:
+        st.caption("Pas disponible en streaming, location ou achat en France pour l'instant.")
+        return
+    size = 24 if compact else 32
+    parts = []
+    for label, items in data.offers.items():
+        logos = "".join(
+            f"<img src='{html.escape(p.logo_url)}' alt='{html.escape(p.name)}' "
+            f"title='{html.escape(p.name)}' style='height:{size}px;border-radius:6px;"
+            f"margin:0 4px 4px 0;vertical-align:middle'>"
+            if p.logo_url else f"<span style='margin-right:6px'>{html.escape(p.name)}</span>"
+            for p in items)
+        parts.append(f"<span style='margin-right:14px;white-space:nowrap'>"
+                     f"<span style='font-size:0.85rem;opacity:0.75;margin-right:6px'>"
+                     f"{html.escape(label)}</span>{logos}</span>")
+    separator = "" if compact else "<br>"
+    st.markdown(separator.join(parts), unsafe_allow_html=True)
+    if not compact and data.link:  # source JustWatch citée en bas de page (footer)
+        st.caption(f"[Voir les offres et les prix]({data.link})")
+
+
 def status_label(status: str) -> str:
     return STATUS_LABELS.get(status, status)
 
@@ -131,3 +163,4 @@ def footer() -> None:
     st.divider()
     st.caption(tvmaze_module.ATTRIBUTION)
     st.caption(tmdb_module.ATTRIBUTION)
+    st.caption(providers.ATTRIBUTION)

@@ -1,14 +1,17 @@
 """Fiche d'un film : informations, statut, visionnage, note, commentaire et émotions."""
 
+from datetime import date, datetime
+
 import streamlit as st
 
 from watchlog.core import library
 from watchlog.core.dates import fmt_date
 from watchlog.core.models import COMPLETED, MOVIE, TO_WATCH, Movie
-from watchlog.core.queue import local_date
+from watchlog.core.queue import LOCAL_TZ, local_date
 from watchlog.ui import common
 
 RATING_OPTIONS = [0, 1, 2, 3, 4, 5]  # 0 = pas de note
+MIN_DATE = date(1900, 1, 1)
 
 
 def rating_label(value: int) -> str:
@@ -48,12 +51,19 @@ def add_to_library(movie_id: int, key: str) -> None:
     st.session_state["film_message"] = "Film ajouté à la bibliothèque."
 
 
-def set_watched(movie_id: int, watched: bool) -> None:
-    """Marque vu / non vu. Un film vu passe en « Terminé » ; non vu, il revient en « À voir »."""
+def set_watched(movie_id: int, watched: bool, day_key: str | None = None) -> None:
+    """Marque vu / non vu. Un film vu passe en « Terminé » ; non vu, il revient en « À voir ».
+
+    day_key : clé du champ « Date de visionnage » (aujourd'hui par défaut).
+    """
     with common.db() as session:
         item = library.get_library_item(session, MOVIE, movie_id)
         if watched:
-            library.mark_watched(session, MOVIE, movie_id)
+            day = st.session_state.get(day_key) if day_key else datetime.now(LOCAL_TZ).date()
+            if day == datetime.now(LOCAL_TZ).date():
+                library.mark_watched(session, MOVIE, movie_id)  # heure exacte
+            else:
+                library.set_watch_date(session, MOVIE, movie_id, day)  # None : date inconnue
             if item is not None:
                 item.status = COMPLETED
         else:
@@ -61,6 +71,14 @@ def set_watched(movie_id: int, watched: bool) -> None:
             if item is not None and item.status == COMPLETED:
                 item.status = TO_WATCH
         session.commit()
+
+
+def save_watch_date(movie_id: int, key: str) -> None:
+    """Nouvelle date de visionnage (champ vidé : date inconnue)."""
+    with common.db() as session:
+        library.set_watch_date(session, MOVIE, movie_id, st.session_state[key])
+        session.commit()
+    st.session_state["film_message"] = "Date de visionnage enregistrée."
 
 
 def remove_movie(movie_id: int) -> None:
@@ -126,16 +144,31 @@ with col_info:
                     "indisponible). Elles seront récupérées à la prochaine synchronisation "
                     "quand TMDB sera connecté.")
 
-    # Visionnage
+    if not movie.is_manual and movie.tmdb_id is not None:
+        st.markdown("**Où regarder**")
+        common.show_availability(MOVIE, movie.tmdb_id)
+
+    # Visionnage (la date se change directement dans le champ)
+    today = datetime.now(LOCAL_TZ).date()
     if watch is not None:
-        day = local_date(watch.watched_at, None)
-        text = f"Vu le {fmt_date(day)}" if day else "Vu (date inconnue)"
+        date_key = f"film_watch_date_{movie.id}"
+        st.session_state[date_key] = local_date(watch.watched_at, None)
+        col_date, col_button = st.columns([2, 1], vertical_alignment="bottom")
+        col_date.date_input("Vu le", key=date_key, min_value=MIN_DATE, max_value=today,
+                            format="DD/MM/YYYY", on_change=save_watch_date,
+                            args=(movie.id, date_key),
+                            help="Date du premier visionnage (vide : date inconnue).")
+        col_button.button("Marquer non vu", on_click=set_watched, args=(movie.id, False))
         if watch.plays > 1:
-            text += f" · vu {watch.plays} fois"
-        st.write(text)
-        st.button("Marquer non vu", on_click=set_watched, args=(movie.id, False))
+            st.caption(f"Vu {watch.plays} fois")
     else:
-        st.button("Vu", type="primary", on_click=set_watched, args=(movie.id, True))
+        day_key = f"film_new_watch_date_{movie.id}"
+        col_date, col_button = st.columns([2, 1], vertical_alignment="bottom")
+        col_date.date_input("Date de visionnage", value=today, key=day_key, min_value=MIN_DATE,
+                            max_value=today, format="DD/MM/YYYY",
+                            help="Pour un film vu il y a longtemps, choisis la date (vide : date inconnue).")
+        col_button.button("Vu", type="primary", on_click=set_watched,
+                          args=(movie.id, True, day_key))
 
 # Bibliothèque : statut et favori
 status_key = f"film_status_{movie.id}"

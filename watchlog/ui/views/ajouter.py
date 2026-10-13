@@ -6,7 +6,7 @@ import streamlit as st
 
 from watchlog.core import adding, catalog
 from watchlog.core.http import ApiError
-from watchlog.core.models import MOVIE, SHOW, TO_WATCH
+from watchlog.core.models import COMPLETED, MOVIE, SHOW, TO_WATCH
 from watchlog.ui import common
 
 MANUAL = "manual"
@@ -45,10 +45,24 @@ def default_status_index() -> int:
 
 # --- Ajout d'un résultat de recherche ----------------------------------------------------
 
+def watched_on_key(status_key: str) -> str:
+    """Clé du champ « Vu le » associé à une liste de statuts (films en « Terminé »)."""
+    return status_key.replace("add_status_", "add_watched_on_", 1)
+
+
+def watched_on_input(status_key: str, label: str = "Vu le (facultatif)") -> None:
+    """Champ date pour un film « Terminé » : date du visionnage, pour les statistiques."""
+    if st.session_state.get(status_key) == COMPLETED:
+        st.date_input(label, value=None, key=watched_on_key(status_key), min_value=MIN_DATE,
+                      max_value=date.today(), format="DD/MM/YYYY",
+                      help="Vide : date inconnue (modifiable ensuite dans la fiche).")
+
+
 def add_result(kind: str, index: int, status_key: str) -> None:
     """Appelée par le bouton « Ajouter » d'un résultat de recherche."""
     result = st.session_state[f"add_results_{kind}"][index]
     status = st.session_state[status_key]
+    watched_on = st.session_state.get(watched_on_key(status_key))
     try:
         with common.db() as session:
             if kind == SHOW:
@@ -56,7 +70,8 @@ def add_result(kind: str, index: int, status_key: str) -> None:
                 obj = adding.add_show(session, client, result["id"], status)
             else:
                 client = common.tmdb_client()
-                obj = adding.add_movie(session, client, result["id"], status)
+                obj = adding.add_movie(session, client, result["id"], status,
+                                       watched_on=watched_on)
             session.commit()
             obj_id, title = obj.id, obj.title
             download_poster(session, obj, client)
@@ -126,6 +141,8 @@ def show_results(kind: str) -> None:
                                          format_func=common.status_label, key=status_key)
                     col_button.button("Ajouter", key=f"add_button_{kind}_{result['id']}",
                                       on_click=add_result, args=(kind, index, status_key))
+                    if kind == MOVIE:
+                        watched_on_input(status_key)
 
 
 # --- Saisie manuelle ----------------------------------------------------------------------
@@ -169,6 +186,9 @@ def manual_movie_form() -> None:
         overview = st.text_area("Résumé (facultatif)")
         status = st.selectbox("Statut", common.status_options(), index=default_status_index(),
                               format_func=common.status_label)
+        watched_on = st.date_input("Vu le (si statut « Terminé », facultatif)", value=None,
+                                   min_value=MIN_DATE, max_value=date.today(),
+                                   format="DD/MM/YYYY")
         submitted = st.form_submit_button("Ajouter le film")
     if submitted:
         try:
@@ -176,7 +196,7 @@ def manual_movie_form() -> None:
                 movie = adding.add_manual_movie(
                     session, title, status, year=int(year) if year else None,
                     release_date=release_date, runtime=int(runtime) if runtime else None,
-                    overview=overview)
+                    overview=overview, watched_on=watched_on)
                 session.commit()
                 remember_success(MANUAL, MOVIE, movie.id, movie.title)
         except ValueError as exc:

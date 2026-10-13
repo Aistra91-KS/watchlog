@@ -44,13 +44,19 @@ mémorisé par le navigateur.
 | À regarder | épisodes et films non vus, en une seule liste triée par date de sortie ; filtres (type, série, disponibilité, statut, prochain épisode seulement, spéciaux) ; boutons « Vu » et « Vu jusqu'ici » |
 | Bibliothèque | toutes les séries et tous les films suivis, avec leur statut et leur progression |
 | Calendrier | sorties non vues des 60 prochains jours, groupées par semaine |
-| Suggestions | séries et films à découvrir, d'après les recommandations TMDB des titres de la bibliothèque (favoris et bonnes notes comptent plus, séries arrêtées et mauvaises notes éloignent les titres semblables) ; filtre par genre, « Ajouter » ou « Pas intéressé ». Premier calcul : jusqu'à une minute, ensuite en cache 30 jours |
-| Ajouter | ajout d'une série (recherche TVMaze) ou d'un film (recherche TMDB), ou ajout manuel |
+| Suggestions | séries et films à découvrir, d'après les recommandations TMDB des titres de la bibliothèque (favoris et bonnes notes comptent plus, séries arrêtées et mauvaises notes éloignent les titres semblables) ; plateformes de chaque titre ; filtre par genre, « Ajouter » ou « Pas intéressé ». Premier calcul : jusqu'à une minute, ensuite en cache 30 jours |
+| Ajouter | ajout d'une série (recherche TVMaze) ou d'un film (recherche TMDB), ou ajout manuel. Un film ajouté en « Terminé » compte comme vu, à la date choisie (« Vu le », facultatif) |
 | Statistiques | chiffres clés, épisodes et films vus par mois, temps passé, séries terminées, meilleures notes |
 | Paramètres | connexion TMDB, correspondances à vérifier, import Bingers, synchronisation, export, sauvegardes |
 
 En cliquant sur un titre, on ouvre la **fiche** de la série (saisons, épisodes à cocher, statut,
-note) ou du film.
+note) ou du film. Chaque fiche indique **où regarder** en France : abonnement (Netflix, Prime
+Video, Canal+…), location, achat (données JustWatch via TMDB, mises à jour chaque semaine).
+
+**Date de visionnage** : modifiable dans la fiche du film (champ « Vu le », ou « Date de
+visionnage » avant de cliquer « Vu ») et dans la colonne « Vu le » des tableaux d'épisodes.
+Pratique pour un titre vu il y a longtemps : il compte alors dans le bon mois des statistiques.
+Champ vide : vu, date inconnue.
 
 Statuts possibles : En cours, À voir, Plus tard, Arrêté, Terminé. Une série finie dont tous
 les épisodes sont vus passe toute seule en « Terminé ».

@@ -4,15 +4,15 @@ Performance : une série comme NCIS a environ 500 épisodes. Les épisodes ne so
 (un tableau par saison) que pour les saisons dépliées.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 
 import pandas as pd
 import streamlit as st
 from sqlmodel import select
 
-from watchlog.core import library
+from watchlog.core import library, providers
 from watchlog.core.adding import tvmaze_status_label
-from watchlog.core.dates import fmt_date
+from watchlog.core.dates import fmt_date, parse_date
 from watchlog.core.models import (EPISODE, MATCH_OK, MATCH_REMAPPED, SHOW, Episode, Show,
                                   Watch)
 from watchlog.core.queue import LOCAL_TZ, episode_code, local_date
@@ -20,6 +20,7 @@ from watchlog.ui import common
 
 COL_SEEN = "Vu"
 COL_UNTIL = "Vu jusqu'ici"
+COL_DATE = "Vu le"
 UPCOMING_STYLE = "color: #9aa5b1"   # épisodes pas encore diffusés : texte grisé
 RATING_OPTIONS = [0, 1, 2, 3, 4, 5]  # 0 = pas de note
 
@@ -92,6 +93,10 @@ def apply_episode_changes(editor_key: str, episode_ids: list[int], include_speci
                     library.mark_watched(session, EPISODE, episode_id)
                 else:
                     library.unmark_watched(session, EPISODE, episode_id)
+                    continue  # décoché : une date saisie sur la même ligne est ignorée
+            if COL_DATE in values:
+                # Date changée (vide : date inconnue) ; marque l'épisode vu au besoin.
+                library.set_watch_date(session, EPISODE, episode_id, parse_date(values[COL_DATE]))
         session.commit()
     refresh_tables()
 
@@ -112,7 +117,7 @@ def episode_sort_key(ep: Episode):
     return (ep.number is None, ep.number or 0, ep.airdate or datetime.max.date())
 
 
-def current_season(seasons: dict[int, list[Episode]], watched: set[int], today) -> int | None:
+def current_season(seasons: dict[int, list[Episode]], watched: dict[int, date | None], today) -> int | None:
     """Première saison qui a un épisode diffusé (ou sans date) pas encore vu."""
     for season, episodes in seasons.items():
         for ep in episodes:
@@ -122,7 +127,8 @@ def current_season(seasons: dict[int, list[Episode]], watched: set[int], today) 
     return None
 
 
-def season_table(episodes: list[Episode], watched: set[int], today) -> tuple[pd.DataFrame, list]:
+def season_table(episodes: list[Episode], watched: dict[int, date | None],
+                 today) -> tuple[pd.DataFrame, list]:
     """Tableau d'une saison + liste des épisodes « à venir » (lignes grisées)."""
     rows, upcoming = [], []
     for i, ep in enumerate(episodes):
@@ -130,8 +136,11 @@ def season_table(episodes: list[Episode], watched: set[int], today) -> tuple[pd.
         if day is not None and day > today:
             upcoming.append(i)
         rows.append({"Code": episode_code(ep.season, ep.number), "Date": fmt_date(day),
-                     "Titre": ep.title or "", COL_SEEN: ep.id in watched, COL_UNTIL: False})
-    return pd.DataFrame(rows), upcoming
+                     "Titre": ep.title or "", COL_SEEN: ep.id in watched,
+                     COL_DATE: watched.get(ep.id), COL_UNTIL: False})
+    df = pd.DataFrame(rows, columns=["Code", "Date", "Titre", COL_SEEN, COL_DATE, COL_UNTIL])
+    df[COL_DATE] = pd.to_datetime(df[COL_DATE])   # type date : case vide (et non « None ») si pas vu
+    return df, upcoming
 
 
 def grey_upcoming(df: pd.DataFrame, upcoming: list[int]):
@@ -151,9 +160,10 @@ with common.db() as session:
         item = library.get_library_item(session, SHOW, show.id)
         rating = library.get_rating(session, SHOW, show.id)
         episodes = session.exec(select(Episode).where(Episode.show_id == show.id)).all()
-        watched = set(session.exec(
-            select(Watch.ref_id).join(Episode, Episode.id == Watch.ref_id)
-            .where(Watch.kind == EPISODE, Episode.show_id == show.id)).all())
+        # épisode vu -> date du premier visionnage (heure française), None si inconnue
+        watched = {ref_id: local_date(when, None) for ref_id, when in session.exec(
+            select(Watch.ref_id, Watch.watched_at).join(Episode, Episode.id == Watch.ref_id)
+            .where(Watch.kind == EPISODE, Episode.show_id == show.id)).all()}
 
 if show is None:
     st.info("Aucune série sélectionnée. Choisis une série dans la bibliothèque.")
@@ -189,6 +199,17 @@ with col_info:
         st.write(" · ".join(details))
     if show.summary:
         st.write(common.md_escape(show.summary))
+
+    if not show.is_manual:
+        tmdb_id = show.tmdb_id
+        if tmdb_id is None:  # série ajoutée depuis TVMaze : id TMDB cherché une fois via TVDB
+            with common.db() as session:
+                tmdb_id = providers.show_tmdb_id(session, common.tmdb_client(),
+                                                 session.get(Show, show.id))
+                session.commit()
+        if tmdb_id is not None:
+            st.markdown("**Où regarder**")
+            common.show_availability(SHOW, tmdb_id)
 
     regular = [ep for ep in episodes if not ep.is_special]
     if regular:
@@ -269,6 +290,10 @@ for season, season_episodes in seasons.items():
                 "Code": st.column_config.TextColumn(width="small"),
                 "Date": st.column_config.TextColumn(width="small"),
                 COL_SEEN: st.column_config.CheckboxColumn(width="small"),
+                COL_DATE: st.column_config.DateColumn(
+                    width="small", format="DD/MM/YYYY", min_value=date(1900, 1, 1),
+                    max_value=today,
+                    help="Date de visionnage, modifiable (vide : date inconnue)"),
                 COL_UNTIL: st.column_config.CheckboxColumn(
                     width="small",
                     help="Coche pour marquer vus tous les épisodes jusqu'à celui-ci inclus"),

@@ -105,6 +105,7 @@ def show_card(item: suggestions.Suggestion) -> None:
                 st.caption(common.md_escape(" · ".join(details)))
             if item.because:
                 st.caption("Parce que tu as vu : " + common.md_escape(", ".join(item.because)))
+            common.show_availability(item.kind, item.tmdb_id, compact=True)
             if item.overview:
                 st.write(common.md_escape(item.overview))
             key = f"{item.kind}_{item.tmdb_id}"

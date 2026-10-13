@@ -4,7 +4,10 @@ Convention : en base, les datetimes sont en UTC « naïf » (sans fuseau),
 car SQLite ne stocke pas le fuseau. Les dates (sans heure) sont des `date`.
 """
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
+from zoneinfo import ZoneInfo
+
+LOCAL_TZ = ZoneInfo("Europe/Paris")  # heure française, pour l'affichage et les saisies
 
 
 def utcnow() -> datetime:
@@ -37,3 +40,11 @@ def parse_date(value: str | None) -> date | None:
 def fmt_date(value: date | datetime | None) -> str:
     """Format français jj/mm/aaaa, chaîne vide si pas de date."""
     return value.strftime("%d/%m/%Y") if value else ""
+
+
+def local_day_to_utc(day: date) -> datetime:
+    """Jour saisi par l'utilisateur -> datetime UTC naïf (midi, heure française).
+
+    Midi : la date affichée (reconvertie en heure française) reste toujours la même.
+    """
+    return datetime.combine(day, time(12), LOCAL_TZ).astimezone(timezone.utc).replace(tzinfo=None)

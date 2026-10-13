@@ -7,7 +7,7 @@ from datetime import date, datetime
 
 from sqlmodel import Session, select
 
-from watchlog.core.dates import utcnow
+from watchlog.core.dates import local_day_to_utc, utcnow
 from watchlog.core.models import (COMPLETED, EPISODE, SHOW, STATUSES, TO_WATCH, Episode,
                                   LibraryItem, Rating, Show, Watch)
 from watchlog.core.tvmaze import ENDED
@@ -57,6 +57,26 @@ def mark_watched(session: Session, kind: str, ref_id: int, when: datetime | None
         return watch
     when = when or utcnow()
     watch = Watch(kind=kind, ref_id=ref_id, watched_at=when, last_watched_at=when)
+    session.add(watch)
+    return watch
+
+
+def set_watch_date(session: Session, kind: str, ref_id: int, day: date | None) -> Watch:
+    """Change la date du (premier) visionnage, et marque vu si ce n'était pas le cas.
+
+    day=None : vu, date inconnue. Vu une seule fois : le dernier visionnage suit la même date ;
+    vu plusieurs fois, il n'est avancé que si la nouvelle date est plus récente.
+    """
+    when = local_day_to_utc(day) if day is not None else None
+    watch = get_watch(session, kind, ref_id)
+    if watch is None:
+        watch = Watch(kind=kind, ref_id=ref_id, watched_at=when, last_watched_at=when)
+    else:
+        watch.watched_at = when
+        if watch.plays <= 1 or watch.last_watched_at is None:
+            watch.last_watched_at = when
+        elif when is not None and watch.last_watched_at < when:
+            watch.last_watched_at = when
     session.add(watch)
     return watch
 

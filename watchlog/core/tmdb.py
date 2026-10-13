@@ -121,6 +121,16 @@ class TMDBClient:
                                   ttl=timedelta(days=30))
         return {g["id"]: g["name"] for g in (data or {}).get("genres", [])}
 
+    def watch_providers(self, media: str, tmdb_id: int) -> dict:
+        """Plateformes par pays ({"FR": {"flatrate": [...], "rent": [...], ...}}), données JustWatch.
+
+        Gardé 7 jours : les catalogues changent souvent. {} si TMDB est indisponible.
+        """
+        if not self.available:
+            return {}
+        data = self.http.get_json(f"/{media}/{tmdb_id}/watch/providers", ttl=timedelta(days=7))
+        return (data or {}).get("results", {})
+
     def tv_external_ids(self, tmdb_id: int) -> dict:
         """Identifiants externes d'une série TMDB (tvdb_id, imdb_id...). {} si inconnue."""
         if not self.available:

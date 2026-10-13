@@ -10,7 +10,7 @@ from sqlmodel import Session, select
 
 from watchlog.core import catalog, library
 from watchlog.core.http import ApiError
-from watchlog.core.models import MATCH_OK, MOVIE, SHOW, STATUSES, Episode, Movie, Show
+from watchlog.core.models import COMPLETED, MATCH_OK, MOVIE, SHOW, STATUSES, Episode, Movie, Show
 from watchlog.core.tmdb import TMDBClient
 
 # Statuts de diffusion TVMaze, traduits pour l'affichage.
@@ -44,6 +44,16 @@ def _check_status(status: str) -> None:
     """Vérifie le statut AVANT de créer quoi que ce soit en base."""
     if status not in STATUSES:
         raise ValueError(f"Statut inconnu : {status}")
+
+
+def _record_movie_watch(session: Session, movie: Movie, status: str,
+                        watched_on: date | None) -> None:
+    """Film ajouté en « Terminé » : il compte comme vu (date choisie, sinon date inconnue).
+
+    Un visionnage déjà enregistré n'est pas modifié.
+    """
+    if status == COMPLETED and library.get_watch(session, MOVIE, movie.id) is None:
+        library.set_watch_date(session, MOVIE, movie.id, watched_on)
 
 
 def _year(value: str | None) -> int | None:
@@ -165,14 +175,19 @@ def add_show(session: Session, tvmaze, tvmaze_id: int, status: str) -> Show:
     return show
 
 
-def add_movie(session: Session, tmdb, tmdb_id: int, status: str) -> Movie:
-    """Ajoute un film TMDB à la bibliothèque (met à jour sa fiche s'il est déjà en base)."""
+def add_movie(session: Session, tmdb, tmdb_id: int, status: str,
+              watched_on: date | None = None) -> Movie:
+    """Ajoute un film TMDB à la bibliothèque (met à jour sa fiche s'il est déjà en base).
+
+    Statut « Terminé » : le film est aussi marqué vu, à la date `watched_on` (None : inconnue).
+    """
     _check_status(status)
     data = tmdb.get_movie(tmdb_id)
     if data is None:
         raise ValueError(f"Film introuvable sur TMDB (id {tmdb_id}), ou TMDB non connecté.")
     movie = catalog.upsert_movie_from_tmdb(session, data)
     library.set_status(session, MOVIE, movie.id, status)
+    _record_movie_watch(session, movie, status, watched_on)
     session.flush()
     return movie
 
@@ -223,8 +238,11 @@ def add_manual_show(session: Session, title: str, episodes_per_season: list[int]
 
 def add_manual_movie(session: Session, title: str, status: str, year: int | None = None,
                      release_date: date | None = None, runtime: int | None = None,
-                     overview: str | None = None) -> Movie:
-    """Film saisi à la main (hors TMDB). La date de sortie est considérée comme la date France."""
+                     overview: str | None = None, watched_on: date | None = None) -> Movie:
+    """Film saisi à la main (hors TMDB). La date de sortie est considérée comme la date France.
+
+    Statut « Terminé » : marqué vu à la date `watched_on` (None : inconnue).
+    """
     _check_status(status)
     title = (title or "").strip()
     if not title:
@@ -236,5 +254,6 @@ def add_manual_movie(session: Session, title: str, status: str, year: int | None
     session.add(movie)
     session.flush()
     library.set_status(session, MOVIE, movie.id, status)
+    _record_movie_watch(session, movie, status, watched_on)
     session.flush()
     return movie
