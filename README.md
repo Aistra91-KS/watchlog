@@ -49,7 +49,7 @@ mémorisé par le navigateur.
 | --- | --- |
 | À regarder | épisodes et films non vus, en une seule liste triée par date de sortie ; filtres (type, série, disponibilité, statut, prochain épisode seulement, spéciaux) ; boutons « Vu » et « Vu jusqu'ici » |
 | Bibliothèque | toutes les séries et tous les films suivis, avec leur statut et leur progression |
-| Calendrier | sorties non vues des 60 prochains jours, groupées par semaine |
+| Calendrier | sorties des séries et films suivis avec leurs affiches, en vue **Mois** (grille de calendrier, épisodes vus en grisé), **Semaine** (grandes affiches) ou **Liste** (sorties non vues des 60 prochains jours, par semaine) ; résumé en chiffres, filtre séries / films, épisodes d'une même série sortis le même jour regroupés (ex. S01E01–E08). Clic sur un titre : sa fiche |
 | Suggestions | séries et films à découvrir, d'après les recommandations TMDB des titres de la bibliothèque (favoris et bonnes notes comptent plus, séries arrêtées et mauvaises notes éloignent les titres semblables), avec un score « % pour toi » et les plateformes. Filtres : type (séries / films), genres, plateformes, dispo en streaming, années, note TMDB minimale ; tri par pertinence, note ou date. Clic sur un titre : page **Aperçu** (résumé, casting, bande-annonce, où regarder, titres similaires, bouton Ajouter). Premier calcul : jusqu'à une minute, ensuite en cache |
 | Ajouter | ajout d'une série (recherche TVMaze) ou d'un film (recherche TMDB), ou ajout manuel. Un film ajouté en « Terminé » compte comme vu, à la date choisie (« Vu le », facultatif) |
 | Statistiques | chiffres clés, épisodes et films vus par mois, temps passé, séries terminées, meilleures notes |

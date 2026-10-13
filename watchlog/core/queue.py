@@ -10,8 +10,9 @@ from datetime import date, datetime, timedelta, timezone
 from sqlmodel import Session, select
 
 from watchlog.core.dates import LOCAL_TZ
-from watchlog.core.models import (EPISODE, FOR_LATER, MATCH_OK, MATCH_REMAPPED, MOVIE, SHOW, TO_WATCH,
-                                  WATCHING, Episode, LibraryItem, Movie, Show, Watch)
+from watchlog.core.models import (COMPLETED, EPISODE, FOR_LATER, MATCH_OK, MATCH_REMAPPED, MOVIE,
+                                  SHOW, TO_WATCH, WATCHING, Episode, LibraryItem, Movie, Show,
+                                  Watch)
 
 
 # Disponibilité d'un élément
@@ -38,6 +39,8 @@ class QueueItem:
     season: int | None = None
     number: int | None = None
     is_special: bool = False
+    poster_url: str | None = None   # affiche en ligne (TVMaze / TMDB)
+    watched: bool = False           # seulement pour releases_between (vus compris)
 
     @property
     def kind_label(self) -> str:
@@ -67,7 +70,8 @@ def sort_key(item: QueueItem):
             item.season or 0, item.number if item.number is not None else 10_000)
 
 
-def _episode_items(session: Session, statuses, show_id, include_specials, today):
+def _episode_items(session: Session, statuses, show_id, include_specials, today,
+                   include_watched: bool = False, airdate_range: tuple[date, date] | None = None):
     watched = select(Watch.ref_id).where(Watch.kind == EPISODE)
     query = (
         select(Episode, Show, LibraryItem)
@@ -76,8 +80,15 @@ def _episode_items(session: Session, statuses, show_id, include_specials, today)
         .where(LibraryItem.status.in_(statuses))
         # Séries dont la numérotation n'est pas vérifiée : exclues (tout semblerait non vu).
         .where(Show.match_status.in_([MATCH_OK, MATCH_REMAPPED]))
-        .where(Episode.id.not_in(watched))
     )
+    if include_watched:
+        watched_ids = set(session.exec(watched).all())
+    else:
+        query = query.where(Episode.id.not_in(watched))
+    if airdate_range is not None:
+        # Marge d'un jour : la date française (airstamp) peut différer de la date TVMaze.
+        query = query.where(Episode.airdate >= airdate_range[0] - timedelta(days=1),
+                            Episode.airdate <= airdate_range[1] + timedelta(days=1))
     if show_id is not None:
         query = query.where(Show.id == show_id)
     if not include_specials:
@@ -90,25 +101,30 @@ def _episode_items(session: Session, statuses, show_id, include_specials, today)
             code=episode_code(ep.season, ep.number), episode_title=ep.title,
             release_date=day, availability=availability(day, today), status=lib.status,
             runtime=ep.runtime, poster_path=show.poster_path,
-            season=ep.season, number=ep.number, is_special=ep.is_special))
+            season=ep.season, number=ep.number, is_special=ep.is_special,
+            poster_url=show.poster_url, watched=include_watched and ep.id in watched_ids))
     return items
 
 
-def _movie_items(session: Session, statuses, today):
+def _movie_items(session: Session, statuses, today, include_watched: bool = False):
     watched = select(Watch.ref_id).where(Watch.kind == MOVIE)
     query = (
         select(Movie, LibraryItem)
         .join(LibraryItem, (LibraryItem.kind == MOVIE) & (LibraryItem.ref_id == Movie.id))
         .where(LibraryItem.status.in_(statuses))
-        .where(Movie.id.not_in(watched))
     )
+    if include_watched:
+        watched_ids = set(session.exec(watched).all())
+    else:
+        query = query.where(Movie.id.not_in(watched))
     items = []
     for movie, lib in session.exec(query):
         day = movie.release_date_fr or movie.release_date_original
         items.append(QueueItem(
             kind=MOVIE, ref_id=movie.id, show_id=None, title=movie.title, code="",
             episode_title=None, release_date=day, availability=availability(day, today),
-            status=lib.status, runtime=movie.runtime, poster_path=movie.poster_path))
+            status=lib.status, runtime=movie.runtime, poster_path=movie.poster_path,
+            poster_url=movie.poster_url, watched=include_watched and movie.id in watched_ids))
     return items
 
 
@@ -171,3 +187,61 @@ def calendar(session: Session, days: int = 60, today: date | None = None,
 def week_start(day: date) -> date:
     """Lundi de la semaine de `day` (pour grouper le calendrier par semaine)."""
     return day - timedelta(days=day.weekday())
+
+
+def releases_between(session: Session, start: date, end: date, include_specials: bool = False,
+                     today: date | None = None) -> list[QueueItem]:
+    """Sorties entre `start` et `end` inclus, vues ou non (champ `watched`), triées par date.
+
+    Séries et films de la bibliothèque, sauf ceux arrêtés. Pour la vue « Mois » du calendrier.
+    """
+    today = today or datetime.now(LOCAL_TZ).date()
+    statuses = (WATCHING, TO_WATCH, FOR_LATER, COMPLETED)
+    items = _episode_items(session, statuses, None, include_specials, today,
+                           include_watched=True, airdate_range=(start, end))
+    items += _movie_items(session, statuses, today, include_watched=True)
+    items = [i for i in items if i.release_date is not None and start <= i.release_date <= end]
+    return sorted(items, key=sort_key)
+
+
+@dataclass
+class DayEntry:
+    """Une ligne du calendrier : un film, ou les épisodes d'une série sortis le même jour."""
+    items: list[QueueItem]
+
+    @property
+    def first(self) -> QueueItem:
+        return self.items[0]
+
+    @property
+    def watched(self) -> bool:
+        return all(i.watched for i in self.items)
+
+    @property
+    def label(self) -> str:
+        """« S01E03 », « S01E01–E08 » (même saison, à la suite) ou « 8 épisodes »."""
+        if self.first.kind == MOVIE:
+            return "Film"
+        if len(self.items) == 1:
+            return self.first.code
+        numbers = [i.number for i in self.items]
+        seasons = {i.season for i in self.items}
+        if len(seasons) == 1 and None not in numbers and numbers == list(
+                range(numbers[0], numbers[0] + len(numbers))):
+            return f"{self.first.code}–E{numbers[-1]:02d}"
+        return f"{len(self.items)} épisodes"
+
+
+def group_day(items: list[QueueItem]) -> list[DayEntry]:
+    """Regroupe les épisodes d'une même série (sortis le même jour) ; films à part."""
+    entries: list[DayEntry] = []
+    by_show: dict[int, DayEntry] = {}
+    for item in items:
+        if item.kind == EPISODE and item.show_id in by_show:
+            by_show[item.show_id].items.append(item)
+            continue
+        entry = DayEntry([item])
+        entries.append(entry)
+        if item.kind == EPISODE:
+            by_show[item.show_id] = entry
+    return entries

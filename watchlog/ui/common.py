@@ -1,5 +1,6 @@
 """Outils partagés par les pages Streamlit (clients API, affiches, navigation, mentions)."""
 
+import base64
 import html
 import os
 import re
@@ -71,6 +72,17 @@ def poster_file(poster_path: str | None) -> str | None:
         return None
     path = Path(DATA_DIR) / poster_path
     return str(path) if path.exists() else None
+
+
+def poster_src(poster_path: str | None, poster_url: str | None) -> str | None:
+    """Source d'image pour du HTML : l'affiche en ligne, sinon le fichier local (en base64)."""
+    if poster_url:
+        return poster_url
+    path = poster_file(poster_path)
+    if path:
+        mime = "image/png" if path.lower().endswith(".png") else "image/jpeg"
+        return f"data:{mime};base64," + base64.b64encode(Path(path).read_bytes()).decode()
+    return None
 
 
 def show_poster(poster_path: str | None, width: int | None = None) -> None:

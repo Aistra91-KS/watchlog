@@ -214,3 +214,64 @@ def test_calendar_next_60_days(session):
     assert codes(items) == ["En cours S01E02", "Plus tard S01E01", "Film", "En cours S01E03"]
     assert [i.release_date for i in items] == [TODAY, TODAY + timedelta(days=3),
                                                TODAY + timedelta(days=10), TODAY + timedelta(days=60)]
+
+
+# --- Calendrier : sorties d'une période (vues comprises) et regroupement ----------------
+
+def test_releases_between_includes_watched_and_excludes_stopped(session):
+    from watchlog.core.models import COMPLETED
+
+    alpha = add_show(session, "Alpha", poster_url="https://img/alpha.jpg")
+    seen = add_episode(session, alpha, 1, 1, airdate=date(2026, 10, 1))
+    add_episode(session, alpha, 1, 2, airdate=date(2026, 10, 8))
+    add_episode(session, alpha, 1, 3, airdate=date(2026, 11, 2))          # hors période
+    stopped = add_show(session, "Arrêtée", status=STOPPED)
+    add_episode(session, stopped, 1, 1, airdate=date(2026, 10, 3))
+    done = add_show(session, "Finie", status=COMPLETED)
+    add_episode(session, done, 1, 1, airdate=date(2026, 10, 4))
+    film = add_movie(session, "Film vu", release=date(2026, 10, 20), status=COMPLETED)
+    add_movie(session, "Film plus tard", release=date(2026, 12, 1))
+    watch(session, seen)
+    watch(session, film)
+
+    items = queue.releases_between(session, date(2026, 10, 1), date(2026, 10, 31), today=TODAY)
+
+    assert codes(items) == ["Alpha S01E01", "Finie S01E01", "Alpha S01E02", "Film vu"]
+    assert [i.watched for i in items] == [True, False, False, True]
+    assert items[0].poster_url == "https://img/alpha.jpg"
+
+
+def test_releases_between_uses_french_date(session):
+    alpha = add_show(session, "Alpha")
+    # Diffusé le 31/10 à 23 h aux États-Unis (airdate) = 1er novembre en France (airstamp UTC)
+    add_episode(session, alpha, 1, 1, airdate=date(2026, 10, 31),
+                airstamp=datetime(2026, 11, 1, 3, 0))
+    october = queue.releases_between(session, date(2026, 10, 1), date(2026, 10, 31), today=TODAY)
+    november = queue.releases_between(session, date(2026, 11, 1), date(2026, 11, 30), today=TODAY)
+    assert october == [] and codes(november) == ["Alpha S01E01"]
+
+
+def test_group_day_merges_episodes_of_a_show(session):
+    alpha = add_show(session, "Alpha")
+    beta = add_show(session, "Beta")
+    day = date(2026, 10, 14)
+    for n in (1, 2, 3):
+        add_episode(session, alpha, 2, n, airdate=day)
+    add_episode(session, beta, 1, 1, airdate=day)
+    add_episode(session, beta, 1, 4, airdate=day)
+    add_movie(session, "Film", release=day)
+
+    entries = queue.group_day(queue.releases_between(session, day, day, today=TODAY))
+
+    assert [(e.first.title, e.label) for e in entries] == [
+        ("Alpha", "S02E01–E03"), ("Beta", "2 épisodes"), ("Film", "Film")]
+    assert not entries[0].watched
+
+
+def test_day_entry_single_and_watched(session):
+    alpha = add_show(session, "Alpha")
+    ep = add_episode(session, alpha, 1, 5, airdate=date(2026, 10, 2))
+    watch(session, ep)
+    entries = queue.group_day(queue.releases_between(session, date(2026, 10, 2), date(2026, 10, 2),
+                                                     today=TODAY))
+    assert entries[0].label == "S01E05" and entries[0].watched
