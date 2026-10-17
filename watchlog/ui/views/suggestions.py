@@ -1,10 +1,12 @@
 """Page « Suggestions » : séries et films à découvrir, d'après la bibliothèque (TMDB)."""
 
+import time
+from collections import Counter
 from datetime import date
 
 import streamlit as st
 
-from watchlog.core import suggestions
+from watchlog.core import suggestions, taste
 from watchlog.core.http import ApiError
 from watchlog.core.models import COMPLETED, MOVIE, SHOW, TO_WATCH
 from watchlog.ui import common
@@ -13,26 +15,40 @@ PAGE_SIZE = 15  # suggestions affichées, puis « Afficher plus » par tranche
 TYPE_ALL, TYPE_SHOWS, TYPE_MOVIES = "Tout", "Séries", "Films"
 TYPE_KINDS = {TYPE_ALL: (SHOW, MOVIE), TYPE_SHOWS: (SHOW,), TYPE_MOVIES: (MOVIE,)}
 MIN_DATE = date(1900, 1, 1)
+MAX_AGE = 3600          # secondes : résultat gardé une heure (ou jusqu'à « Recalculer »)
+PROFILE_THEMES = 15     # thèmes affichés dans « Ton profil de goûts »
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def load() -> tuple[list[suggestions.Suggestion], list[str]]:
-    """Séries et films suggérés, avec leurs plateformes. Gardé une heure (ou jusqu'à « Recalculer »).
+@st.cache_resource
+def shared() -> dict:
+    """Dernier calcul, partagé entre les onglets du navigateur : {"at": horodatage, "result": ...}.
 
-    Renvoie (suggestions, messages d'erreur éventuels).
+    Pas st.cache_data : le calcul affiche une barre de progression, ce que les fonctions
+    en cache de Streamlit n'acceptent pas.
     """
+    return {}
+
+
+def load() -> suggestions.Result:
+    """Profil de goûts, séries et films suggérés, avec leurs plateformes."""
+    cache = shared()
+    if cache.get("result") and time.time() - cache["at"] < MAX_AGE:
+        return cache["result"]
     tmdb = common.tmdb_client()
-    items, errors = [], []
+    bar = st.progress(0.0, text="Analyse de tes goûts… La première fois, cela peut prendre "
+                                "une à deux minutes.")
+
+    def progress(done: int, total: int, label: str) -> None:
+        bar.progress(min(done / total, 1.0) if total else 1.0, text=label)
+
     with common.db() as session:
         suggestions.resolve_show_tmdb_ids(session, tmdb)
         session.commit()
-        for kind, label in ((SHOW, "séries"), (MOVIE, "films")):
-            try:
-                items += suggestions.compute(session, tmdb, kind)
-            except ApiError as exc:
-                errors.append(f"Suggestions de {label} indisponibles : {exc}")
-    suggestions.attach_availability(tmdb, items)
-    return items, errors
+        result = suggestions.compute_all(session, tmdb, progress=progress)
+    suggestions.attach_availability(tmdb, result.items, progress)
+    bar.empty()
+    cache.update(at=time.time(), result=result)
+    return result
 
 
 def hidden() -> set[tuple[str, int]]:
@@ -60,8 +76,17 @@ def dismiss_suggestion(item: suggestions.Suggestion) -> None:
 
 
 def recompute() -> None:
-    load.clear()
+    shared().clear()
     hidden().clear()
+
+
+def save_preferences(more_key: str, less_key: str, labels: dict[str, str]) -> None:
+    more = {f: labels.get(f, f) for f in st.session_state[more_key]}
+    less = {f: labels.get(f, f) for f in st.session_state[less_key]}
+    with common.db() as session:
+        taste.set_preferences(session, more, less)
+        session.commit()
+    recompute()
 
 
 def restore_dismissed() -> None:
@@ -72,7 +97,8 @@ def restore_dismissed() -> None:
 
 
 def reset_filters() -> None:
-    for key in ("sugg_genres", "sugg_platforms", "sugg_streaming", "sugg_years", "sugg_min_vote"):
+    for key in ("sugg_genres", "sugg_themes", "sugg_platforms", "sugg_streaming", "sugg_years",
+                "sugg_min_vote"):
         st.session_state.pop(key, None)
     st.session_state["sugg_count"] = PAGE_SIZE
 
@@ -105,8 +131,11 @@ def show_card(item: suggestions.Suggestion) -> None:
             st.page_link(common.PAGE_PREVIEW, label=f"**{title}**", icon=":material/open_in_new:",
                          query_params=common.preview_params(item.kind, item.tmdb_id),
                          help="Voir la fiche détaillée")
-            badge = ":blue-badge[Série]" if item.kind == SHOW else ":violet-badge[Film]"
-            st.markdown(f"{badge} :green-badge[{item.match} % pour toi]")
+            badges = ":blue-badge[Série]" if item.kind == SHOW else ":violet-badge[Film]"
+            badges += f" :green-badge[{item.match} % pour toi]"
+            if item.trending:
+                badges += " :orange-badge[:material/trending_up: Tendance de la semaine]"
+            st.markdown(badges)
             details = []
             if item.original_title and item.original_title != item.title:
                 details.append(f"Titre original : {item.original_title}")
@@ -116,8 +145,12 @@ def show_card(item: suggestions.Suggestion) -> None:
                 details.append(f"Note TMDB : {item.vote_average:.1f}/10")
             if details:
                 st.caption(common.md_escape(" · ".join(details)))
+            if item.matched_themes:
+                st.caption("Thèmes en commun : " + common.md_escape(", ".join(item.matched_themes)))
             if item.because:
                 st.caption("Parce que tu as vu : " + common.md_escape(", ".join(item.because)))
+            elif item.from_themes:
+                st.caption("Trouvé en explorant tes thèmes préférés.")
             common.show_availability(item.kind, item.tmdb_id, compact=True)
             if item.overview:
                 st.write(common.md_escape(item.overview))
@@ -153,12 +186,20 @@ def filters(items: list[suggestions.Suggestion]) -> dict:
     kinds = TYPE_KINDS[kind_choice or TYPE_ALL]
     pool = [s for s in items if s.kind in kinds]
     genres = sorted({g for s in pool for g in s.genres})
+    # Thèmes partagés par au moins deux suggestions, les plus fréquents d'abord.
+    theme_counts = Counter(t for s in pool for t in s.themes)
+    themes = [t for t, n in theme_counts.most_common() if n >= 2]
+    themes += [t for t in st.session_state.get("sugg_themes", []) if t not in themes]
     platforms = sorted({p for s in pool for p in s.streaming}, key=str.casefold)
     years = [s.year for s in pool if s.year]
 
-    col_genres, col_platforms = st.columns(2)
+    col_genres, col_themes, col_platforms = st.columns(3)
     chosen_genres = col_genres.multiselect("Genres", genres, key="sugg_genres",
                                            placeholder="Tous les genres")
+    chosen_themes = col_themes.multiselect("Thèmes", themes, key="sugg_themes",
+                                           placeholder="Tous les thèmes",
+                                           help="Mots-clés TMDB : dystopie, super-héros, "
+                                                "voyage dans le temps…")
     chosen_platforms = col_platforms.multiselect(
         "Plateformes (abonnement ou gratuit)", platforms, key="sugg_platforms",
         placeholder="Toutes les plateformes")
@@ -175,17 +216,52 @@ def filters(items: list[suggestions.Suggestion]) -> dict:
     min_vote = col_vote.slider("Note TMDB minimale", 0.0, 9.0, 0.0, 0.5, key="sugg_min_vote")
     streaming_only = col_streaming.checkbox("Dispo en streaming uniquement", key="sugg_streaming",
                                             help="Sur une plateforme d'abonnement ou gratuite, en France.")
-    return {"kinds": kinds, "genres": tuple(chosen_genres), "platforms": tuple(chosen_platforms),
+    return {"kinds": kinds, "genres": tuple(chosen_genres), "themes": tuple(chosen_themes),
+            "platforms": tuple(chosen_platforms),
             "streaming_only": streaming_only, "years": year_range, "min_vote": min_vote,
             "sort": sort}
+
+
+def taste_section(result: suggestions.Result, items: list[suggestions.Suggestion]) -> None:
+    """Profil de goûts détecté, et réglages « plus de » / « moins de » par thème."""
+    profile = result.profile
+    with st.expander("Ton profil de goûts", icon=":material/psychology:"):
+        top = profile.top(PROFILE_THEMES, keywords_only=True)
+        if top:
+            st.markdown("**Thèmes qui reviennent le plus dans ce que tu aimes**")
+            st.markdown(" ".join(f":blue-badge[{common.md_escape(label)}]" for _f, label, _w in top))
+        genres = [label for f, label, _w in profile.top(40) if taste.is_genre(f)][:6]
+        if genres:
+            st.caption("Genres les plus présents : " + ", ".join(genres))
+        if not top and not genres:
+            st.caption("Pas encore de thèmes : ajoute et note des titres.")
+
+        labels = dict(profile.labels)
+        for item in items:
+            labels.update(item.features)
+            labels.update(taste.genre_features(item.genres))
+        options = sorted(labels, key=lambda f: labels[f].casefold())
+        st.markdown("**Oriente tes suggestions**")
+        st.caption("« Plus de » : le thème compte autant que ton plus fort, et Watchlog va chercher "
+                   "les titres phares de ce thème. « Moins de » : les titres qui l'ont passent loin "
+                   "derrière. Genres et thèmes (mots-clés TMDB) sont proposés.")
+        col_more, col_less = st.columns(2)
+        col_more.multiselect("Plus de…", options, default=sorted(profile.boosted & set(options)),
+                             format_func=labels.get, key="sugg_more", placeholder="Ex. Dystopie")
+        col_less.multiselect("Moins de…", options, default=sorted(profile.reduced & set(options)),
+                             format_func=labels.get, key="sugg_less", placeholder="Ex. Animation")
+        st.button("Enregistrer et recalculer", on_click=save_preferences,
+                  args=("sugg_more", "sugg_less", labels))
 
 
 # --- Page ---------------------------------------------------------------------------------
 
 st.title("Suggestions")
-st.caption("D'après les recommandations TMDB des titres de ta bibliothèque. Les favoris et les "
-           "titres bien notés comptent davantage ; les séries arrêtées et les titres mal notés "
-           "éloignent les titres semblables. Plus tu notes, plus les suggestions sont justes.")
+st.caption("Watchlog analyse les thèmes de ce que tu regardes (dystopie, super-héros…), croise "
+           "les recommandations TMDB (ce que regardent les gens qui ont aimé les mêmes titres) "
+           "et les tendances de la semaine. Notes, favoris, séries vues en entier et liste « à "
+           "voir » comptent davantage ; séries arrêtées, mauvaises notes et « Pas intéressé » "
+           "éloignent les titres semblables.")
 
 connected, tmdb_message = common.tmdb_status()
 if not connected:
@@ -193,12 +269,12 @@ if not connected:
     st.stop()
 
 show_messages()
-with st.spinner("Calcul des suggestions… La première fois, cela peut prendre une minute."):
-    all_items, load_errors = load()
-for error in load_errors:
+result = load()
+for error in result.errors:
     st.error(error)
-all_items = [s for s in all_items if (s.kind, s.tmdb_id) not in hidden()]
+all_items = [s for s in result.items if (s.kind, s.tmdb_id) not in hidden()]
 
+taste_section(result, all_items)
 chosen = filters(all_items)
 items = suggestions.filter_items(all_items, **chosen)
 st.caption(f"{len(items)} suggestion(s)")

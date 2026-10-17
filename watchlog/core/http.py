@@ -2,6 +2,7 @@
 
 import json
 import logging
+import threading
 import time
 from collections import deque
 from collections.abc import Callable
@@ -28,21 +29,26 @@ class ApiError(Exception):
 
 
 class RateLimiter:
-    """Au plus `max_calls` appels sur une fenêtre glissante de `period` secondes."""
+    """Au plus `max_calls` appels sur une fenêtre glissante de `period` secondes.
+
+    Utilisable depuis plusieurs threads (suggestions : mots-clés lus en parallèle).
+    """
 
     def __init__(self, max_calls: int, period: float, clock=time.monotonic, sleep=time.sleep):
         self.max_calls, self.period = max_calls, period
         self.clock, self.sleep = clock, sleep
         self.calls: deque[float] = deque()
+        self.lock = threading.Lock()
 
     def wait(self) -> None:
-        now = self.clock()
-        while self.calls and now - self.calls[0] >= self.period:
-            self.calls.popleft()
-        if len(self.calls) >= self.max_calls:
-            self.sleep(self.period - (now - self.calls[0]))
-            self.calls.popleft()
-        self.calls.append(self.clock())
+        with self.lock:
+            now = self.clock()
+            while self.calls and now - self.calls[0] >= self.period:
+                self.calls.popleft()
+            if len(self.calls) >= self.max_calls:
+                self.sleep(self.period - (now - self.calls[0]))
+                self.calls.popleft()
+            self.calls.append(self.clock())
 
 
 class CachedClient:

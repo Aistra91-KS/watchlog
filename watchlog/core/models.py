@@ -171,6 +171,15 @@ class DismissedSuggestion(SQLModel, table=True):
     dismissed_at: NaiveDatetime | None = None
 
 
+class ThemePreference(SQLModel, table=True):
+    """Thème que l'utilisateur veut voir plus (+1) ou moins (-1) dans les suggestions."""
+
+    feature: str = Field(primary_key=True)    # « k:4565 » (mot-clé TMDB) ou « g:Animation »
+    label: str                                # libellé affiché (« Dystopie »)
+    weight: int                               # 1 = plus de ça, -1 = moins de ça
+    updated_at: NaiveDatetime | None = None
+
+
 class ApiCache(SQLModel, table=True):
     url: str = Field(primary_key=True)        # chemin + paramètres publics (jamais la clé)
     response_json: str

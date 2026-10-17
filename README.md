@@ -54,7 +54,7 @@ mémorisé par le navigateur.
 | À regarder | épisodes et films non vus, en une seule liste triée par date de sortie ; filtres (type, série, disponibilité, statut, prochain épisode seulement, spéciaux) ; boutons « Vu » et « Vu jusqu'ici » |
 | Bibliothèque | toutes les séries et tous les films suivis, avec leur statut et leur progression |
 | Calendrier | sorties des séries et films suivis avec leurs affiches, en vue **Mois** (grille de calendrier, épisodes vus en grisé), **Semaine** (grandes affiches) ou **Liste** (sorties non vues des 60 prochains jours, par semaine) ; résumé en chiffres, filtre séries / films, épisodes d'une même série sortis le même jour regroupés (ex. S01E01–E08). Clic sur un titre : sa fiche |
-| Suggestions | séries et films à découvrir, d'après les recommandations TMDB des titres de la bibliothèque (favoris et bonnes notes comptent plus, séries arrêtées et mauvaises notes éloignent les titres semblables), avec un score « % pour toi » et les plateformes. Filtres : type (séries / films), genres, plateformes, dispo en streaming, années, note TMDB minimale ; tri par pertinence, note ou date. Clic sur un titre : page **Aperçu** (résumé, casting, bande-annonce, où regarder, titres similaires, bouton Ajouter). Premier calcul : jusqu'à une minute, ensuite en cache |
+| Suggestions | séries et films à découvrir (voir « Comment marchent les suggestions » plus bas), avec un score « % pour toi », les thèmes en commun, un badge « Tendance de la semaine » et les plateformes. **Ton profil de goûts** : les thèmes détectés (dystopie, super-héros…) et les réglages « Plus de… » / « Moins de… ». Filtres : type, genres, thèmes, plateformes, dispo en streaming, années, note TMDB minimale ; tri par pertinence, note ou date. Clic sur un titre : page **Aperçu** (résumé, casting, bande-annonce, où regarder, titres similaires, bouton Ajouter). Premier calcul : une à deux minutes, ensuite quelques secondes |
 | Ajouter | ajout d'une série (recherche TVMaze) ou d'un film (recherche TMDB), ou ajout manuel. Un film ajouté en « Terminé » compte comme vu, à la date choisie (« Vu le », facultatif) |
 | Statistiques | chiffres clés (temps total, note moyenne…) puis 4 onglets. **Activité** : records (jour, jours d'affilée, mois), calendrier des 12 derniers mois jour par jour, vus et heures par mois, par jour de la semaine, par année — les jours d'import massif (tout l'historique daté du jour de l'import) peuvent être ignorés. **Séries** : temps passé par série, genres, avancement des séries en cours, séries terminées. **Films** : durées, genres, décennies, liste des films vus (recherche, tri). **Notes** : répartition et meilleures notes. Clic sur une ligne d'un tableau : la fiche |
 | Paramètres | connexion TMDB, correspondances à vérifier, import Bingers, synchronisation, export, sauvegardes |
@@ -131,6 +131,24 @@ L'import peut être relancé sans créer de doublons. À la fin, un rapport indi
 été importé et ce qui demande une vérification : séries introuvables ou incertaines,
 numérotation d'épisodes différente entre Bingers et TVMaze (ces visionnages sont mis
 « en attente » jusqu'à confirmation dans l'interface, voir « Correspondances à vérifier »).
+## Comment marchent les suggestions
+
+1. **Signaux** : chaque titre de la bibliothèque compte plus ou moins. Note et favori d'abord ;
+   sinon le statut (« À voir » compte autant qu'un titre vu : c'est l'envie du moment ; arrêté
+   = négatif). Une série vue en entier ou un film revu comptent plus, un visionnage récent aussi ;
+   l'historique sans vraie date (jour d'import) un peu moins. « Pas intéressé » éloigne.
+2. **Profil de goûts** : les mots-clés TMDB (dystopie, super-héros, voyage dans le temps…)
+   et genres qui reviennent dans ce que tu aimes. Un thème courant partout pèse peu, un thème
+   plus rare mais récurrent chez toi pèse beaucoup.
+3. **Candidats** : recommandations TMDB des titres de la bibliothèque (ce que regardent les
+   gens qui ont aimé les mêmes titres), titres phares de tes thèmes forts, tendances de la semaine.
+4. **Score** : 35 % recommandations, 50 % ressemblance à ton profil, 15 % qualité (note TMDB
+   pondérée par le nombre de votes). Puis la liste est diversifiée (pas dix titres presque
+   identiques à la suite).
+
+Pour orienter : page Suggestions > **Ton profil de goûts** > « Plus de… » (ex. Dystopie) /
+« Moins de… » (ex. Animation), puis « Enregistrer et recalculer ».
+
 
 Les dates de visionnage reprises de Bingers sont parfois la date de l'import dans Bingers :
 beaucoup d'épisodes peuvent donc sembler vus le même jour (visible dans les statistiques).

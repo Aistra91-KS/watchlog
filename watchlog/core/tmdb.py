@@ -113,6 +113,32 @@ class TMDBClient:
                                   ttl=timedelta(days=30))
         return (data or {}).get("results", [])
 
+    def keywords(self, media: str, tmdb_id: int) -> list[dict]:
+        """Mots-clés TMDB d'un film ou d'une série ([{id, name}], en anglais). Gardés 90 jours."""
+        if not self.available:
+            return []
+        data = self.http.get_json(f"/{media}/{tmdb_id}/keywords", ttl=timedelta(days=90)) or {}
+        # Films : « keywords » ; séries : « results ».
+        return data.get("keywords") or data.get("results") or []
+
+    def discover_by_keyword(self, media: str, keyword_id: int, min_votes: int = 100) -> list[dict]:
+        """Titres les plus votés qui ont ce mot-clé (première page, 20 titres). Gardé 7 jours."""
+        if not self.available:
+            return []
+        data = self.http.get_json(f"/discover/{media}",
+                                  {"with_keywords": keyword_id, "sort_by": "vote_count.desc",
+                                   "vote_count.gte": min_votes, "language": "fr-FR"},
+                                  ttl=timedelta(days=7))
+        return (data or {}).get("results", [])
+
+    def trending(self, media: str) -> list[dict]:
+        """Titres les plus regardés de la semaine (tous pays). Gardé 1 jour."""
+        if not self.available:
+            return []
+        data = self.http.get_json(f"/trending/{media}/week", {"language": "fr-FR"},
+                                  ttl=timedelta(days=1))
+        return (data or {}).get("results", [])
+
     def genres(self, media: str) -> dict[int, str]:
         """{id du genre: nom en français} pour media = "movie" ou "tv"."""
         if not self.available:

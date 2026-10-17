@@ -14,6 +14,10 @@ from watchlog.core.models import (COMPLETED, FOR_LATER, MOVIE, SHOW, STOPPED, TO
 from watchlog.core.tmdb import TMDBClient
 
 
+KEYWORD_IDS = {"dystopia": 4565, "superhero": 9715, "robot": 14544, "magic": 2343,
+               "survival": 10349, "sequel": 9663}
+
+
 def rec(tmdb_id, title, votes=100, genres=(18,), vote=7.5, tv=False):
     """Un titre recommandé, au format TMDB (séries : name / first_air_date)."""
     data = {"id": tmdb_id, "vote_count": votes, "vote_average": vote, "genre_ids": list(genres),
@@ -28,9 +32,13 @@ def rec(tmdb_id, title, votes=100, genres=(18,), vote=7.5, tv=False):
 class RecoTMDB(FakeTMDB):
     """Faux TMDB : recommandations, genres et ids externes fournis par le test."""
 
-    def __init__(self, recos=None, external=None, find=None, fail_ids=(), **kwargs):
+    def __init__(self, recos=None, external=None, find=None, fail_ids=(), keywords=None,
+                 discover=None, trending_titles=None, **kwargs):
         super().__init__(**kwargs)
         self.recos = recos or {}          # (media, id TMDB) -> liste de titres
+        self.kw = keywords or {}          # (media, id TMDB) -> [noms de mots-clés]
+        self.discover = discover or {}    # (media, id du mot-clé) -> liste de titres
+        self.trending_titles = trending_titles or {}  # media -> liste de titres
         self.external = external or {}    # id TMDB série -> {"tvdb_id": ..., "imdb_id": ...}
         self.find = find or {}            # id TVDB -> id TMDB
         self.fail_ids = set(fail_ids)     # ids dont les recommandations échouent (ApiError)
@@ -43,7 +51,17 @@ class RecoTMDB(FakeTMDB):
         return self.recos.get((media, tmdb_id), [])
 
     def genres(self, media):
-        return {18: "Drame", 35: "Comédie", 27: "Horreur"}
+        return {18: "Drame", 35: "Comédie", 27: "Horreur", 16: "Animation"}
+
+    def keywords(self, media, tmdb_id):
+        return [{"id": KEYWORD_IDS[name], "name": name}
+                for name in self.kw.get((media, tmdb_id), [])]
+
+    def discover_by_keyword(self, media, keyword_id, min_votes=100):
+        return self.discover.get((media, keyword_id), [])
+
+    def trending(self, media):
+        return self.trending_titles.get(media, [])
 
     def tv_external_ids(self, tmdb_id):
         return self.external.get(tmdb_id, {})
@@ -71,8 +89,8 @@ def session(engine):
 def test_source_weight():
     assert suggestions.source_weight(COMPLETED, False, None) == 1
     assert suggestions.source_weight(WATCHING, False, None) == 1
-    assert suggestions.source_weight(TO_WATCH, False, None) == 0.5
-    assert suggestions.source_weight(FOR_LATER, False, None) == 0.5
+    assert suggestions.source_weight(TO_WATCH, False, None) == 1    # l'envie du moment
+    assert suggestions.source_weight(FOR_LATER, False, None) == 0.7
     assert suggestions.source_weight(STOPPED, False, None) == -1
     # la note remplace le statut
     assert suggestions.source_weight(STOPPED, False, 5) == 3
@@ -93,7 +111,8 @@ def test_library_sources_order_and_limit(session, monkeypatch):
 
     sources = suggestions.library_sources(session, MOVIE)
 
-    assert [(s.title, s.weight) for s in sources] == [("Favori", 3), ("Arrêté", -2)]
+    # Favori vu, date inconnue : 3 x 0,8 ; la note remplace le statut « arrêté »
+    assert [(s.title, s.weight) for s in sources] == [("Favori", 2.4), ("Arrêté", -2)]
 
 
 # --- Calcul -----------------------------------------------------------------------------
@@ -116,7 +135,7 @@ def test_compute_scores_excludes_and_explains(session):
     assert [s.title for s in result] == ["Memento", "Zodiac"]
     memento, zodiac = result
     assert memento.because == ["Fight Club", "Seven"]   # le favori compte plus
-    assert zodiac.because == ["Seven", "Déjà là"]
+    assert zodiac.because == ["Déjà là", "Seven"]   # « à voir » : 1 ; vu, date inconnue : 0,8
     assert zodiac.genres == ["Horreur"]
     assert memento.year == 2019
     assert memento.poster_url.endswith("/p10.jpg")
@@ -146,10 +165,11 @@ def test_compute_skips_failing_sources(session):
     tmdb = RecoTMDB(recos={("movie", 2): [rec(30, "Trouvé")]}, fail_ids={1})
     progress = []
 
-    result = suggestions.compute(session, tmdb, MOVIE, progress=lambda d, t: progress.append((d, t)))
+    result = suggestions.compute(session, tmdb, MOVIE,
+                                 progress=lambda d, t, label: progress.append((d, t, label)))
 
     assert [s.title for s in result] == ["Trouvé"]
-    assert progress == [(1, 2), (2, 2)]
+    assert [(d, t) for d, t, label in progress if "Recommandations (films)" in label] == [(1, 2), (2, 2)]
 
 
 def test_compute_all_sources_failing_raises(session):
@@ -325,3 +345,140 @@ def test_filter_items_criteria():
     assert ids(min_vote=7.0) == [1, 3]
     assert ids(sort=suggestions.SORT_RATING) == [1, 3, 2]
     assert ids(sort=suggestions.SORT_RECENT) == [2, 1, 3]
+
+
+# --- Moteur hybride : signaux, thèmes, tendances, diversité ---------------------------------
+
+def test_engagement_and_recency_factors():
+    from datetime import date, datetime
+    assert suggestions.engagement_factor(SHOW, episodes=1) == pytest.approx(0.64, abs=0.01)
+    assert suggestions.engagement_factor(SHOW, episodes=80) == pytest.approx(1.3)
+    assert suggestions.engagement_factor(MOVIE, plays=2) == suggestions.REWATCH_FACTOR
+    today = date(2026, 10, 1)
+    assert suggestions.recency_factor(datetime(2026, 10, 1), today) == pytest.approx(1.3)
+    assert suggestions.recency_factor(datetime(2016, 1, 1), today) == pytest.approx(0.8, abs=0.01)
+    assert suggestions.recency_factor(None, today) == 0.8
+
+
+def test_library_signals_use_activity_and_ignore_import_days(session):
+    from datetime import date, datetime
+    from helpers_db import add_episode
+    from watchlog.core.models import EPISODE, Watch
+    binged = add_show(session, "Dévorée", status=COMPLETED, tmdb_id=1, genres="Drame")
+    tried = add_show(session, "Goûtée", status=COMPLETED, tmdb_id=2)
+    for n in range(1, 61):
+        episode = add_episode(session, binged, 1, n)
+        session.add(Watch(kind=EPISODE, ref_id=episode.id,
+                          last_watched_at=datetime(2026, 9, 30, 20)))  # jour d'import (60 vus)
+    episode = add_episode(session, tried, 1, 1)
+    session.add(Watch(kind=EPISODE, ref_id=episode.id, last_watched_at=datetime(2026, 9, 1, 20)))
+    session.flush()
+
+    signals = suggestions.library_signals(session, SHOW, today=date(2026, 10, 1))
+
+    weights = {s.title: s.weight for s in signals}
+    assert weights["Dévorée"] == pytest.approx(1.3 * 0.8, abs=0.01)   # date d'import : inconnue
+    assert weights["Goûtée"] == pytest.approx(0.64 * 1.26, abs=0.02)  # récente, mais 1 épisode
+    assert signals[0].title == "Dévorée" and signals[0].genres == ["Drame"]
+
+
+def test_compute_explores_profile_themes_and_trending(session):
+    add_movie(session, "Hunger Games", status=COMPLETED, tmdb_id=1)
+    add_movie(session, "Divergente", status=COMPLETED, tmdb_id=2)
+    session.flush()
+    tmdb = RecoTMDB(
+        recos={("movie", 1): [rec(10, "Recommandé")], ("movie", 2): [rec(10, "Recommandé")]},
+        keywords={("movie", 1): ["dystopia", "survival"], ("movie", 2): ["dystopia", "survival"],
+                  ("movie", 10): ["magic"], ("movie", 20): ["dystopia", "survival"],
+                  ("movie", 30): ["dystopia"], ("movie", 31): ["magic"]},
+        discover={("movie", 4565): [rec(20, "Snowpiercer", votes=5000), rec(1, "Déjà vu")],
+                  ("movie", 10349): [rec(20, "Snowpiercer", votes=5000)]},
+        trending_titles={"movie": [rec(30, "Tendance proche"), rec(31, "Tendance éloignée")]})
+
+    result = suggestions.compute_all(session, tmdb)
+
+    by_title = {s.title: s for s in result.items}
+    assert set(by_title) == {"Recommandé", "Snowpiercer", "Tendance proche"}
+    snowpiercer = by_title["Snowpiercer"]
+    assert snowpiercer.from_themes and snowpiercer.collab == 0
+    assert snowpiercer.matched_themes == ["Dystopie", "Survie"]
+    assert set(snowpiercer.themes) == {"Dystopie", "Survie"}
+    assert by_title["Tendance proche"].trending
+    assert result.items[0].title == "Snowpiercer"         # très proche du profil
+    assert [label for _f, label, _w in result.profile.top(2)] == ["Dystopie", "Survie"]
+
+
+def test_compute_reduced_theme_sinks_titles(session):
+    add_movie(session, "A", status=COMPLETED, tmdb_id=1)
+    session.flush()
+    tmdb = RecoTMDB(recos={("movie", 1): [rec(10, "Dessin animé", genres=(16,)),
+                                          rec(11, "Film", genres=(18,))]})
+    assert [s.title for s in suggestions.compute(session, tmdb, MOVIE)] == ["Dessin animé", "Film"]
+
+    from watchlog.core import taste
+    taste.set_preferences(session, more={}, less={"g:Animation": "Animation"})
+    session.flush()
+
+    assert [s.title for s in suggestions.compute(session, tmdb, MOVIE)] == ["Film", "Dessin animé"]
+
+
+def test_dismissed_titles_push_their_themes_away(session):
+    for i in (1, 2):
+        add_movie(session, f"Aimé {i}", status=COMPLETED, tmdb_id=i)
+    suggestions.dismiss(session, MOVIE, 3, "Écarté")
+    suggestions.dismiss(session, MOVIE, 4, "Écarté 2")
+    session.flush()
+    tmdb = RecoTMDB(keywords={("movie", 1): ["superhero"], ("movie", 2): ["superhero"],
+                              ("movie", 3): ["magic"], ("movie", 4): ["magic"]},
+                    recos={("movie", 1): [rec(10, "X")]})
+
+    profile = suggestions.compute_all(session, tmdb).profile
+
+    assert profile.weights["k:9715"] > 0 and profile.weights["k:2343"] < 0
+
+
+def test_diversify_avoids_near_duplicates():
+    a, b, c = make(tmdb_id=1, match=100), make(tmdb_id=2, match=95), make(tmdb_id=3, match=80)
+    a.features = b.features = {"k:1": "x", "k:2": "y"}   # b : copie de a
+    c.features = {"k:3": "z"}
+    a.score, b.score, c.score = 1.0, 0.95, 0.8   # scores réels : entre 0 et 1
+
+    ranked = suggestions.diversify([a, b, c], limit=3)
+
+    assert [s.tmdb_id for s in ranked] == [1, 3, 2]
+    assert ranked[0].score >= ranked[1].score >= ranked[2].score
+
+
+def test_filter_items_themes():
+    items = [make(tmdb_id=1), make(tmdb_id=2)]
+    items[0].themes = ["Dystopie", "Survie"]
+    assert [s.tmdb_id for s in suggestions.filter_items(items, themes=("Dystopie",))] == [1]
+
+
+def test_tmdb_client_keywords_discover_trending(engine):
+    def server(request):
+        path = request.url.path
+        if path == "/3/authentication":
+            return httpx.Response(200, json={"success": True})
+        if path == "/3/movie/1/keywords":
+            return httpx.Response(200, json={"id": 1, "keywords": [{"id": 4565, "name": "dystopia"}]})
+        if path == "/3/tv/2/keywords":
+            return httpx.Response(200, json={"id": 2, "results": [{"id": 9715, "name": "superhero"}]})
+        if path == "/3/discover/movie":
+            assert request.url.params["with_keywords"] == "4565"
+            return httpx.Response(200, json={"results": [rec(5, "Matrix")]})
+        if path == "/3/trending/tv/week":
+            return httpx.Response(200, json={"results": [rec(6, "Tendance", tv=True)]})
+        return httpx.Response(404)
+
+    api = FakeApi(server)
+    client = TMDBClient(engine, token="fake-token", api_key="", transport=api.transport,
+                        sleep=no_sleep)
+
+    assert client.keywords("movie", 1) == [{"id": 4565, "name": "dystopia"}]
+    assert client.keywords("tv", 2) == [{"id": 9715, "name": "superhero"}]
+    assert client.keywords("tv", 3) == []
+    assert [r["title"] for r in client.discover_by_keyword("movie", 4565)] == ["Matrix"]
+    assert [r["name"] for r in client.trending("tv")] == ["Tendance"]
+    client.keywords("movie", 1)
+    assert api.paths.count("/3/movie/1/keywords") == 1   # cache
