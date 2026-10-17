@@ -16,6 +16,7 @@ TYPE_ALL, TYPE_SHOWS, TYPE_MOVIES = "Tout", "Séries", "Films"
 TYPE_KINDS = {TYPE_ALL: (SHOW, MOVIE), TYPE_SHOWS: (SHOW,), TYPE_MOVIES: (MOVIE,)}
 MIN_DATE = date(1900, 1, 1)
 MAX_AGE = 3600          # secondes : résultat gardé une heure (ou jusqu'à « Recalculer »)
+MAX_AGE_INCOMPLETE = 120  # résultat incomplet (TMDB a mal répondu) : recalculé vite
 PROFILE_THEMES = 15     # thèmes affichés dans « Ton profil de goûts »
 
 
@@ -32,8 +33,10 @@ def shared() -> dict:
 def load() -> suggestions.Result:
     """Profil de goûts, séries et films suggérés, avec leurs plateformes."""
     cache = shared()
-    if cache.get("result") and time.time() - cache["at"] < MAX_AGE:
-        return cache["result"]
+    if cache.get("result"):
+        max_age = MAX_AGE_INCOMPLETE if cache["result"].errors else MAX_AGE
+        if time.time() - cache["at"] < max_age:
+            return cache["result"]
     tmdb = common.tmdb_client()
     bar = st.progress(0.0, text="Analyse de tes goûts… La première fois, cela peut prendre "
                                 "une à deux minutes.")
@@ -45,7 +48,10 @@ def load() -> suggestions.Result:
         suggestions.resolve_show_tmdb_ids(session, tmdb)
         session.commit()
         result = suggestions.compute_all(session, tmdb, progress=progress)
-    suggestions.attach_availability(tmdb, result.items, progress)
+    failed = suggestions.attach_availability(tmdb, result.items, progress)
+    if failed:
+        result.errors.append(f"Plateformes non lues pour {failed} suggestion(s) (TMDB) : le filtre "
+                             "« Dispo en streaming » est incomplet.")
     bar.empty()
     cache.update(at=time.time(), result=result)
     return result
@@ -271,7 +277,7 @@ if not connected:
 show_messages()
 result = load()
 for error in result.errors:
-    st.error(error)
+    st.warning(error)
 all_items = [s for s in result.items if (s.kind, s.tmdb_id) not in hidden()]
 
 taste_section(result, all_items)

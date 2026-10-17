@@ -57,3 +57,25 @@ def test_error_does_not_raise(tmp_path):
     blocker = tmp_path / "pas_un_dossier"
     blocker.write_text("fichier")  # impossible de créer un dossier à cet endroit
     assert make_backup(db_path, blocker / "backups") is None
+
+
+def test_failed_backup_leaves_no_partial_file(tmp_path, monkeypatch):
+    db_path = tmp_path / "watchlog.db"
+    make_engine(db_path)
+    backups = tmp_path / "backups"
+    real_connect = sqlite3.connect
+
+    class Conn:
+        def __init__(self, path):
+            self.inner = real_connect(path)
+
+        def backup(self, target, *args, **kwargs):
+            raise sqlite3.OperationalError("disque plein (simulé)")
+
+        def close(self):
+            self.inner.close()
+
+    monkeypatch.setattr(sqlite3, "connect", Conn)
+
+    assert make_backup(db_path, backups) is None
+    assert list(backups.iterdir()) == []   # pas de copie partielle comptée parmi les 5

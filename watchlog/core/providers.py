@@ -3,6 +3,7 @@
 Données JustWatch fournies par TMDB (/watch/providers). JustWatch doit être cité.
 """
 
+import logging
 from dataclasses import dataclass, field
 
 from sqlmodel import Session
@@ -13,6 +14,8 @@ from watchlog.core.models import MOVIE, SHOW, Show
 REGION = "FR"
 LOGO_BASE = "https://image.tmdb.org/t/p/w92"
 ATTRIBUTION = "Disponibilités en France : JustWatch (via TMDB)."
+
+log = logging.getLogger(__name__)
 
 # Types d'offre TMDB, dans l'ordre d'affichage
 OFFER_LABELS = {
@@ -54,13 +57,21 @@ def parse(region_data: dict) -> Availability:
     return Availability(offers=offers, link=region_data.get("link"))
 
 
-def availability(tmdb, kind: str, tmdb_id: int | None) -> Availability | None:
-    """Disponibilités en France. None si inconnu (pas d'id TMDB, TMDB indisponible)."""
+def availability(tmdb, kind: str, tmdb_id: int | None,
+                 raise_errors: bool = False) -> Availability | None:
+    """Disponibilités en France. None si inconnu (pas d'id TMDB, TMDB indisponible).
+
+    raise_errors=True : une panne de TMDB lève ApiError au lieu de renvoyer None
+    (pour la compter et la signaler, au lieu d'afficher « pas disponible »).
+    """
     if tmdb_id is None:
         return None
     try:
         results = tmdb.watch_providers(TMDB_MEDIA[kind], tmdb_id)
-    except ApiError:
+    except ApiError as exc:
+        log.warning("Plateformes non lues pour %s %s : %s", kind, tmdb_id, exc)
+        if raise_errors:
+            raise
         return None
     if not results and not tmdb.available:
         return None

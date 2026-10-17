@@ -46,9 +46,9 @@ def make_backup(db_path: Path = DB_PATH, backup_dir: Path = BACKUP_DIR, keep: in
     db_path, backup_dir = Path(db_path), Path(backup_dir)
     if not db_path.is_file():
         return None
+    dest = backup_dir / f"{PREFIX}{datetime.now():%Y%m%d-%H%M%S}.db"
     try:
         backup_dir.mkdir(parents=True, exist_ok=True)
-        dest = backup_dir / f"{PREFIX}{datetime.now():%Y%m%d-%H%M%S}.db"
         source = sqlite3.connect(db_path)
         target = sqlite3.connect(dest)
         try:
@@ -61,6 +61,10 @@ def make_backup(db_path: Path = DB_PATH, backup_dir: Path = BACKUP_DIR, keep: in
         return dest
     except (OSError, sqlite3.Error) as exc:
         log.error("Sauvegarde impossible : %s", exc)
+        try:  # une copie partielle compterait parmi les `keep` et évincerait une bonne
+            dest.unlink(missing_ok=True)
+        except OSError:
+            pass
         return None
 
 

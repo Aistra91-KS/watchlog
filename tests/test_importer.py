@@ -5,7 +5,7 @@ from datetime import datetime
 import pytest
 from sqlmodel import Session, SQLModel, func, select
 
-from conftest import FakeTMDB, FakeTVMaze
+from conftest import SAMPLE_LIBRARY, FakeTMDB, FakeTVMaze
 from watchlog.core.importer import (apply_absolute_mapping, apply_direct_mapping, confirm_match,
                                     discard_pending, import_bingers, preview_absolute_mapping,
                                     preview_direct_mapping, read_bingers_zip)
@@ -432,3 +432,30 @@ def test_report_lines(imported):
     assert "Numérotation incohérente (visionnages en attente) (1) :" in text
     assert "Films sans métadonnées TMDB (2) :" in text
     assert "  - Film Rare" in lines
+
+
+# --- Rapport fidèle (pas de lignes perdues en silence) ----------------------------
+
+def test_import_rejects_zip_without_bingers_files(engine, tmp_path, tvmaze, tmdb):
+    import zipfile
+    other = tmp_path / "autre.zip"
+    with zipfile.ZipFile(other, "w") as archive:
+        archive.writestr("show.csv", "id,title\n1,X\n")   # ex. export « base complète »
+    with pytest.raises(ValueError, match="pas un export Bingers"):
+        import_bingers(other, engine, tvmaze, tmdb, download_posters=False)
+
+
+def test_import_report_counts_kept_ratings_and_skipped_watches(engine, make_bingers_zip,
+                                                               tvmaze, tmdb):
+    source = make_bingers_zip(
+        library=SAMPLE_LIBRARY[:1],
+        watches=[{"type": "episode", "title": "Le Royaume", "tvdb_id": "1001",
+                  "season_number": "", "episode_number": "", "plays": "1"}],
+        ratings=[{"type": "show", "title": "Le Royaume", "tvdb_id": "1001", "rating": "4"}])
+
+    first = import_bingers(source, engine, tvmaze, tmdb, download_posters=False)
+    again = import_bingers(source, engine, tvmaze, tmdb, download_posters=False)
+
+    assert (first.ratings, first.ratings_kept, first.watches_skipped) == (1, 0, 1)
+    assert (again.ratings, again.ratings_kept) == (0, 1)   # note déjà là : gardée, pas « reprise »
+    assert any("numéro d'épisode manquant" in line for line in first.lines())

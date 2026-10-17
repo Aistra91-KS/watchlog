@@ -19,6 +19,7 @@ Les réponses TMDB sont en cache (mots-clés 90 jours, recommandations 30 jours)
 premier calcul est long (une à deux minutes).
 """
 
+import logging
 import math
 from collections import defaultdict
 from collections.abc import Callable
@@ -36,6 +37,8 @@ from watchlog.core.models import (COMPLETED, EPISODE, FOR_LATER, MOVIE, SHOW, ST
                                   WATCHING, DismissedSuggestion, Episode, LibraryItem, Movie,
                                   Rating, Show, Watch)
 from watchlog.core.tmdb import TMDBClient
+
+log = logging.getLogger(__name__)
 
 # Type de média côté TMDB
 TMDB_MEDIA = {SHOW: "tv", MOVIE: "movie"}
@@ -66,6 +69,7 @@ REDUCED_FACTOR = 0.3    # titre qui a un thème « moins de ça »
 MIN_CONTENT = 0.35      # titre venu des thèmes ou des tendances : ressemblance minimale
 DIVERSITY = 0.25        # pénalité de ressemblance avec les titres déjà retenus (MMR)
 BAYES_VOTES, BAYES_MEAN = 200, 6.5
+MAX_FAILURE_SHARE = 0.05  # au-delà de 5 % d'appels TMDB ratés, le résultat est signalé incomplet
 
 
 @dataclass
@@ -107,7 +111,24 @@ class Suggestion:
 class Result:
     items: list[Suggestion]
     profile: taste.Profile
-    errors: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)   # résultat incomplet : à afficher
+
+
+class Failures:
+    """Appels TMDB ratés pendant un calcul, par étape : le résultat n'est pas faussé en silence."""
+
+    def __init__(self):
+        self.counts: dict[str, list[int]] = defaultdict(lambda: [0, 0])  # étape -> [ratés, total]
+
+    def add(self, step: str, failed: int, total: int) -> None:
+        self.counts[step][0] += failed
+        self.counts[step][1] += total
+
+    def messages(self) -> list[str]:
+        return [f"TMDB n'a pas répondu pour {failed} sur {total} {step} : suggestions incomplètes, "
+                "« Recalculer » plus tard."
+                for step, (failed, total) in self.counts.items()
+                if total and failed / total > MAX_FAILURE_SHARE]
 
 
 Progress = Callable[[int, int, str], None]
@@ -152,7 +173,8 @@ def resolve_show_tmdb_ids(session: Session, tmdb) -> int:
                                                 Show.tvdb_id.is_not(None))).all():
         try:
             tmdb_id = tmdb.find_tv_by_tvdb(show.tvdb_id)
-        except ApiError:
+        except ApiError as exc:
+            log.warning("Id TMDB introuvable pour %s (TVDB %s) : %s", show.title, show.tvdb_id, exc)
             continue
         if tmdb_id:
             show.tmdb_id = tmdb_id
@@ -264,44 +286,54 @@ def _to_suggestion(kind: str, data: dict, genre_names: dict[int, str]) -> Sugges
 # --- Étapes du calcul -------------------------------------------------------------------
 
 def fetch_features(tmdb, refs: list[tuple[str, int]], progress: Progress | None = None,
-                   label: str = "") -> dict[tuple[str, int], taste.Features]:
+                   label: str = "", failures: Failures | None = None,
+                   step: str = "titres (thèmes)") -> dict[tuple[str, int], taste.Features]:
     """Mots-clés TMDB de chaque titre (kind, id TMDB), lus en parallèle -> traits.
 
-    `progress` est appelé depuis le thread principal (exigence de Streamlit).
+    Un titre dont TMDB ne donne pas les mots-clés a des traits vides ; l'échec est
+    journalisé et compté dans `failures`. `progress` est appelé depuis le thread
+    principal (exigence de Streamlit).
     """
     refs = list(dict.fromkeys(refs))
 
     def one(ref):
         try:
-            return taste.keyword_features(tmdb.keywords(TMDB_MEDIA[ref[0]], ref[1]))
-        except ApiError:
-            return {}
+            return taste.keyword_features(tmdb.keywords(TMDB_MEDIA[ref[0]], ref[1])), False
+        except ApiError as exc:
+            log.warning("Mots-clés TMDB non lus pour %s %s : %s", ref[0], ref[1], exc)
+            return {}, True
 
-    result = {}
+    result, failed = {}, 0
     with ThreadPoolExecutor(WORKERS) as pool:
-        for done, (ref, features) in enumerate(zip(refs, pool.map(one, refs)), start=1):
+        for done, (ref, (features, error)) in enumerate(zip(refs, pool.map(one, refs)), start=1):
             result[ref] = features
+            failed += error
             if progress and (done % 10 == 0 or done == len(refs)):
                 progress(done, len(refs), label)
+    if failures is not None:
+        failures.add(step, failed, len(refs))
     return result
 
 
 def collaborative(tmdb, kind: str, sources: list[Source], excluded: set[int],
                   genre_names: dict[int, str], progress: Progress | None = None,
-                  label: str = "") -> tuple[dict[int, Suggestion], dict[int, dict[str, float]]]:
+                  label: str = "", failures: Failures | None = None,
+                  ) -> tuple[dict[int, Suggestion], dict[int, dict[str, float]]]:
     """Recommandations TMDB de chaque source, additionnées. Renvoie (candidats, raisons).
 
-    Une source dont TMDB ne répond pas est ignorée ; ApiError seulement si aucune n'a pu être lue.
+    Une source dont TMDB ne répond pas est ignorée (journalisé, compté dans `failures`) ;
+    ApiError si aucune n'a pu être lue.
     """
     media = TMDB_MEDIA[kind]
     candidates: dict[int, Suggestion] = {}
     reasons: dict[int, dict[str, float]] = defaultdict(dict)  # id -> {titre source: apport}
-    failures = 0
+    failed = 0
     for done, source in enumerate(sources, start=1):
         try:
             results = tmdb.recommendations(media, source.tmdb_id)
-        except ApiError:
-            failures += 1
+        except ApiError as exc:
+            log.warning("Recommandations TMDB non lues pour %s : %s", source.title, exc)
+            failed += 1
             results = []
         for rank, data in enumerate(results):
             if "id" not in data or data["id"] in excluded:
@@ -318,13 +350,16 @@ def collaborative(tmdb, kind: str, sources: list[Source], excluded: set[int],
                 reasons[data["id"]][source.title] = contribution
         if progress:
             progress(done, len(sources), label)
-    if sources and failures == len(sources):
+    if sources and failed == len(sources):
         raise ApiError("TMDB indisponible : aucune recommandation n'a pu être lue.")
+    if failures is not None:
+        failures.add("titres (recommandations)", failed, len(sources))
     return candidates, reasons
 
 
 def explore(tmdb, kind: str, profile: taste.Profile, candidates: dict[int, Suggestion],
-            excluded: set[int], genre_names: dict[int, str]) -> list[Suggestion]:
+            excluded: set[int], genre_names: dict[int, str],
+            failures: Failures | None = None) -> list[Suggestion]:
     """Ajoute aux candidats les titres phares des thèmes forts du profil et les tendances.
 
     Renvoie les nouveaux candidats (leurs mots-clés restent à lire).
@@ -347,18 +382,24 @@ def explore(tmdb, kind: str, profile: taste.Profile, candidates: dict[int, Sugge
             suggestion.from_themes = True
 
     min_votes = 100 if kind == MOVIE else 50
+    failed = 0
     for feature in seeds:
         try:
             results = tmdb.discover_by_keyword(media, taste.keyword_id(feature), min_votes)
-        except ApiError:
+        except ApiError as exc:
+            log.warning("Exploration du thème %s non lue : %s", profile.labels.get(feature), exc)
+            failed += 1
             results = []
         for data in results:
             add(data)
     try:
         for data in tmdb.trending(media):
             add(data, trending=True)
-    except ApiError:
-        pass
+    except ApiError as exc:
+        log.warning("Tendances TMDB (%s) non lues : %s", media, exc)
+        failed += 1
+    if failures is not None:
+        failures.add("thèmes et tendances explorés", failed, len(seeds) + 1)
     return new
 
 
@@ -432,15 +473,20 @@ def compute_all(session: Session, tmdb, limit: int = 60,
     progress(fait, total, libellé) est appelé à chaque étape. Si TMDB ne répond pour aucun
     titre d'un type, ce type est absent et un message est ajouté à `errors`.
     """
+    failures = Failures()
     signals = library_signals(session) + dismissed_signals(session)
     features = fetch_features(tmdb, [(s.kind, s.tmdb_id) for s in signals if s.weight],
-                              progress, "1/4 Thèmes de ta bibliothèque")
+                              progress, "1/4 Thèmes de ta bibliothèque", failures,
+                              "titres de ta bibliothèque (thèmes)")
     genre_names = {}
     for kind in (SHOW, MOVIE):
         try:
             genre_names[kind] = tmdb.genres(TMDB_MEDIA[kind])
-        except ApiError:
+            failures.add("listes de genres", 0, 1)
+        except ApiError as exc:
+            log.warning("Genres TMDB (%s) non lus : %s", kind, exc)
             genre_names[kind] = {}
+            failures.add("listes de genres", 1, 1)
 
     errors, pools, all_reasons, excluded = [], {}, {}, {}
     for kind, label in ((SHOW, "séries"), (MOVIE, "films")):
@@ -448,7 +494,7 @@ def compute_all(session: Session, tmdb, limit: int = 60,
         try:
             candidates, all_reasons[kind] = collaborative(
                 tmdb, kind, library_sources(session, kind), excluded[kind], genre_names[kind],
-                progress, f"2/4 Recommandations ({label})")
+                progress, f"2/4 Recommandations ({label})", failures)
         except ApiError as exc:
             errors.append(f"Suggestions de {label} indisponibles : {exc}")
             continue
@@ -456,7 +502,8 @@ def compute_all(session: Session, tmdb, limit: int = 60,
         pools[kind] = {s.tmdb_id: s for s in best}
 
     pool_refs = [(k, i) for k, pool in pools.items() for i in pool]
-    features.update(fetch_features(tmdb, pool_refs, progress, "3/4 Thèmes des candidats"))
+    features.update(fetch_features(tmdb, pool_refs, progress, "3/4 Thèmes des candidats",
+                                   failures, "suggestions possibles (thèmes)"))
     corpus = [features.get(ref, {}) for ref in pool_refs]
     signal_features = [(s.weight, {**features.get((s.kind, s.tmdb_id), {}),
                                    **taste.genre_features(s.genres)}) for s in signals]
@@ -464,16 +511,17 @@ def compute_all(session: Session, tmdb, limit: int = 60,
 
     new_refs = []
     for kind, pool in pools.items():
-        new_refs += [(kind, s.tmdb_id) for s in
-                     explore(tmdb, kind, profile, pool, excluded[kind], genre_names[kind])]
-    features.update(fetch_features(tmdb, new_refs, progress, "4/4 Exploration de tes thèmes"))
+        new_refs += [(kind, s.tmdb_id) for s in explore(tmdb, kind, profile, pool, excluded[kind],
+                                                        genre_names[kind], failures)]
+    features.update(fetch_features(tmdb, new_refs, progress, "4/4 Exploration de tes thèmes",
+                                   failures, "suggestions possibles (thèmes)"))
 
     items = []
     for kind, pool in pools.items():
         for s in pool.values():
             s.features = features.get((kind, s.tmdb_id), {})
         items += rank(pool, all_reasons[kind], profile, limit)
-    return Result(items, profile, errors)
+    return Result(items, profile, errors + failures.messages())
 
 
 def compute(session: Session, tmdb, kind: str, limit: int = 60,
@@ -490,12 +538,21 @@ def compute(session: Session, tmdb, kind: str, limit: int = 60,
 STREAMING_OFFERS = ("Abonnement", "Gratuit", "Gratuit avec pub")
 
 
-def attach_availability(tmdb, items: list[Suggestion], progress: Progress | None = None) -> None:
-    """Complète chaque suggestion avec ses plateformes en France (pour les filtres)."""
+def attach_availability(tmdb, items: list[Suggestion], progress: Progress | None = None) -> int:
+    """Complète chaque suggestion avec ses plateformes en France (pour les filtres).
+
+    Renvoie le nombre de titres dont TMDB n'a pas donné les plateformes (panne) : pour eux,
+    « aucune plateforme » ne veut pas dire « pas disponible ».
+    """
+    failed = 0
     for done, item in enumerate(items, start=1):
         if progress and (done % 10 == 0 or done == len(items)):
             progress(done, len(items), "Plateformes de streaming")
-        data = providers.availability(tmdb, item.kind, item.tmdb_id)
+        try:
+            data = providers.availability(tmdb, item.kind, item.tmdb_id, raise_errors=True)
+        except ApiError:
+            failed += 1
+            continue
         if data is None:
             continue
         names = []
@@ -503,6 +560,7 @@ def attach_availability(tmdb, items: list[Suggestion], progress: Progress | None
             names += [p.name for p in data.offers.get(offer, []) if p.name not in names]
         item.streaming = names
         item.rent_or_buy = bool(data.offers.get("Location") or data.offers.get("Achat"))
+    return failed
 
 
 # --- Actions depuis la page Suggestions --------------------------------------------

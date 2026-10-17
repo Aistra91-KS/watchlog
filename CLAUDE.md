@@ -92,7 +92,13 @@ tests/                 pytest ; conftest.py = faux clients TVMaze/TMDB, faux zip
   aux bases existantes. Nouvelle table : `create_all` suffit.
 - Appels réseau uniquement via les clients (`tmdb.py`, `tvmaze.py`) → cache + débit limité +
   `ApiError` lisible. Une panne d'API ne doit jamais faire planter une page : message clair.
-- **Secrets** : uniquement dans `.env`, jamais logués, jamais dans les clés de cache.
+  Mais un repli ne doit jamais fausser un résultat **en silence** : toute erreur avalée est
+  journalisée (`log.warning` avec le titre / l'id) et, si elle change le résultat, comptée et
+  montrée (rapport, `Result.errors`, message). `get_json(force=True)` ne se replie pas sur
+  l'ancien cache (la synchro doit savoir qu'elle n'a pas eu de donnée fraîche).
+  Audit : agent `silent-failure-hunter` (`.claude/agents/`).
+- **Secrets** : uniquement dans `.env`, jamais logués, jamais dans les clés de cache (le filtre
+  des logs masque aussi les traces d'exception, qu'il garde).
 - **Tests** : jamais d'appel réseau. Faux clients de `conftest.py` (`FakeTVMaze`,
   `FakeTMDB`) ou `helpers_http.FakeApi` (httpx.MockTransport) pour tester un client.
   `helpers_db` pour remplir une base de test. Toute nouvelle fonction de `core/` a ses tests.

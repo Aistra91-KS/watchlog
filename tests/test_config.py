@@ -26,7 +26,7 @@ def test_secret_filter_replaces_secrets(monkeypatch):
     assert FAKE_TOKEN not in message and FAKE_KEY not in message
 
 
-def test_secret_filter_removes_traceback(monkeypatch):
+def test_secret_filter_keeps_traceback_without_secret(monkeypatch):
     monkeypatch.setenv("TMDB_READ_TOKEN", FAKE_TOKEN)
     monkeypatch.setenv("TMDB_API_KEY", "")
     try:
@@ -36,7 +36,10 @@ def test_secret_filter_removes_traceback(monkeypatch):
 
     SecretFilter().filter(record)
 
-    assert record.exc_info is None  # la trace aurait pu contenir le secret
+    # La cause reste dans le journal (sinon log.exception n'apprend rien), secret masqué.
+    assert record.exc_info is None
+    assert "ValueError: erreur avec ***" in record.exc_text
+    assert FAKE_TOKEN not in record.exc_text
 
 
 def test_secret_filter_in_real_logger(monkeypatch):

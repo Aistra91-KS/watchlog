@@ -308,3 +308,36 @@ def test_download_failure_returns_false(engine, tmp_path):
 
     assert client.download("https://images.example.test/absent.jpg", dest) is False
     assert not dest.exists()
+
+
+# --- échecs signalés (pas de repli silencieux) -----------------------------------
+
+def test_force_does_not_fall_back_on_stale_cache(engine):
+    """Synchro (force=True) : une panne doit se voir, pas relire l'ancienne réponse."""
+    state = {"down": False}
+
+    def handler(request):
+        if state["down"]:
+            raise httpx.ConnectError("connexion impossible")
+        return httpx.Response(200, json={"name": "Ancienne réponse"})
+
+    client = make_client(engine, FakeApi(handler))
+    client.get_json("/shows/1", ttl=timedelta(days=1))
+    state["down"] = True
+
+    with pytest.raises(ApiError):
+        client.get_json("/shows/1", ttl=timedelta(days=1), force=True)
+    assert client.get_json("/shows/1", ttl=timedelta(days=1)) == {"name": "Ancienne réponse"}
+
+
+def test_unexpected_status_is_logged(engine, caplog):
+    client = make_client(engine, FakeApi(lambda request: httpx.Response(401)))
+    with pytest.raises(ApiError, match="HTTP 401"):
+        client.get_json("/shows/1")
+    assert "HTTP 401" in caplog.text
+
+
+def test_invalid_json_raises_api_error(engine):
+    client = make_client(engine, FakeApi(lambda request: httpx.Response(200, text="<html>")))
+    with pytest.raises(ApiError, match="illisible"):
+        client.get_json("/shows/1")

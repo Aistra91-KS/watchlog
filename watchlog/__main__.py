@@ -34,6 +34,8 @@ def backup_first() -> None:
     dest = make_backup()
     if dest is not None:
         print(f"Sauvegarde : {dest.name}")
+    else:
+        print("Sauvegarde impossible (détail dans data/watchlog.log) : on continue sans copie.")
 
 
 def tmdb_status(tmdb) -> None:

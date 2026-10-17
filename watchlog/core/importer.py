@@ -78,7 +78,9 @@ class ImportReport:
     episode_watches: int = 0
     movie_watches: int = 0
     ratings: int = 0
+    ratings_kept: int = 0         # note déjà présente dans Watchlog : pas écrasée
     ratings_skipped: int = 0
+    watches_skipped: int = 0      # ligne de visionnage sans numéro d'épisode
     lists: int = 0
     pending_watches: int = 0
     not_found: list[str] = field(default_factory=list)
@@ -98,8 +100,12 @@ class ImportReport:
             f"Listes : {self.lists}",
             f"Visionnages en attente : {self.pending_watches}",
         ]
+        if self.ratings_kept:
+            lines.append(f"Notes déjà présentes dans Watchlog (gardées) : {self.ratings_kept}")
         if self.ratings_skipped:
             lines.append(f"Notes non reprises (élément introuvable ou non rattaché) : {self.ratings_skipped}")
+        if self.watches_skipped:
+            lines.append(f"Visionnages ignorés (numéro d'épisode manquant) : {self.watches_skipped}")
         sections = [
             ("Séries introuvables sur TVMaze", self.not_found),
             ("Séries à confirmer", self.uncertain),
@@ -323,6 +329,9 @@ def _import_show(session: Session, tvmaze, entry: dict, report: ImportReport) ->
     info = {"tvdb_id": _int(row.get("tvdb_id")), "tmdb_id": _int(row.get("tmdb_id")),
             "title": row.get("title", ""), "original_title": row.get("original_title", "")}
     views = _views(entry["watches"])
+    report.watches_skipped += sum(1 for row in entry["watches"]
+                                  if _int(row.get("season_number")) is None
+                                  or _int(row.get("episode_number")) is None)
 
     show = _find_show(session, info["tvdb_id"], info["title"])
     reason = None
@@ -446,7 +455,9 @@ def _import_ratings_and_lists(session: Session, rows: dict, report: ImportReport
             session.add(Rating(kind=kind, ref_id=ref_id, rating=rating,
                                emotions=row.get("emotions") or None,
                                favorite_character=row.get("favorite_character") or None))
-        report.ratings += 1
+            report.ratings += 1
+        else:
+            report.ratings_kept += 1
 
     list_names = set()
     for row in rows["lists"]:
@@ -479,6 +490,10 @@ def import_bingers(source, engine: Engine, tvmaze, tmdb, progress: Progress | No
     """
     progress = progress or (lambda done, total, label: None)
     rows = read_bingers_zip(source)
+    if not rows["library"] and not rows["watches"]:
+        # Mauvais fichier (autre app, zip de Watchlog...) : ne pas annoncer un import « réussi » vide.
+        raise ValueError("ce zip ne contient ni library.csv ni watches.csv : ce n'est pas un "
+                         "export Bingers.")
     shows, movies = _collect(rows)
     report = ImportReport()
     total = len(shows) + len(movies) + 1

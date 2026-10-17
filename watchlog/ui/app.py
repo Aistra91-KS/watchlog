@@ -62,10 +62,7 @@ st.set_page_config(page_title="Watchlog", page_icon=str(ROOT / "assets" / "watch
 @st.cache_resource
 def startup_backup() -> None:
     """Sauvegarde automatique de la base, une fois par lancement de l'application."""
-    try:
-        from watchlog.core.backup import make_backup
-    except ImportError:  # module pas encore disponible
-        return
+    from watchlog.core.backup import make_backup
     make_backup()
 
 

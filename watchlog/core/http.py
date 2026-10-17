@@ -102,7 +102,9 @@ class CachedClient:
                  ttl: Ttl | None = None, force: bool = False):
         """Renvoie le JSON de `path`, ou None si 404.
 
-        ttl=None : pas de cache du tout. force=True : ignore le cache mais le met à jour.
+        ttl=None : pas de cache du tout. force=True : ignore le cache mais le met à jour ;
+        en cas de panne, ApiError (pas de repli sur l'ancienne réponse : l'appelant, la synchro,
+        veut une donnée fraîche et doit savoir qu'il ne l'a pas eue).
         """
         key = self.cache_key(path, params)
         cached = self._cache_get(key) if ttl is not None else None
@@ -115,7 +117,7 @@ class CachedClient:
         try:
             response = self._request(path, params)
         except ApiError:
-            if cached:  # mieux vaut une donnée un peu ancienne que rien
+            if cached and not force:  # mieux vaut une donnée un peu ancienne que rien
                 log.warning("%s indisponible, utilisation du cache pour %s", self.name, key)
                 return json.loads(cached.response_json)
             raise
@@ -123,8 +125,13 @@ class CachedClient:
         if response.status_code == 404:
             return None
         if response.status_code != 200:
+            log.error("%s %s : réponse inattendue (HTTP %s)", self.name, key, response.status_code)
             raise ApiError(f"{self.name} : réponse inattendue (HTTP {response.status_code})")
-        data = response.json()
+        try:
+            data = response.json()
+        except ValueError as exc:
+            log.error("%s %s : réponse illisible (%s)", self.name, key, exc)
+            raise ApiError(f"{self.name} : réponse illisible") from exc
         if ttl is not None:
             self._cache_put(key, data)
         return data

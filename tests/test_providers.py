@@ -92,3 +92,16 @@ def test_tmdb_client_watch_providers(engine):
     assert api.paths.count("/3/movie/27205/watch/providers") == 1   # 2e appel : cache
     assert "/movie/27205/watch/providers" in cache_keys(engine)
     assert client.watch_providers("tv", 1) == {}   # 404
+
+
+
+def test_availability_raise_errors_on_outage():
+    class DownTMDB:
+        available = True
+
+        def watch_providers(self, media, tmdb_id):
+            raise ApiError("TMDB indisponible (simulé)")
+
+    assert providers.availability(DownTMDB(), "movie", 1) is None
+    with pytest.raises(ApiError):
+        providers.availability(DownTMDB(), "movie", 1, raise_errors=True)

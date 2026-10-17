@@ -40,7 +40,13 @@ class SecretFilter(logging.Filter):
             for secret in secrets:
                 message = message.replace(secret, "***")
             record.msg, record.args = message, None
-            record.exc_info = record.exc_text = None  # une trace pourrait contenir un secret
+            # La trace est gardée (sinon log.exception n'écrit plus la cause), secrets masqués.
+            if record.exc_info:
+                record.exc_text = logging.Formatter().formatException(record.exc_info)
+                record.exc_info = None
+            if record.exc_text:
+                for secret in secrets:
+                    record.exc_text = record.exc_text.replace(secret, "***")
         return True
 
 

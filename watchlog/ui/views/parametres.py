@@ -200,8 +200,15 @@ st.write("Dans Bingers, exporte tes données (fichier .zip), puis choisis le fic
          "L'import peut être relancé sans créer de doublons. "
          "Une sauvegarde de la base est faite juste avant.")
 uploaded = st.file_uploader("Export Bingers (.zip)", type=["zip"])
+def backup_or_warn() -> None:
+    """Sauvegarde avant une grosse opération ; si elle rate, on le dit (l'opération continue)."""
+    if make_backup() is None:
+        st.warning("Sauvegarde impossible (détail dans data/watchlog.log) : l'opération continue "
+                   "sans copie de sécurité.")
+
+
 if st.button("Importer", disabled=uploaded is None):
-    make_backup()
+    backup_or_warn()
     try:
         report = importer.import_bingers(uploaded, get_engine(), common.tvmaze_client(),
                                          common.tmdb_client(), progress=progress_bar("Import..."))
@@ -217,7 +224,7 @@ st.header("Synchronisation")
 st.write("Met à jour les séries (TVMaze) et les films (TMDB) de la bibliothèque. "
          "Une sauvegarde de la base est faite juste avant.")
 if st.button("Synchroniser maintenant"):
-    make_backup()
+    backup_or_warn()
     report = sync(get_engine(), common.tvmaze_client(), common.tmdb_client(),
                   progress=progress_bar("Synchronisation..."))
     remember("sync_report", report.lines())

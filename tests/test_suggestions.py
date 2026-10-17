@@ -482,3 +482,39 @@ def test_tmdb_client_keywords_discover_trending(engine):
     assert [r["name"] for r in client.trending("tv")] == ["Tendance"]
     client.keywords("movie", 1)
     assert api.paths.count("/3/movie/1/keywords") == 1   # cache
+
+
+
+def test_compute_all_reports_tmdb_failures(session):
+    """Mots-clés non lus : le résultat est signalé incomplet au lieu d'être faux en silence."""
+    for i in (1, 2):
+        add_movie(session, f"A{i}", status=COMPLETED, tmdb_id=i)
+    session.flush()
+
+    class FlakyTMDB(RecoTMDB):
+        def keywords(self, media, tmdb_id):
+            raise ApiError("TMDB indisponible (simulé)")
+
+    tmdb = FlakyTMDB(recos={("movie", 1): [rec(10, "X")], ("movie", 2): [rec(10, "X")]})
+
+    result = suggestions.compute_all(session, tmdb)
+
+    assert [s.title for s in result.items] == ["X"]          # le calcul va au bout...
+    assert any("2 sur 2 titres de ta bibliothèque" in e for e in result.errors)  # ...et le dit
+
+
+def test_compute_all_without_failures_has_no_errors(session):
+    add_movie(session, "A", status=COMPLETED, tmdb_id=1)
+    session.flush()
+    result = suggestions.compute_all(session, RecoTMDB(recos={("movie", 1): [rec(10, "X")]}))
+    assert result.errors == []
+
+
+def test_attach_availability_counts_outages():
+    class DownTMDB(RecoTMDB):
+        def watch_providers(self, media, tmdb_id):
+            raise ApiError("TMDB indisponible (simulé)")
+
+    items = [make(tmdb_id=1), make(tmdb_id=2)]
+    assert suggestions.attach_availability(DownTMDB(), items) == 2
+    assert items[0].streaming == []
