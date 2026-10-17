@@ -9,6 +9,7 @@ import streamlit as st
 from sqlmodel import func, select
 
 from watchlog.core import importer
+from watchlog.core.bingers_export import export_bingers_zip
 from watchlog.core.backup import backup_date, list_backups, make_backup
 from watchlog.core.config import BACKUP_DIR
 from watchlog.core.db import get_engine
@@ -237,18 +238,32 @@ def csv_zip_bytes() -> bytes:
     return buffer.getvalue()
 
 
+def bingers_zip_bytes() -> bytes:
+    buffer = io.BytesIO()
+    with common.db() as session:
+        export_bingers_zip(session, buffer)
+    return buffer.getvalue()
+
+
 st.header("Export")
 st.write("« À regarder » : la liste avec les filtres par défaut (séries en cours et à voir, films). "
-         "Base complète : un fichier CSV par table, réunis dans un .zip.")
+         "Base complète : un fichier CSV par table, réunis dans un .zip (pour Excel, illisible "
+         "par Bingers). **Pour Bingers** : un .zip au format d'export de Bingers, à importer dans "
+         "l'app (Importer l'historique > Choisir le fichier .zip).")
 stamp = f"{datetime.now():%Y-%m-%d}"
-left, right = st.columns(2)
+left, middle, right = st.columns(3)
 # Les fichiers ne sont fabriqués qu'au clic (data = fonction).
 left.download_button(
     "Télécharger « À regarder » (Excel)", data=excel_bytes, file_name=f"a-regarder-{stamp}.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", on_click="ignore")
-right.download_button(
+middle.download_button(
     "Télécharger la base complète (CSV)", data=csv_zip_bytes, file_name=f"watchlog-{stamp}.zip",
     mime="application/zip", on_click="ignore")
+right.download_button(
+    "Télécharger pour Bingers (.zip)", data=bingers_zip_bytes,
+    file_name=f"watchlog-bingers-{stamp}.zip", mime="application/zip", on_click="ignore",
+    help="Séries, films, épisodes vus avec leurs dates, statuts, favoris, notes et listes. "
+         "Les titres saisis à la main et les épisodes spéciaux ne sont pas repris.")
 
 # --- Sauvegardes -------------------------------------------------------------------
 st.header("Sauvegardes")

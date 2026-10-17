@@ -109,5 +109,9 @@ def test_cli_export(engine, session, tmp_path, monkeypatch):
 
     monkeypatch.setattr(cli, "ROOT", tmp_path)
     cli.cmd_export(argparse.Namespace(excel=None, csv=None), engine, None, None)
-    created = sorted(p.suffix for p in (tmp_path / "exports").iterdir())
-    assert created == [".xlsx", ".zip"]
+    created = sorted(p.name for p in (tmp_path / "exports").iterdir())
+    assert [name.split("-2")[0] for name in created] == ["a-regarder", "watchlog", "watchlog-bingers"]
+
+    bingers = tmp_path / "pour-bingers.zip"
+    cli.cmd_export(argparse.Namespace(excel=None, csv=None, bingers=str(bingers)), engine, None, None)
+    assert bingers.exists()

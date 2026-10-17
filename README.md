@@ -57,7 +57,7 @@ mémorisé par le navigateur.
 | Suggestions | séries et films à découvrir (voir « Comment marchent les suggestions » plus bas), avec un score « % pour toi », les thèmes en commun, un badge « Tendance de la semaine » et les plateformes. **Ton profil de goûts** : les thèmes détectés (dystopie, super-héros…) et les réglages « Plus de… » / « Moins de… ». Filtres : type, genres, thèmes, plateformes, dispo en streaming, années, note TMDB minimale ; tri par pertinence, note ou date. Clic sur un titre : page **Aperçu** (résumé, casting, bande-annonce, où regarder, titres similaires, bouton Ajouter). Premier calcul : une à deux minutes, ensuite quelques secondes |
 | Ajouter | ajout d'une série (recherche TVMaze) ou d'un film (recherche TMDB), ou ajout manuel. Un film ajouté en « Terminé » compte comme vu, à la date choisie (« Vu le », facultatif) |
 | Statistiques | chiffres clés (temps total, note moyenne…) puis 4 onglets. **Activité** : records (jour, jours d'affilée, mois), calendrier des 12 derniers mois jour par jour, vus et heures par mois, par jour de la semaine, par année — les jours d'import massif (tout l'historique daté du jour de l'import) peuvent être ignorés. **Séries** : temps passé par série, genres, avancement des séries en cours, séries terminées. **Films** : durées, genres, décennies, liste des films vus (recherche, tri). **Notes** : répartition et meilleures notes. Clic sur une ligne d'un tableau : la fiche |
-| Paramètres | connexion TMDB, correspondances à vérifier, import Bingers, synchronisation, export, sauvegardes |
+| Paramètres | connexion TMDB, correspondances à vérifier, import Bingers, synchronisation, export (Excel, CSV, format Bingers), sauvegardes |
 
 En cliquant sur un titre, on ouvre la **fiche** de la série (saisons, épisodes à cocher, statut,
 note) ou du film. Chaque fiche indique **où regarder** en France : abonnement (Netflix, Prime
@@ -98,7 +98,7 @@ Avec le Python du `.venv` (sous Windows : `.\.venv\Scripts\python.exe`) :
 | `python -m watchlog import chemin\vers\export.zip` | importe un export Bingers |
 | `python -m watchlog sync` | met à jour séries (TVMaze) et films (TMDB) |
 | `python -m watchlog check` | vérifie la connexion à TMDB |
-| `python -m watchlog export` | exporte « À regarder » (Excel) et la base complète (CSV) |
+| `python -m watchlog export` | exporte « À regarder » (Excel), la base complète (CSV) et un .zip pour Bingers |
 | `python -m watchlog run` | lance l'interface (comme Ctrl+Maj+B) |
 
 `import` et `sync` acceptent `--no-posters` pour ne pas télécharger les affiches ; elles font
@@ -109,28 +109,28 @@ d'abord une sauvegarde de la base. `import`, `sync` et `check` affichent d'abord
 
 - Dans l'interface (page Paramètres, section « Export ») : un bouton pour la liste
   « À regarder » au format Excel (filtres par défaut : séries en cours et à voir, films),
-  un autre pour la base complète (un fichier CSV par table, réunis dans un `.zip`).
-- En ligne de commande : `python -m watchlog export` crée les deux fichiers dans le dossier
-  `exports/` (nom avec la date et l'heure). Options : `--excel CHEMIN` et/ou `--csv CHEMIN`
-  pour choisir l'emplacement (avec une seule option, seul ce fichier est créé).
+  un pour la base complète (un fichier CSV par table, réunis dans un `.zip`) et un
+  **pour Bingers** (voir ci-dessous).
+- En ligne de commande : `python -m watchlog export` crée les trois fichiers dans le dossier
+  `exports/` (nom avec la date et l'heure). Options : `--excel CHEMIN`, `--csv CHEMIN`,
+  `--bingers CHEMIN` pour choisir l'emplacement (avec des options, seuls ces fichiers sont créés).
+
+### Renvoyer ses données dans Bingers
+
+L'export « base complète » est illisible pour Bingers (« Impossible de lire cette archive ») :
+Bingers ne lit que des formats connus. Le bouton **Télécharger pour Bingers (.zip)** écrit le
+format d'export de Bingers lui-même (`library.csv`, `watches.csv`, `ratings.csv`, `lists.csv`).
+Dans Bingers : Importer l'historique > Choisir le fichier .zip.
+
+Repris : séries et films, statuts, favoris, épisodes et films vus avec leurs dates et nombre
+de visionnages, notes, émotions, personnage préféré, listes. Pas repris : titres saisis à la
+main (inconnus de Bingers) et épisodes spéciaux. Un visionnage sans date est daté du jour
+d'ajout du titre. Les séries recalées à la main (numérotation différente) sont signalées : leurs
+épisodes sont exportés avec la numérotation TVMaze, à vérifier dans Bingers.
 
 Les CSV sont en UTF-8 avec BOM : Excel les ouvre avec les bons accents. Le cache des API
 n'est pas exporté (volumineux et inutile).
 
-## Import Bingers
-
-Dans Bingers, exporter ses données (fichier `.zip`), puis :
-
-```
-python -m watchlog import chemin\vers\export.zip
-```
-
-On peut aussi importer depuis l'interface : page **Paramètres**, section « Import Bingers ».
-
-L'import peut être relancé sans créer de doublons. À la fin, un rapport indique ce qui a
-été importé et ce qui demande une vérification : séries introuvables ou incertaines,
-numérotation d'épisodes différente entre Bingers et TVMaze (ces visionnages sont mis
-« en attente » jusqu'à confirmation dans l'interface, voir « Correspondances à vérifier »).
 ## Comment marchent les suggestions
 
 1. **Signaux** : chaque titre de la bibliothèque compte plus ou moins. Note et favori d'abord ;
@@ -149,6 +149,20 @@ numérotation d'épisodes différente entre Bingers et TVMaze (ces visionnages s
 Pour orienter : page Suggestions > **Ton profil de goûts** > « Plus de… » (ex. Dystopie) /
 « Moins de… » (ex. Animation), puis « Enregistrer et recalculer ».
 
+## Import Bingers
+
+Dans Bingers, exporter ses données (fichier `.zip`), puis :
+
+```
+python -m watchlog import chemin\vers\export.zip
+```
+
+On peut aussi importer depuis l'interface : page **Paramètres**, section « Import Bingers ».
+
+L'import peut être relancé sans créer de doublons. À la fin, un rapport indique ce qui a
+été importé et ce qui demande une vérification : séries introuvables ou incertaines,
+numérotation d'épisodes différente entre Bingers et TVMaze (ces visionnages sont mis
+« en attente » jusqu'à confirmation dans l'interface, voir « Correspondances à vérifier »).
 
 Les dates de visionnage reprises de Bingers sont parfois la date de l'import dans Bingers :
 beaucoup d'épisodes peuvent donc sembler vus le même jour (visible dans les statistiques).

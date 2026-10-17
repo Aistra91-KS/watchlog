@@ -80,14 +80,16 @@ def cmd_export(args, engine, tvmaze, tmdb) -> int:
 
     from sqlmodel import Session
 
+    from watchlog.core.bingers_export import export_bingers_zip
     from watchlog.core.export import export_all_csv, export_queue_excel
 
-    # Sans option : les deux exports, dans exports/ avec la date et l'heure dans le nom.
-    excel, csv = args.excel, args.csv
-    if excel is None and csv is None:
+    # Sans option : les trois exports, dans exports/ avec la date et l'heure dans le nom.
+    excel, csv, bingers = args.excel, args.csv, getattr(args, "bingers", None)
+    if excel is None and csv is None and bingers is None:
         stamp = f"{datetime.now():%Y%m%d-%H%M%S}"
         excel = ROOT / "exports" / f"a-regarder-{stamp}.xlsx"
         csv = ROOT / "exports" / f"watchlog-{stamp}.zip"
+        bingers = ROOT / "exports" / f"watchlog-bingers-{stamp}.zip"
 
     if excel is not None:
         excel = Path(excel)
@@ -100,6 +102,13 @@ def cmd_export(args, engine, tvmaze, tmdb) -> int:
         csv.parent.mkdir(parents=True, exist_ok=True)
         names = export_all_csv(engine, csv)
         print(f"Base complète : {len(names)} fichier(s) CSV -> {csv}")
+    if bingers is not None:
+        bingers = Path(bingers)
+        bingers.parent.mkdir(parents=True, exist_ok=True)
+        with Session(engine) as session:
+            report = export_bingers_zip(session, bingers)
+        print(f"Format Bingers -> {bingers}")
+        print_lines(report.lines())
     return 0
 
 
@@ -128,10 +137,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_sync)
 
     sub.add_parser("check", help="vérifier la connexion à TMDB").set_defaults(func=cmd_check)
-    p = sub.add_parser("export", help="exporter « À regarder » (Excel) et la base (CSV en .zip)",
-                       description="Sans option, les deux exports sont créés dans exports/.")
+    p = sub.add_parser("export", help="exporter « À regarder » (Excel), la base (CSV en .zip) "
+                                      "et un .zip réimportable dans Bingers",
+                       description="Sans option, les trois exports sont créés dans exports/.")
     p.add_argument("--excel", metavar="CHEMIN", help="fichier Excel « À regarder » (.xlsx)")
     p.add_argument("--csv", metavar="CHEMIN", help="fichier .zip des CSV de la base")
+    p.add_argument("--bingers", metavar="CHEMIN", help="fichier .zip au format Bingers")
     p.set_defaults(func=cmd_export)
     sub.add_parser("run", help="lancer l'interface (Streamlit)").set_defaults(func=cmd_run)
     return parser
