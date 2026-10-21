@@ -85,9 +85,10 @@ def poster_src(poster_path: str | None, poster_url: str | None) -> str | None:
     return None
 
 
-def show_poster(poster_path: str | None, width: int | None = None) -> None:
-    """Affiche l'image, ou un cadre gris neutre s'il n'y en a pas."""
-    path = poster_file(poster_path)
+def show_poster(poster_path: str | None, width: int | None = None,
+                poster_url: str | None = None) -> None:
+    """Affiche l'image (locale, sinon en ligne), ou un cadre gris neutre s'il n'y en a pas."""
+    path = poster_file(poster_path) or poster_url
     if path:
         st.image(path, width=width or "stretch")
     else:
