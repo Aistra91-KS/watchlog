@@ -11,7 +11,7 @@ import pandas as pd
 import streamlit as st
 
 from watchlog.core import stats
-from watchlog.core.models import EPISODE, MOVIE
+from watchlog.core.models import EPISODE, FOR_LATER, MOVIE, TO_WATCH, WATCHING
 from watchlog.core.queue import LOCAL_TZ
 from watchlog.ui import common
 
@@ -145,6 +145,46 @@ if spent["movies_without_runtime"]:
     missing.append(f"{spent['movies_without_runtime']} film(s)")
 if missing:
     st.caption(f"Temps : durée inconnue, non comptée pour {' et '.join(missing)}.")
+
+# --- Temps restant pour finir la liste ----------------------------------------------------
+st.subheader("Pour finir ta liste")
+with_later = st.toggle("Compter aussi « Plus tard »", key="stats_finish_later")
+with common.db() as session:
+    remaining = stats.remaining_time(
+        session, statuses=(WATCHING, TO_WATCH, FOR_LATER) if with_later else (WATCHING, TO_WATCH))
+bulk_finish = stats.bulk_days(frame)
+cols = st.columns(len(stats.PACE_PERIODS) + 1)
+cols[0].metric("Reste à voir", hours(remaining["total_minutes"]),
+               help=f"{remaining['episodes']} épisode(s) ({hours(remaining['episode_minutes'])}) et "
+                    f"{remaining['movies']} film(s) ({hours(remaining['movie_minutes'])}) "
+                    "déjà sortis, pas encore vus.")
+estimated = remaining["estimated"]
+for col, (title, days) in zip(cols[1:], stats.PACE_PERIODS.items()):
+    pace = stats.watch_pace(frame, days, bulk_finish, today)
+    estimated += pace["estimated"]
+    finish = stats.finish_estimate(remaining["total_minutes"], pace["per_day"], today)
+    detail = (f"{stats.format_duration(round(pace['per_day']))} par jour : {pace['watches']} "
+              f"visionnage(s) en {pace['days']} jour(s), depuis le {common.fmt_date(pace['start'])}.")
+    if pace["start"] > today - timedelta(days=days - 1):
+        detail += " Ton historique n'est daté que depuis le premier import."
+    skipped = (today - pace["start"]).days + 1 - pace["days"]
+    if skipped:
+        detail += f" {skipped} jour(s) d'import non compté(s)."
+    if finish is None:
+        col.metric(title, "—", "rien vu sur la période", delta_color="off", delta_arrow="off",
+                   help=detail)
+    elif finish["days"] == 0:
+        col.metric(title, "Liste finie", delta_color="off", help=detail)
+    else:
+        col.metric(title, stats.format_span(today, finish["date"]),
+                   f"fin vers le {common.fmt_date(finish['date'])}", delta_color="off",
+                   delta_arrow="off", help=detail)
+note = ("En cours et À voir" + (", Plus tard" if with_later else "") + " ; hors épisodes spéciaux. "
+        "Rythme : nouveaux visionnages (un revisionnage ne fait pas avancer la liste), jours "
+        "d'import exclus. Les prochaines sorties allongeront la liste.")
+if estimated:
+    note += f" Durée inconnue estimée (moyenne) pour {estimated} élément(s)."
+st.caption(note)
 
 tab_activity, tab_shows, tab_movies, tab_notes = st.tabs(
     ["Activité", "Séries", "Films", "Notes"], key="stats_tab", on_change="rerun")
