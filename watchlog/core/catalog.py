@@ -6,6 +6,9 @@ Ces fonctions ne font pas de commit : c'est l'appelant qui décide quand enregis
 
 import logging
 import re
+from collections import defaultdict
+from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 
 from sqlmodel import Session, select
@@ -122,7 +125,8 @@ def upsert_show_from_tvmaze(session: Session, data: dict, episodes: list[dict],
         episode.title = ep_data.get("name")
         episode.airdate = parse_date(ep_data.get("airdate"))
         episode.airstamp = parse_datetime_utc(ep_data.get("airstamp"))
-        episode.runtime = ep_data.get("runtime")
+        # TVMaze donne souvent la durée du créneau (pub comprise) : la durée TMDB prime.
+        episode.runtime = episode.tmdb_runtime or ep_data.get("runtime")
         session.add(episode)
     session.flush()
     return show
@@ -140,6 +144,66 @@ def fetch_and_upsert_show(session: Session, tvmaze, tvmaze_id: int, force: bool 
         return None
     episodes = tvmaze.get_episodes_with_specials(tvmaze_id, data.get("status"), force=force)
     return upsert_show_from_tvmaze(session, data, episodes, **kwargs)
+
+
+# --- Durées réelles des épisodes (TMDB) --------------------------------------
+
+# Écart maximal entre les dates TVMaze et TMDB d'un même épisode. Au-delà, la numérotation
+# diffère sans doute (Lupin, Top Gear...) : la durée TMDB serait celle d'un autre épisode.
+MAX_AIRDATE_GAP = timedelta(days=3)
+
+
+@dataclass
+class RuntimeResult:
+    updated: int = 0          # épisodes dont la durée a changé
+    unmatched: int = 0        # épisodes laissés à la durée TVMaze (date TMDB différente)
+    missing_seasons: int = 0  # saisons absentes de TMDB
+
+
+def apply_tmdb_runtimes(session: Session, tmdb, show: Show) -> RuntimeResult:
+    """Remplace les durées TVMaze des épisodes par celles de TMDB.
+
+    TVMaze donne pour les séries des chaînes américaines la durée du créneau de diffusion
+    (60 min pour un épisode de 42 min), ce qui gonfle les statistiques. TMDB donne la durée
+    réelle. Correspondance par saison + numéro, vérifiée par la date de diffusion : sans
+    date des deux côtés ou avec un écart, la durée TVMaze reste (et c'est compté).
+    Pas de commit. Une ApiError remonte à l'appelant.
+    """
+    result = RuntimeResult()
+    seasons: dict[int, list[Episode]] = defaultdict(list)
+    for episode in session.exec(select(Episode).where(Episode.show_id == show.id,
+                                                      Episode.number.is_not(None),
+                                                      Episode.season > 0)):
+        seasons[episode.season].append(episode)
+    for season, episodes in sorted(seasons.items()):
+        data = tmdb.tv_season(show.tmdb_id, season)
+        if data is None:
+            log.warning("Durées TMDB : saison %s de %s (TMDB %s) introuvable",
+                        season, show.title, show.tmdb_id)
+            result.missing_seasons += 1
+            continue
+        tmdb_episodes = {ep.get("episode_number"): ep for ep in data.get("episodes") or []}
+        for episode in episodes:
+            tmdb_ep = tmdb_episodes.get(episode.number)
+            runtime = (tmdb_ep or {}).get("runtime")
+            if not runtime:
+                continue  # TMDB ne connaît pas la durée : celle de TVMaze reste
+            tmdb_date = parse_date(tmdb_ep.get("air_date"))
+            if (episode.airdate is None or tmdb_date is None
+                    or abs(tmdb_date - episode.airdate) > MAX_AIRDATE_GAP):
+                log.warning("Durées TMDB : %s S%02dE%02d écarté (date TVMaze %s, TMDB %s)",
+                            show.title, season, episode.number, episode.airdate, tmdb_date)
+                result.unmatched += 1
+                continue
+            episode.tmdb_runtime = runtime
+            if episode.runtime != runtime:
+                episode.runtime = runtime
+                result.updated += 1
+            session.add(episode)
+    show.runtimes_checked_at = utcnow()
+    session.add(show)
+    session.flush()
+    return result
 
 
 # --- Films (TMDB) ------------------------------------------------------------

@@ -239,3 +239,24 @@ def test_poster_downloaded_without_authorization_header(engine, tmp_path):
     assert request.url.host == "image.tmdb.org"
     assert "Authorization" not in request.headers
     assert dest.read_bytes() == b"poster"
+
+
+# --- saisons de série -----------------------------------------------------------
+
+def test_tv_season_reads_and_caches(engine):
+    season = {"episodes": [{"episode_number": 1, "air_date": "2006-09-25", "runtime": 43}]}
+
+    def server(request):
+        if request.url.path == "/3/authentication":
+            return httpx.Response(200, json=load_fixture("tmdb_authentication.json"))
+        if request.url.path == "/3/tv/1639/season/1":
+            return httpx.Response(200, json=season)
+        return httpx.Response(404)
+
+    api = FakeApi(server)
+    client = make_tmdb(engine, api)
+
+    assert client.tv_season(1639, 1) == season
+    assert client.tv_season(1639, 1) == season       # deuxième appel : cache
+    assert client.tv_season(1639, 9) is None         # saison inconnue
+    assert api.paths.count("/3/tv/1639/season/1") == 1

@@ -7,6 +7,8 @@ Principe :
   (au-delà, la liste « week » ne suffit plus pour savoir si elles ont changé).
 - Films : on ne recharge que les films pas encore sortis (les dates peuvent bouger)
   ou jamais récupérés depuis TMDB. Le cache gère la durée de validité.
+- Durées réelles des épisodes (TMDB) : pour les séries jamais vérifiées et celles qui
+  viennent d'être rechargées (TVMaze donne souvent la durée du créneau, pub comprise).
 - Ensuite : passage en « Terminé » si besoin, affiches manquantes, enregistrement.
 
 Une erreur sur un élément est notée dans le rapport mais n'arrête pas le reste.
@@ -41,6 +43,9 @@ class SyncReport:
     shows_updated: int = 0       # séries rechargées depuis TVMaze
     movies_checked: int = 0      # films examinés (pas sortis ou jamais récupérés)
     movies_updated: int = 0      # films rechargés depuis TMDB
+    runtimes_updated: int = 0    # épisodes dont la durée a été corrigée par TMDB
+    runtimes_unmatched: int = 0  # épisodes gardant la durée TVMaze (numérotation différente)
+    runtimes_missing: int = 0    # saisons absentes de TMDB (durées TVMaze gardées)
     completed: int = 0           # séries passées en « Terminé »
     posters: int = 0             # affiches téléchargées
     tvmaze_down: bool = False    # TVMaze injoignable : séries non mises à jour
@@ -58,6 +63,12 @@ class SyncReport:
             lines.append("TMDB non connecté : films non mis à jour.")
         else:
             lines.append(f"Films : {self.movies_checked} à vérifier, {self.movies_updated} mis à jour.")
+        if self.runtimes_updated:
+            lines.append(f"Durées réelles (TMDB) : {self.runtimes_updated} épisodes corrigés.")
+        if self.runtimes_unmatched or self.runtimes_missing:
+            lines.append(f"Durées TVMaze gardées : {self.runtimes_unmatched} épisodes à la "
+                         f"numérotation différente sur TMDB, {self.runtimes_missing} saisons "
+                         "absentes de TMDB.")
         if self.completed:
             lines.append(f"Séries passées en « Terminé » : {self.completed}.")
         if self.posters:
@@ -106,6 +117,23 @@ def shows_to_refresh(session: Session, updates: dict[int, int],
     now = now or utcnow()
     return [show for show in library_shows(session)
             if show_needs_refresh(show.last_synced_at, updates.get(show.tvmaze_id), now)]
+
+
+def shows_for_runtimes(session: Session, refreshed_tvmaze_ids=()) -> list[Show]:
+    """Séries dont il faut lire les durées TMDB : jamais vérifiées, ou rechargées à l'instant.
+
+    Toute la bibliothèque, arrêtées comprises (leurs épisodes vus comptent dans les stats).
+    """
+    refreshed = set(refreshed_tvmaze_ids)
+    query = (
+        select(Show)
+        .join(LibraryItem, (LibraryItem.kind == SHOW) & (LibraryItem.ref_id == Show.id))
+        .where(Show.tmdb_id.is_not(None))
+        .where(Show.match_status.in_([MATCH_OK, MATCH_REMAPPED]))
+        .order_by(Show.title)
+    )
+    return [show for show in session.exec(query)
+            if show.runtimes_checked_at is None or show.tvmaze_id in refreshed]
 
 
 def is_released(movie: Movie, today: date) -> bool:
@@ -158,10 +186,16 @@ def sync(engine: Engine, tvmaze, tmdb, progress: Progress | None = None,
             movie_jobs = [(m.tmdb_id, m.title) for m in movies_to_refresh(session)]
             report.movies_checked = len(movie_jobs)
 
-        total = len(show_jobs) + len(movie_jobs)
+        # 3. Choix des séries dont on lit les durées réelles (TMDB).
+        runtime_jobs = []  # (id, titre)
+        if not report.tmdb_down:
+            refreshed = [tvmaze_id for tvmaze_id, _ in show_jobs]
+            runtime_jobs = [(s.id, s.title) for s in shows_for_runtimes(session, refreshed)]
+
+        total = len(show_jobs) + len(movie_jobs) + len(runtime_jobs)
         done = 0
 
-        # 3. Séries. On enregistre après chaque élément : une erreur ne perd que celui-là.
+        # 4. Séries. On enregistre après chaque élément : une erreur ne perd que celui-là.
         for tvmaze_id, title in show_jobs:
             progress(done, total, title)
             try:
@@ -176,7 +210,7 @@ def sync(engine: Engine, tvmaze, tmdb, progress: Progress | None = None,
                 report.errors.append(f"Série « {title} » : {exc}")
             done += 1
 
-        # 4. Films.
+        # 5. Films.
         for tmdb_id, title in movie_jobs:
             progress(done, total, title)
             try:
@@ -192,13 +226,28 @@ def sync(engine: Engine, tvmaze, tmdb, progress: Progress | None = None,
                 log.error("Synchro film %s (TMDB %s) : %s", title, tmdb_id, exc)
                 report.errors.append(f"Film « {title} » : {exc}")
             done += 1
+
+        # 6. Durées réelles des épisodes (après les séries : nouveaux épisodes compris).
+        for show_id, title in runtime_jobs:
+            progress(done, total, f"Durées : {title}")
+            try:
+                result = catalog.apply_tmdb_runtimes(session, tmdb, session.get(Show, show_id))
+                session.commit()
+                report.runtimes_updated += result.updated
+                report.runtimes_unmatched += result.unmatched
+                report.runtimes_missing += result.missing_seasons
+            except Exception as exc:  # noqa: BLE001
+                session.rollback()
+                log.error("Synchro durées %s (série %s) : %s", title, show_id, exc)
+                report.errors.append(f"Durées de « {title} » : {exc}")
+            done += 1
         progress(total, total, "Terminé")
 
-        # 5. Séries terminées (tous les épisodes vus et série finie).
+        # 7. Séries terminées (tous les épisodes vus et série finie).
         report.completed = library.refresh_completed(session)
         session.commit()
 
-        # 6. Affiches manquantes.
+        # 8. Affiches manquantes.
         if download_posters:
             report.posters = _download_missing_posters(session, tvmaze, tmdb, report)
 

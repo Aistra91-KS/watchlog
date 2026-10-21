@@ -43,6 +43,12 @@ de l'application Bingers. L'interface s'ouvre dans le navigateur (Streamlit).
 Mettre à jour séries et films : bouton « Synchroniser maintenant » dans la page Paramètres,
 ou Ctrl+Maj+P > « Tasks: Run Task » > « Synchroniser Watchlog ».
 
+Durée des épisodes : TVMaze donne pour les séries des chaînes américaines la durée du créneau
+de diffusion (60 min, pub comprise, pour un épisode de 42 min). La synchro la remplace par la
+durée réelle donnée par TMDB, épisode par épisode, si la date de diffusion concorde (sinon la
+durée TVMaze reste, et le rapport le compte). La première synchro lit toutes les saisons
+(quelques minutes) ; ensuite, seulement les séries nouvelles ou mises à jour.
+
 Mode sombre : menu **⋮** en haut à droite > **Settings** > choisir *Light*, *Dark* ou
 *Use system setting* (par défaut, l'outil suit le thème du système). Le choix est
 mémorisé par le navigateur.
