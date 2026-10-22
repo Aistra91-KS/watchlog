@@ -95,6 +95,12 @@ Pour une série vue il y a longtemps et cochée d'un coup (tout tombe à la date
 le bloc **Changer la date de visionnage de plusieurs épisodes** de la fiche donne une même
 date, ou « Date inconnue », à tous les épisodes vus des saisons choisies.
 
+**Revisionnages** : un film déjà vu se marque « Revu » (date du jour par défaut, modifiable) ;
+la fiche indique « Vu N fois » et propose « Retirer un revisionnage ». Pour une série, le bloc
+**Revisionnage** ajoute (ou retire) un visionnage à tous les épisodes vus des saisons choisies ;
+le tableau d'une saison revue montre alors une colonne « Visionnages ». Les statistiques et le
+temps passé comptent chaque visionnage.
+
 Statuts possibles : En cours, À voir, Plus tard, Arrêté, Terminé. Une série finie dont tous
 les épisodes sont vus passe toute seule en « Terminé ».
 

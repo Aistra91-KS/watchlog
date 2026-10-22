@@ -22,6 +22,7 @@ COL_SEEN = "Vu"
 COL_UNTIL = "Vu jusqu'ici"
 COL_DATE = "Vu le"
 COL_RUNTIME = "Durée"
+COL_PLAYS = "Visionnages"   # affichée seulement pour une saison dont un épisode a été revu
 # Colonnes d'information (non modifiables), grisées pour les épisodes à venir
 INFO_COLUMNS = ["Code", "Date", "Titre", COL_RUNTIME]
 # Épisodes pas encore diffusés : texte grisé, contraste ≥ 4,5:1 dans chaque thème.
@@ -106,6 +107,25 @@ def apply_bulk_date(show_id: int, prefix: str) -> None:
     st.session_state["serie_message"] = f"Date de visionnage de {count} épisode(s) : {shown}."
 
 
+def apply_rewatch(show_id: int, prefix: str, add: bool, include_specials: bool) -> None:
+    """Ajoute (ou retire) un revisionnage aux épisodes vus des saisons choisies."""
+    seasons = st.session_state[f"{prefix}_seasons"]
+    if not seasons:
+        st.session_state["serie_warning"] = "Choisis au moins une saison."
+        return
+    with common.db() as session:
+        if add:
+            count = library.add_season_rewatch(session, show_id, seasons,
+                                               st.session_state.get(f"{prefix}_day"),
+                                               include_specials)
+        else:
+            count = library.remove_season_rewatch(session, show_id, seasons, include_specials)
+        session.commit()
+    refresh_tables()
+    action = "ajouté à" if add else "retiré de"
+    st.session_state["serie_message"] = f"Revisionnage {action} {count} épisode(s)."
+
+
 def apply_episode_changes(editor_key: str, episode_ids: list[int], include_specials: bool) -> None:
     """Applique les cases cochées / décochées dans le tableau d'une saison."""
     changes = st.session_state[editor_key].get("edited_rows", {})
@@ -173,21 +193,32 @@ def current_season(seasons: dict[int, list[Episode]], watched: dict[int, date | 
     return None
 
 
-def season_table(episodes: list[Episode], watched: dict[int, date | None],
-                 today) -> tuple[pd.DataFrame, list]:
-    """Tableau d'une saison + liste des épisodes « à venir » (lignes grisées)."""
+def season_table(episodes: list[Episode], watched: dict[int, date | None], today,
+                 plays: dict[int, int] | None = None) -> tuple[pd.DataFrame, list]:
+    """Tableau d'une saison + liste des épisodes « à venir » (lignes grisées).
+
+    Colonne « Visionnages » seulement si un épisode de la saison a été revu.
+    """
+    plays = plays or {}
+    with_plays = any(plays.get(ep.id, 1) > 1 for ep in episodes)
     rows, upcoming = [], []
     for i, ep in enumerate(episodes):
         day = local_date(ep.airstamp, ep.airdate)
         if day is not None and day > today:
             upcoming.append(i)
-        rows.append({"Code": episode_code(ep.season, ep.number), "Date": fmt_date(day),
-                     "Titre": ep.title or "",
-                     COL_RUNTIME: f"{ep.runtime} min" if ep.runtime else "",
-                     COL_SEEN: ep.id in watched,
-                     COL_DATE: watched.get(ep.id), COL_UNTIL: False})
-    df = pd.DataFrame(rows, columns=[*INFO_COLUMNS, COL_SEEN, COL_DATE, COL_UNTIL])
+        row = {"Code": episode_code(ep.season, ep.number), "Date": fmt_date(day),
+               "Titre": ep.title or "",
+               COL_RUNTIME: f"{ep.runtime} min" if ep.runtime else "",
+               COL_SEEN: ep.id in watched,
+               COL_DATE: watched.get(ep.id), COL_UNTIL: False}
+        if with_plays:
+            row[COL_PLAYS] = plays.get(ep.id) if ep.id in watched else None
+        rows.append(row)
+    columns = [*INFO_COLUMNS, COL_SEEN, COL_DATE] + ([COL_PLAYS] if with_plays else [])
+    df = pd.DataFrame(rows, columns=[*columns, COL_UNTIL])
     df[COL_DATE] = pd.to_datetime(df[COL_DATE])   # type date : case vide (et non « None ») si pas vu
+    if with_plays:
+        df[COL_PLAYS] = df[COL_PLAYS].astype("Int64")   # entier, case vide si pas vu
     return df, upcoming
 
 
@@ -243,9 +274,13 @@ with common.db() as session:
         rating = library.get_rating(session, SHOW, show.id)
         episodes = session.exec(select(Episode).where(Episode.show_id == show.id)).all()
         # épisode vu -> date du premier visionnage (heure française), None si inconnue
-        watched = {ref_id: local_date(when, None) for ref_id, when in session.exec(
-            select(Watch.ref_id, Watch.watched_at).join(Episode, Episode.id == Watch.ref_id)
-            .where(Watch.kind == EPISODE, Episode.show_id == show.id)).all()}
+        watched, plays = {}, {}   # plays : nombre de visionnages (revisionnages compris)
+        for ref_id, when, count in session.exec(
+                select(Watch.ref_id, Watch.watched_at, Watch.plays)
+                .join(Episode, Episode.id == Watch.ref_id)
+                .where(Watch.kind == EPISODE, Episode.show_id == show.id)).all():
+            watched[ref_id] = local_date(when, None)
+            plays[ref_id] = count or 1
         durations = stats.show_time(session, show.id)
 
 if show is None:
@@ -372,7 +407,10 @@ if watched_seasons:
         st.caption("S'applique aux épisodes déjà vus des saisons choisies (spéciaux compris). "
                    "« Date inconnue » : ils restent vus, mais sans date, et ne comptent dans "
                    "aucun mois des statistiques.")
-        st.multiselect("Saisons", watched_seasons, default=watched_seasons,
+        # Valeur par défaut seulement au premier affichage (sinon Streamlit avertit : valeur
+        # donnée à la fois par `default` et par st.session_state).
+        st.multiselect("Saisons", watched_seasons,
+                       default=None if f"{prefix}_seasons" in st.session_state else watched_seasons,
                        format_func=lambda season: f"Saison {season}", key=f"{prefix}_seasons")
         mode = st.radio("Date", [DATE_UNKNOWN, DATE_CHOSEN], horizontal=True,
                         key=f"{prefix}_mode")
@@ -381,6 +419,28 @@ if watched_seasons:
                           max_value=today, key=f"{prefix}_day")
         st.button("Appliquer", key=f"{prefix}_apply", on_click=apply_bulk_date,
                   args=(show.id, prefix))
+
+    # Revisionnage : un visionnage de plus pour les épisodes vus des saisons choisies
+    with st.expander("Revisionnage"):
+        prefix = f"serie_rewatch_{show.id}"
+        if f"{prefix}_seasons" in st.session_state:  # saison qui n'a plus d'épisode vu : retirée
+            st.session_state[f"{prefix}_seasons"] = [
+                s for s in st.session_state[f"{prefix}_seasons"] if s in watched_seasons]
+        rewatched = sum(1 for count in plays.values() if count > 1)
+        st.caption("Ajoute un visionnage aux épisodes déjà vus des saisons choisies (les "
+                   "statistiques comptent chaque visionnage). "
+                   + (f"{rewatched} épisode(s) revu(s) pour l'instant." if rewatched
+                      else "Aucun épisode revu pour l'instant."))
+        st.multiselect("Saisons", watched_seasons, format_func=lambda season: f"Saison {season}",
+                       key=f"{prefix}_seasons")
+        st.date_input("Revu le", value=today, format="DD/MM/YYYY", min_value=MIN_WATCH_DATE,
+                      max_value=today, key=f"{prefix}_day")
+        col_add, col_remove = st.columns(2)
+        col_add.button("Ajouter un revisionnage", key=f"{prefix}_add", on_click=apply_rewatch,
+                       args=(show.id, prefix, True, show_specials))
+        col_remove.button("Retirer un revisionnage", key=f"{prefix}_remove",
+                          on_click=apply_rewatch, args=(show.id, prefix, False, show_specials),
+                          disabled=not rewatched)
 seasons: dict[int, list[Episode]] = {}
 for ep in sorted(shown, key=lambda e: (e.season, episode_sort_key(e))):
     seasons.setdefault(ep.season, []).append(ep)
@@ -406,11 +466,11 @@ for season, season_episodes in seasons.items():
     if not expander.open:
         continue  # saison repliée : on ne construit pas le tableau
     with expander:
-        df, upcoming = season_table(season_episodes, watched, today)
+        df, upcoming = season_table(season_episodes, watched, today, plays)
         editor_key = f"serie_table_{show.id}_{season}_{version}"
         st.data_editor(
             grey_upcoming(df, upcoming), key=editor_key, hide_index=True,
-            disabled=INFO_COLUMNS,
+            disabled=[*INFO_COLUMNS, COL_PLAYS] if COL_PLAYS in df else INFO_COLUMNS,
             height=min(36 * (len(df) + 1) + 3, 900),
             column_config={
                 "Code": st.column_config.TextColumn(width="small"),
@@ -422,6 +482,8 @@ for season, season_episodes in seasons.items():
                     width="small", format="DD/MM/YYYY", min_value=MIN_WATCH_DATE,
                     max_value=today,
                     help="Date de visionnage, modifiable (vide : date inconnue)"),
+                COL_PLAYS: st.column_config.NumberColumn(
+                    width="small", help="Nombre de visionnages (revisionnages compris)"),
                 COL_UNTIL: st.column_config.CheckboxColumn(
                     width="small",
                     help="Coche pour marquer vus tous les épisodes jusqu'à celui-ci inclus"),
