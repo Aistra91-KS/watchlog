@@ -1,4 +1,5 @@
-"""Page « Paramètres » : TMDB, correspondances à vérifier, import, synchro, export, sauvegardes."""
+"""Page « Paramètres » : TMDB, mes plateformes, correspondances à vérifier, import, synchro,
+export, sauvegardes."""
 
 import io
 import logging
@@ -8,7 +9,7 @@ import pandas as pd
 import streamlit as st
 from sqlmodel import func, select
 
-from watchlog.core import importer
+from watchlog.core import importer, providers, settings
 from watchlog.core.bingers_export import export_bingers_zip
 from watchlog.core.backup import backup_date, list_backups, make_backup
 from watchlog.core.config import BACKUP_DIR
@@ -66,6 +67,36 @@ st.caption(message)
 if st.button("Retester"):
     common.tmdb_status.clear()
     st.rerun()
+
+# --- Mes plateformes -----------------------------------------------------------------
+st.header("Mes plateformes")
+st.write("Choisis les plateformes auxquelles tu as accès : la case « Sur mes plateformes » des "
+         "pages À regarder et Suggestions ne garde alors que les titres disponibles chez toi en "
+         "France (abonnement, gratuit ou gratuit avec pub ; pas la location ni l'achat).")
+if "platforms_message" in st.session_state:
+    st.success(st.session_state.pop("platforms_message"))
+with common.db() as session:
+    saved_platforms = settings.my_platforms(session)
+platform_options = list(saved_platforms)
+if connected:
+    try:
+        platform_options = providers.platform_choices(common.tmdb_client(), saved_platforms)
+    except ApiError as exc:
+        st.warning(f"Liste des plateformes indisponible ({exc}) : seules tes plateformes déjà "
+                   "enregistrées sont proposées. Réessaie plus tard.")
+else:
+    st.info("TMDB n'est pas connecté : la liste des plateformes ne peut pas être chargée. "
+            "Tes plateformes déjà enregistrées restent modifiables.")
+with st.form("my_platforms_form", border=False):
+    chosen_platforms = st.multiselect("Plateformes", platform_options, default=saved_platforms,
+                                      placeholder="Aucune plateforme choisie")
+    if st.form_submit_button("Enregistrer mes plateformes"):
+        with common.db() as session:
+            settings.set_my_platforms(session, chosen_platforms)
+            session.commit()
+        count = len(chosen_platforms)
+        remember("platforms_message", f"{count} plateforme(s) enregistrée(s)." if count
+                 else "Plus aucune plateforme choisie : le filtre est désactivé.")
 
 
 # --- Correspondances à vérifier ----------------------------------------------------

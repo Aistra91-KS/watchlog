@@ -26,6 +26,10 @@ OFFER_LABELS = {
     "buy": "Achat",
 }
 TMDB_MEDIA = {SHOW: "tv", MOVIE: "movie"}
+# Offres qui permettent de regarder sans payer à l'unité : « dispo en streaming »,
+# « sur mes plateformes » (la location et l'achat n'en font pas partie)
+STREAMING_OFFERS = ("Abonnement", "Gratuit", "Gratuit avec pub")
+UNKNOWN_PRIORITY = 999   # plateforme sans priorité d'affichage : en fin de liste
 
 
 @dataclass
@@ -57,6 +61,34 @@ def parse(region_data: dict) -> Availability:
     return Availability(offers=offers, link=region_data.get("link"))
 
 
+def streaming_names(data: Availability) -> list[str]:
+    """Plateformes où le titre se regarde en abonnement ou gratuitement, sans doublon."""
+    names = []
+    for offer in STREAMING_OFFERS:
+        names += [p.name for p in data.offers.get(offer, []) if p.name not in names]
+    return names
+
+
+def platform_choices(tmdb, saved: list[str] | tuple[str, ...] = ()) -> list[str]:
+    """Plateformes proposées pour « Mes plateformes » : films et séries en France.
+
+    Triées par priorité d'affichage TMDB (les plus courantes d'abord) ; les plateformes déjà
+    enregistrées absentes de la liste sont gardées à la fin (sinon le réglage les perdrait
+    sans prévenir). ApiError si TMDB ne répond pas.
+    """
+    priorities: dict[str, int] = {}
+    for media in TMDB_MEDIA.values():
+        for entry in tmdb.provider_list(media, REGION):
+            name = entry.get("provider_name")
+            if not name:
+                continue
+            priority = (entry.get("display_priorities") or {}).get(
+                REGION, entry.get("display_priority", UNKNOWN_PRIORITY))
+            priorities[name] = min(priority, priorities.get(name, UNKNOWN_PRIORITY))
+    names = sorted(priorities, key=lambda n: (priorities[n], n.casefold()))
+    return names + [n for n in saved if n not in priorities]
+
+
 def availability(tmdb, kind: str, tmdb_id: int | None,
                  raise_errors: bool = False) -> Availability | None:
     """Disponibilités en France. None si inconnu (pas d'id TMDB, TMDB indisponible).
@@ -78,12 +110,20 @@ def availability(tmdb, kind: str, tmdb_id: int | None,
     return parse(results.get(REGION) or {})
 
 
-def show_tmdb_id(session: Session, tmdb, show: Show) -> int | None:
-    """Id TMDB de la série ; s'il manque, on le cherche via l'id TVDB et on l'enregistre (sans commit)."""
+def show_tmdb_id(session: Session, tmdb, show: Show, raise_errors: bool = False) -> int | None:
+    """Id TMDB de la série ; s'il manque, on le cherche via l'id TVDB et on l'enregistre.
+
+    Pas de commit. raise_errors=True : une panne de TMDB lève ApiError (à distinguer
+    d'une série que TMDB ne connaît pas).
+    """
     if show.tmdb_id is None and show.tvdb_id is not None:
         try:
             show.tmdb_id = tmdb.find_tv_by_tvdb(show.tvdb_id)
-        except ApiError:
+        except ApiError as exc:
+            log.warning("Id TMDB introuvable pour « %s » (TVDB %s) : %s",
+                        show.title, show.tvdb_id, exc)
+            if raise_errors:
+                raise
             return None
         if show.tmdb_id is not None:
             session.add(show)

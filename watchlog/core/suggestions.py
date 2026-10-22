@@ -535,9 +535,6 @@ def compute(session: Session, tmdb, kind: str, limit: int = 60,
     return [s for s in result.items if s.kind == kind]
 
 
-STREAMING_OFFERS = ("Abonnement", "Gratuit", "Gratuit avec pub")
-
-
 def attach_availability(tmdb, items: list[Suggestion], progress: Progress | None = None) -> int:
     """Complète chaque suggestion avec ses plateformes en France (pour les filtres).
 
@@ -555,10 +552,7 @@ def attach_availability(tmdb, items: list[Suggestion], progress: Progress | None
             continue
         if data is None:
             continue
-        names = []
-        for offer in STREAMING_OFFERS:
-            names += [p.name for p in data.offers.get(offer, []) if p.name not in names]
-        item.streaming = names
+        item.streaming = providers.streaming_names(data)
         item.rent_or_buy = bool(data.offers.get("Location") or data.offers.get("Achat"))
     return failed
 

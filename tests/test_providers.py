@@ -105,3 +105,89 @@ def test_availability_raise_errors_on_outage():
     assert providers.availability(DownTMDB(), "movie", 1) is None
     with pytest.raises(ApiError):
         providers.availability(DownTMDB(), "movie", 1, raise_errors=True)
+
+
+# --- « Mes plateformes » -------------------------------------------------------------
+
+def test_streaming_names_keeps_subscription_and_free_only():
+    data = providers.parse({
+        "flatrate": [{"provider_name": "Netflix", "display_priority": 1}],
+        "ads": [{"provider_name": "TF1+", "display_priority": 3},
+                {"provider_name": "Netflix", "display_priority": 1}],
+        "rent": [{"provider_name": "Apple TV", "display_priority": 2}],
+    })
+    assert providers.streaming_names(data) == ["Netflix", "TF1+"]   # ni location ni doublon
+
+
+class ListTMDB:
+    """Faux TMDB pour la liste des plateformes d'un pays."""
+    available = True
+
+    def __init__(self, lists, fail=False):
+        self.lists, self.fail, self.calls = lists, fail, []
+
+    def provider_list(self, media, region):
+        self.calls.append((media, region))
+        if self.fail:
+            raise ApiError("TMDB indisponible (simulé)")
+        return self.lists.get(media, [])
+
+
+def test_platform_choices_union_sorted_by_priority_plus_saved():
+    tmdb = ListTMDB({
+        "movie": [{"provider_name": "Canal+", "display_priorities": {"FR": 3}},
+                  {"provider_name": "Netflix", "display_priorities": {"FR": 1}},
+                  {"provider_name": "Arte", "display_priority": 20}],
+        "tv": [{"provider_name": "Netflix", "display_priorities": {"FR": 1}},
+               {"provider_name": "Canal+", "display_priorities": {"FR": 2}},   # mieux placé
+               {"provider_name": ""}],
+    })
+    choices = providers.platform_choices(tmdb, saved=["Netflix", "Ancienne plateforme"])
+    assert choices == ["Netflix", "Canal+", "Arte", "Ancienne plateforme"]
+    assert sorted(tmdb.calls) == [("movie", "FR"), ("tv", "FR")]
+
+
+def test_platform_choices_outage_raises():
+    with pytest.raises(ApiError):
+        providers.platform_choices(ListTMDB({}, fail=True), saved=["Netflix"])
+
+
+def test_show_tmdb_id_outage(engine, caplog):
+    class DownFind(ProvidersTMDB):
+        def find_tv_by_tvdb(self, tvdb_id):
+            raise ApiError("TMDB indisponible (simulé)")
+
+    with Session(engine) as session:
+        show = add_show(session, "Série en panne", tvdb_id=1001)
+        assert providers.show_tmdb_id(session, DownFind(), show) is None
+        assert "Série en panne" in caplog.text
+        with pytest.raises(ApiError):
+            providers.show_tmdb_id(session, DownFind(), show, raise_errors=True)
+
+
+def test_tmdb_client_provider_list(engine):
+    entries = [{"provider_name": "Netflix", "display_priorities": {"FR": 1}}]
+
+    def server(request):
+        if request.url.path == "/3/authentication":
+            return httpx.Response(200, json={"success": True})
+        if request.url.path in ("/3/watch/providers/movie", "/3/watch/providers/tv"):
+            return httpx.Response(200, json={"results": entries})
+        return httpx.Response(404)
+
+    api = FakeApi(server)
+    client = TMDBClient(engine, token="fake-token", api_key="", transport=api.transport,
+                        sleep=no_sleep)
+    assert client.provider_list("movie", "FR") == entries
+    client.provider_list("movie", "FR")
+    assert api.paths.count("/3/watch/providers/movie") == 1   # 2e appel : cache
+    assert api.requests[-1].url.params["watch_region"] == "FR"
+    assert client.provider_list("tv", "FR") == entries
+
+
+def test_tmdb_client_provider_list_not_connected(engine):
+    api = FakeApi(lambda request: httpx.Response(401, json={"success": False}))
+    client = TMDBClient(engine, token="fake-token", api_key="", transport=api.transport,
+                        sleep=no_sleep)
+    assert client.provider_list("movie", "FR") == []
+    assert "/3/watch/providers/movie" not in api.paths
