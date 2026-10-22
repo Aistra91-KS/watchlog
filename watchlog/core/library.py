@@ -7,7 +7,7 @@ from datetime import date, datetime
 
 from sqlmodel import Session, select
 
-from watchlog.core.dates import local_day_to_utc, utcnow
+from watchlog.core.dates import LOCAL_TZ, local_day_to_utc, utcnow
 from watchlog.core.models import (COMPLETED, EPISODE, SHOW, STATUSES, TO_WATCH, Episode,
                                   LibraryItem, Rating, Show, Watch)
 from watchlog.core.tvmaze import ENDED
@@ -86,6 +86,83 @@ def unmark_watched(session: Session, kind: str, ref_id: int) -> None:
     watch = get_watch(session, kind, ref_id)
     if watch is not None:
         session.delete(watch)
+
+
+def _rewatch_time(day: date | None) -> datetime:
+    """Moment d'un revisionnage : l'heure exacte si c'est aujourd'hui (ou None), sinon midi."""
+    if day is None or day == datetime.now(LOCAL_TZ).date():
+        return utcnow()
+    return local_day_to_utc(day)
+
+
+def add_rewatch(session: Session, kind: str, ref_id: int, day: date | None = None) -> Watch:
+    """Ajoute un revisionnage (plays + 1) daté de `day` (None ou aujourd'hui : maintenant).
+
+    Une seule ligne Watch par titre : on compte les visionnages au lieu de les dupliquer.
+    Le dernier visionnage n'est avancé que si la date est plus récente (un revisionnage
+    oublié, saisi après coup, ne le recule pas). Pas encore vu : simple visionnage à
+    cette date. Pas de commit.
+    """
+    when = _rewatch_time(day)
+    watch = get_watch(session, kind, ref_id)
+    if watch is None:
+        watch = Watch(kind=kind, ref_id=ref_id, watched_at=when, last_watched_at=when)
+    else:
+        watch.plays = (watch.plays or 1) + 1
+        watch.last_watched_at = _latest(watch.last_watched_at, when)
+    session.add(watch)
+    return watch
+
+
+def remove_rewatch(session: Session, kind: str, ref_id: int) -> Watch | None:
+    """Retire un revisionnage (plays − 1, jamais moins de 1 : le titre reste vu).
+
+    Revenu à un seul visionnage : le dernier visionnage redevient le premier.
+    Renvoie None si le titre n'est pas vu. Pas de commit.
+    """
+    watch = get_watch(session, kind, ref_id)
+    if watch is None or (watch.plays or 1) <= 1:
+        return watch
+    watch.plays -= 1
+    if watch.plays == 1:
+        watch.last_watched_at = watch.watched_at
+    session.add(watch)
+    return watch
+
+
+def _watched_episodes(session: Session, show_id: int, seasons, include_specials: bool):
+    query = (select(Episode).join(Watch, (Watch.kind == EPISODE) & (Watch.ref_id == Episode.id))
+             .where(Episode.show_id == show_id, Episode.season.in_(list(seasons))))
+    if not include_specials:
+        query = query.where(Episode.is_special == False)  # noqa: E712 (syntaxe SQLAlchemy)
+    return list(session.exec(query))
+
+
+def add_season_rewatch(session: Session, show_id: int, seasons, day: date | None = None,
+                       include_specials: bool = False) -> int:
+    """Revisionnage des épisodes déjà vus des saisons données (les non vus sont ignorés).
+
+    Renvoie le nombre d'épisodes concernés. Pas de commit.
+    """
+    episodes = _watched_episodes(session, show_id, seasons, include_specials)
+    for episode in episodes:
+        add_rewatch(session, EPISODE, episode.id, day)
+    return len(episodes)
+
+
+def remove_season_rewatch(session: Session, show_id: int, seasons,
+                          include_specials: bool = False) -> int:
+    """Retire un revisionnage aux épisodes revus des saisons données.
+
+    Renvoie le nombre d'épisodes qui avaient un revisionnage à retirer. Pas de commit.
+    """
+    count = 0
+    for episode in _watched_episodes(session, show_id, seasons, include_specials):
+        watch = get_watch(session, EPISODE, episode.id)
+        if watch is not None and (watch.plays or 1) > 1:
+            remove_rewatch(session, EPISODE, episode.id)
+            count += 1
+    return count
 
 
 def _mark_episodes(session: Session, episodes: list[Episode]) -> int:

@@ -81,6 +81,24 @@ def save_watch_date(movie_id: int, key: str) -> None:
     st.session_state["film_message"] = "Date de visionnage enregistrée."
 
 
+def add_rewatch(movie_id: int, day_key: str) -> None:
+    """Bouton « Revu » : un visionnage de plus, à la date choisie."""
+    with common.db() as session:
+        watch = library.add_rewatch(session, MOVIE, movie_id, st.session_state.get(day_key))
+        plays = watch.plays
+        session.commit()
+    st.session_state["film_message"] = f"Revisionnage ajouté : vu {plays} fois."
+
+
+def remove_rewatch(movie_id: int) -> None:
+    with common.db() as session:
+        watch = library.remove_rewatch(session, MOVIE, movie_id)
+        plays = watch.plays if watch is not None else 0
+        session.commit()
+    st.session_state["film_message"] = (f"Revisionnage retiré : vu {plays} fois." if plays > 1
+                                        else "Revisionnage retiré : vu une fois.")
+
+
 def remove_movie(movie_id: int) -> None:
     with common.db() as session:
         library.remove_from_library(session, MOVIE, movie_id)
@@ -159,8 +177,23 @@ with col_info:
                             args=(movie.id, date_key),
                             help="Date du premier visionnage (vide : date inconnue).")
         col_button.button("Marquer non vu", on_click=set_watched, args=(movie.id, False))
-        if watch.plays > 1:
-            st.caption(f"Vu {watch.plays} fois")
+        # Revisionnage : un visionnage de plus (les statistiques comptent chaque visionnage).
+        rewatch_key = f"film_rewatch_date_{movie.id}"
+        col_date, col_button = st.columns([2, 1], vertical_alignment="bottom")
+        col_date.date_input("Revu le", value=today, key=rewatch_key, min_value=MIN_DATE,
+                            max_value=today, format="DD/MM/YYYY",
+                            help="Date du revisionnage (aujourd'hui par défaut).")
+        col_button.button("Revu", on_click=add_rewatch, args=(movie.id, rewatch_key))
+        plays = watch.plays or 1
+        if plays > 1:
+            col_text, col_button = st.columns([2, 1], vertical_alignment="center")
+            last = local_date(watch.last_watched_at, None)
+            col_text.caption(f"Vu {plays} fois"
+                             + (f" · dernier visionnage le {fmt_date(last)}" if last else ""))
+            col_button.button("Retirer un revisionnage", on_click=remove_rewatch,
+                              args=(movie.id,))
+        else:
+            st.caption("Vu 1 fois")
     else:
         day_key = f"film_new_watch_date_{movie.id}"
         col_date, col_button = st.columns([2, 1], vertical_alignment="bottom")

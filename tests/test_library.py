@@ -7,6 +7,7 @@ from sqlmodel import Session, select
 
 from conftest import FakeTMDB, FakeTVMaze, load_json
 from watchlog.core import catalog, library
+from watchlog.core.dates import local_day_to_utc
 from watchlog.core.models import (COMPLETED, EPISODE, MATCH_UNCERTAIN, MOVIE, SHOW, STOPPED,
                                   TO_WATCH, WATCHING, Episode, LibraryItem, Movie, Show, Watch)
 
@@ -154,6 +155,58 @@ def test_mark_watched_until_keeps_existing(session, kingdom):
 
 
 # --- Statuts ------------------------------------------------------------------------
+
+def test_add_and_remove_rewatch(session):
+    library.set_watch_date(session, MOVIE, 7, date(2024, 5, 1))
+    watch = library.add_rewatch(session, MOVIE, 7, date(2025, 2, 3))
+    assert watch.plays == 2
+    assert watch.watched_at == local_day_to_utc(date(2024, 5, 1))
+    assert watch.last_watched_at == local_day_to_utc(date(2025, 2, 3))
+    # Revisionnage oublié, plus ancien : compté, mais le dernier visionnage ne recule pas.
+    library.add_rewatch(session, MOVIE, 7, date(2024, 12, 1))
+    assert watch.plays == 3 and watch.last_watched_at == local_day_to_utc(date(2025, 2, 3))
+    # Aujourd'hui (ou None) : l'heure exacte.
+    library.add_rewatch(session, MOVIE, 7)
+    assert watch.plays == 4 and watch.last_watched_at > datetime(2026, 1, 1)
+
+    library.remove_rewatch(session, MOVIE, 7)
+    library.remove_rewatch(session, MOVIE, 7)
+    assert watch.plays == 2 and watch.last_watched_at > datetime(2026, 1, 1)
+    library.remove_rewatch(session, MOVIE, 7)
+    assert watch.plays == 1 and watch.last_watched_at == watch.watched_at
+    library.remove_rewatch(session, MOVIE, 7)   # minimum 1 : le film reste vu
+    assert watch.plays == 1
+    assert library.remove_rewatch(session, MOVIE, 99) is None
+
+
+def test_add_rewatch_not_watched_is_a_first_watch(session):
+    watch = library.add_rewatch(session, MOVIE, 8, date(2023, 3, 4))
+    assert watch.plays == 1
+    assert watch.watched_at == watch.last_watched_at == local_day_to_utc(date(2023, 3, 4))
+
+
+def test_season_rewatch_only_watched_episodes(session, kingdom):
+    library.mark_watched(session, EPISODE, ep(session, 1011).id)
+    library.mark_watched(session, EPISODE, ep(session, 1012).id)
+    library.mark_watched(session, EPISODE, ep(session, 1019).id)   # spécial
+    library.mark_watched(session, EPISODE, ep(session, 1021).id)   # saison 2
+    session.flush()
+
+    assert library.add_season_rewatch(session, kingdom.id, [1], date(2025, 1, 1)) == 2
+    session.flush()
+    plays = {tvmaze_id: library.get_watch(session, EPISODE, ep(session, tvmaze_id).id).plays
+             for tvmaze_id in (1011, 1012, 1019, 1021)}
+    assert plays == {1011: 2, 1012: 2, 1019: 1, 1021: 1}
+    assert library.get_watch(session, EPISODE, ep(session, 1013).id) is None   # pas vu
+    assert library.add_season_rewatch(session, kingdom.id, [1, 2], include_specials=True) == 4
+
+    session.flush()
+    assert library.remove_season_rewatch(session, kingdom.id, [1, 2], include_specials=True) == 4
+    session.flush()
+    assert library.remove_season_rewatch(session, kingdom.id, [1, 2], include_specials=True) == 2
+    session.flush()
+    assert library.remove_season_rewatch(session, kingdom.id, [1, 2], include_specials=True) == 0
+
 
 def test_ensure_library_item_does_not_modify(session):
     item = library.ensure_library_item(session, MOVIE, 3, WATCHING, favorite=True)
