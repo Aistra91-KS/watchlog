@@ -2,6 +2,8 @@
 
 Performance : une série comme NCIS a environ 500 épisodes. Les épisodes ne sont affichés
 (un tableau par saison) que pour les saisons dépliées.
+Cocher une case ne recrée pas le tableau (position de défilement gardée) : voir
+`edits_match` et les deux sortes d'expanders de la boucle des saisons.
 """
 
 from datetime import date, datetime
@@ -35,11 +37,6 @@ MIN_WATCH_DATE = date(1900, 1, 1)
 
 # --- Enregistrement (fonctions appelées quand l'utilisateur change une valeur) ----------
 
-def refresh_tables() -> None:
-    """Change la clé des tableaux d'épisodes pour qu'ils repartent des données à jour."""
-    st.session_state["serie_tables_version"] = st.session_state.get("serie_tables_version", 0) + 1
-
-
 def save_status(show_id: int, key: str) -> None:
     with common.db() as session:
         library.set_status(session, SHOW, show_id, st.session_state[key])
@@ -70,7 +67,6 @@ def mark_season(show_id: int, season: int, include_specials: bool) -> None:
     with common.db() as session:
         count = library.mark_season_watched(session, show_id, season, include_specials)
         session.commit()
-    refresh_tables()
     st.session_state["serie_message"] = f"Saison {season} : {count} épisode(s) marqué(s) vu(s)."
 
 
@@ -89,7 +85,6 @@ def apply_bulk_date(show_id: int, prefix: str) -> None:
     with common.db() as session:
         count = library.set_show_watch_dates(session, show_id, day, seasons)
         session.commit()
-    refresh_tables()
     shown = fmt_date(day) if day else "date inconnue"
     st.session_state["serie_message"] = f"Date de visionnage de {count} épisode(s) : {shown}."
 
@@ -108,34 +103,44 @@ def apply_rewatch(show_id: int, prefix: str, add: bool, include_specials: bool) 
         else:
             count = library.remove_season_rewatch(session, show_id, seasons, include_specials)
         session.commit()
-    refresh_tables()
     action = "ajouté à" if add else "retiré de"
     st.session_state["serie_message"] = f"Revisionnage {action} {count} épisode(s)."
 
 
 def apply_episode_changes(editor_key: str, episode_ids: list[int], include_specials: bool) -> None:
-    """Applique les cases cochées / décochées dans le tableau d'une saison."""
+    """Applique les cases cochées / décochées, dates et notes du tableau d'une saison.
+
+    Le tableau garde sa clé tant que ses modifications correspondent à la base (voir
+    `edits_match`) : `edited_rows` cumule donc toutes les saisies depuis sa création.
+    Seules les valeurs différentes de la base sont appliquées (rejouer une saisie déjà
+    enregistrée ne change rien).
+    """
     changes = st.session_state[editor_key].get("edited_rows", {})
     with common.db() as session:
         for row, values in changes.items():
             episode_id = episode_ids[int(row)]
             if COL_RATING in values:   # note de l'épisode : indépendante du visionnage
-                value = values[COL_RATING]
-                library.set_rating_value(session, EPISODE, episode_id,
-                                         int(value) if value is not None else None)
+                value = cell_rating(values[COL_RATING])
+                current = library.get_rating(session, EPISODE, episode_id)
+                if value != (current.rating if current else None):
+                    library.set_rating_value(session, EPISODE, episode_id, value)
+            watch = library.get_watch(session, EPISODE, episode_id)
             if values.get(COL_UNTIL):
                 library.mark_watched_until(session, episode_id, include_specials)
             elif COL_SEEN in values:
-                if values[COL_SEEN]:
+                if values[COL_SEEN] and watch is None:
                     library.mark_watched(session, EPISODE, episode_id)
-                else:
-                    library.unmark_watched(session, EPISODE, episode_id)
+                elif not values[COL_SEEN]:
+                    if watch is not None:
+                        library.unmark_watched(session, EPISODE, episode_id)
                     continue  # décoché : une date saisie sur la même ligne est ignorée
             if COL_DATE in values:
                 # Date changée (vide : date inconnue) ; marque l'épisode vu au besoin.
-                library.set_watch_date(session, EPISODE, episode_id, parse_date(values[COL_DATE]))
+                day = cell_date(values[COL_DATE])
+                if watch is None or day != local_date(watch.watched_at, None):
+                    library.set_watch_date(session, EPISODE, episode_id, day)
+            session.flush()
         session.commit()
-    refresh_tables()
 
 
 def mark_next(show_id: int, episode_id: int, label: str) -> None:
@@ -143,7 +148,6 @@ def mark_next(show_id: int, episode_id: int, label: str) -> None:
     with common.db() as session:
         library.mark_watched(session, EPISODE, episode_id)
         session.commit()
-    refresh_tables()
     st.session_state[f"serie_last_seen_{show_id}"] = {"text": f"{label} marqué vu.",
                                                       "episode_id": episode_id}
 
@@ -155,16 +159,12 @@ def undo_next(show_id: int) -> None:
     with common.db() as session:
         library.unmark_watched(session, EPISODE, action["episode_id"])
         session.commit()
-    refresh_tables()
 
 
 def toggle_season(open_key: str, season: int, expander_key: str) -> None:
-    """Retient quelles saisons sont dépliées (pour qu'elles le restent après une mise à jour)."""
-    opened = st.session_state[open_key]
+    """Retient qu'une saison a été dépliée (elle le reste après une mise à jour)."""
     if st.session_state.get(expander_key):
-        opened.add(season)
-    else:
-        opened.discard(season)
+        st.session_state[open_key].add(season)
 
 
 # --- Préparation des données ------------------------------------------------------------
@@ -216,6 +216,49 @@ def season_table(episodes: list[Episode], watched: dict[int, date | None], today
     if with_plays:
         df[COL_PLAYS] = df[COL_PLAYS].astype("Int64")   # entier, case vide si pas vu
     return df, upcoming
+
+
+def cell_date(value) -> date | None:
+    """Valeur d'une case « Vu le » (saisie : texte ISO ; tableau : Timestamp / NaT) -> date."""
+    if value is None or value is pd.NaT or (isinstance(value, float) and pd.isna(value)):
+        return None
+    if isinstance(value, str):
+        return parse_date(value)
+    if isinstance(value, datetime):   # pd.Timestamp compris
+        return value.date()
+    return value if isinstance(value, date) else None
+
+
+def cell_rating(value) -> int | None:
+    """Valeur d'une case « Note » (1 à 5, ou vide) -> int ou None."""
+    if value is None or pd.isna(value):
+        return None
+    return int(value)
+
+
+def edits_match(df: pd.DataFrame, edited_rows: dict) -> bool:
+    """Vrai si chaque saisie en cours du tableau est déjà la valeur en base (dans `df`).
+
+    Le tableau peut alors garder sa clé : il reste affiché tel quel (défilement compris) et
+    reçoit seulement les nouvelles valeurs. Sinon (« Vu jusqu'ici » coché, épisode décoché
+    ailleurs, date changée en bloc...), ses saisies contrediraient la base : on le recrée.
+    """
+    for row, values in edited_rows.items():
+        row = int(row)
+        if row >= len(df):
+            return False
+        for column, value in values.items():
+            if column == COL_DATE:
+                same = cell_date(value) == cell_date(df.at[row, COL_DATE])
+            elif column == COL_RATING:
+                same = cell_rating(value) == cell_rating(df.at[row, COL_RATING])
+            elif column in (COL_SEEN, COL_UNTIL):
+                same = bool(value) == bool(df.at[row, column])
+            else:
+                same = False   # colonne non modifiable : ne devrait pas arriver
+            if not same:
+                return False
+    return True
 
 
 def grey_upcoming(df: pd.DataFrame, upcoming: list[int]):
@@ -447,22 +490,35 @@ open_key = f"serie_open_seasons_{show.id}"
 if open_key not in st.session_state:
     current = current_season(seasons, watched, today)
     st.session_state[open_key] = {current} if current is not None else set()
-version = st.session_state.get("serie_tables_version", 0)
-
 for season, season_episodes in seasons.items():
     seen = sum(1 for ep in season_episodes if ep.id in watched)
     label = f"Saison {season} · {seen}/{len(season_episodes)} vus"
-    expander_key = f"serie_season_{show.id}_{season}"
-    # `expanded` vient de notre mémoire des saisons ouvertes : ainsi la saison reste
-    # dépliée même quand son libellé change (nombre d'épisodes vus).
-    expander = st.expander(label, expanded=season in st.session_state[open_key],
-                           key=expander_key, on_change=toggle_season,
-                           args=(open_key, season, expander_key))
-    if not expander.open:
-        continue  # saison repliée : on ne construit pas le tableau
+    if season in st.session_state[open_key]:
+        # Saison ouverte : expander sans état, dont l'identité ne dépend que de la clé.
+        # Le libellé peut changer (une case cochée) sans que le navigateur recrée le bloc
+        # et le tableau qu'il contient (sinon : défilement perdu). Revers : on ne sait plus
+        # quand il est replié, son tableau reste construit (saisons ouvertes une fois).
+        expander = st.expander(label, expanded=True, key=f"serie_season_open_{show.id}_{season}")
+    else:
+        # Saison jamais ouverte : expander avec état, pour savoir quand on l'ouvre (le tableau
+        # n'est construit qu'à ce moment : une série comme NCIS a ~500 épisodes).
+        expander_key = f"serie_season_{show.id}_{season}"
+        expander = st.expander(label, expanded=False, key=expander_key, on_change=toggle_season,
+                               args=(open_key, season, expander_key))
+        if not expander.open:
+            continue
     with expander:
         df, upcoming = season_table(season_episodes, watched, today, plays, episode_ratings)
+        # Le tableau garde la même clé tant que ses saisies correspondent à la base : une case
+        # cochée ne le recrée pas. Sinon, nouvelle clé (tableau repris des données à jour).
+        version_key = f"serie_table_version_{show.id}_{season}"
+        version = st.session_state.get(version_key, 0)
         editor_key = f"serie_table_{show.id}_{season}_{version}"
+        editor_state = st.session_state.get(editor_key)
+        if editor_state and not edits_match(df, editor_state.get("edited_rows", {})):
+            version += 1
+            st.session_state[version_key] = version
+            editor_key = f"serie_table_{show.id}_{season}_{version}"
         st.data_editor(
             grey_upcoming(df, upcoming), key=editor_key, hide_index=True,
             disabled=[*INFO_COLUMNS, COL_PLAYS] if COL_PLAYS in df else INFO_COLUMNS,

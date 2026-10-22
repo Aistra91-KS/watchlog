@@ -105,6 +105,8 @@ temps passé comptent chaque visionnage.
 émotions et personnage préféré, enregistrés d'un coup avec « Enregistrer ». Le personnage
 préféré repris de Bingers y est modifiable. **Note d'un épisode** : colonne « Note » (1 à 5,
 vide = pas de note) du tableau de chaque saison ; elle est reprise dans l'export pour Bingers.
+Cocher une case, changer une date ou une note ne recharge pas le tableau de la saison (la
+position dans la liste est gardée) ; « Vu jusqu'ici » et les actions en bloc le rechargent.
 
 Statuts possibles : En cours, À voir, Plus tard, Arrêté, Terminé. Une série finie dont tous
 les épisodes sont vus passe toute seule en « Terminé ».
