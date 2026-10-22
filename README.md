@@ -101,6 +101,9 @@ la fiche indique « Vu N fois » et propose « Retirer un revisionnage ». Pour 
 le tableau d'une saison revue montre alors une colonne « Visionnages ». Les statistiques et le
 temps passé comptent chaque visionnage.
 
+**Mon avis** (fiche du film) : note, commentaire, émotions et personnage préféré, enregistrés
+d'un coup avec « Enregistrer ». Le personnage préféré repris de Bingers y est modifiable.
+
 Statuts possibles : En cours, À voir, Plus tard, Arrêté, Terminé. Une série finie dont tous
 les épisodes sont vus passe toute seule en « Terminé ».
 

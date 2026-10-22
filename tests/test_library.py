@@ -277,6 +277,20 @@ def test_set_rating_keeps_favorite_character(session):
     assert rating is not None and rating.rating is None and rating.favorite_character == "Tyler"
 
 
+def test_set_rating_changes_or_clears_favorite_character(session):
+    rating = library.set_rating(session, MOVIE, 2, 4, favorite_character="  Neo ")
+    assert rating.favorite_character == "Neo"
+    # Non précisé : gardé ; nouvelle valeur : remplacée.
+    assert library.set_rating(session, MOVIE, 2, 5).favorite_character == "Neo"
+    assert library.set_rating(session, MOVIE, 2, 5, favorite_character="Trinity") is rating
+    assert rating.favorite_character == "Trinity"
+    # Effacé (vide) : la note reste ; plus rien du tout : la ligne disparaît.
+    assert library.set_rating(session, MOVIE, 2, 5, favorite_character=" ").favorite_character \
+        is None
+    library.set_rating(session, MOVIE, 2, None, favorite_character="Morpheus")
+    assert library.set_rating(session, MOVIE, 2, None, favorite_character=None) is None
+
+
 def test_set_rating_rejects_invalid_value(session):
     with pytest.raises(ValueError):
         library.set_rating(session, SHOW, 1, 6)

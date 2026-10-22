@@ -255,18 +255,18 @@ st.subheader("Mon avis")
 current_emotions = library.split_emotions(rating.emotions if rating else None)
 emotion_options = list(library.EMOTION_LABELS) + [
     e for e in current_emotions if e not in library.EMOTION_LABELS]
-if rating and rating.favorite_character:
-    st.caption(f"Personnage préféré : {common.md_escape(rating.favorite_character)}")
 with st.form(f"film_avis_{movie.id}"):
     value = st.selectbox("Note", RATING_OPTIONS, format_func=rating_label,
                          index=RATING_OPTIONS.index((rating.rating or 0) if rating else 0))
     note = st.text_area("Commentaire", value=(rating.note or "") if rating else "")
     emotions = st.multiselect("Émotions", emotion_options, default=current_emotions,
                               format_func=emotion_label)
+    character = st.text_input("Personnage préféré",
+                              value=(rating.favorite_character or "") if rating else "")
     if st.form_submit_button("Enregistrer"):
         with common.db() as session:
             library.set_rating(session, MOVIE, movie.id, value or None, note=note,
-                               emotions=emotions)
+                               emotions=emotions, favorite_character=character)
             session.commit()
         st.session_state["film_message"] = "Avis enregistré."
         st.rerun()

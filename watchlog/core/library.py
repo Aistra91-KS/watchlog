@@ -292,6 +292,11 @@ EMOTION_LABELS = {
 }
 
 
+# Valeur par défaut d'un paramètre facultatif de set_rating : « ne pas y toucher »
+# (None voudrait dire « effacer »).
+KEEP = object()
+
+
 def split_emotions(emotions: str | None) -> list[str]:
     """"scared, touched" -> ["scared", "touched"] (chaîne vide ou None -> [])."""
     if not emotions:
@@ -304,22 +309,27 @@ def get_rating(session: Session, kind: str, ref_id: int) -> Rating | None:
 
 
 def set_rating(session: Session, kind: str, ref_id: int, rating: int | None,
-               note: str | None = None, emotions=None) -> Rating | None:
+               note: str | None = None, emotions=None,
+               favorite_character: str | None | object = KEEP) -> Rating | None:
     """Enregistre la note (1 à 5, ou None), le commentaire libre et les émotions.
 
     Les trois valeurs remplacent les anciennes (None = vide). `emotions` : liste de
-    codes ou chaîne « a, b ». Le personnage préféré (import Bingers) est conservé.
-    Si tout est vide, la ligne est supprimée et la fonction renvoie None.
+    codes ou chaîne « a, b ». `favorite_character` : KEEP (par défaut) garde celui
+    qui existe (import Bingers) ; une chaîne le remplace ; None ou "" l'efface.
+    Si tout est vide, la ligne est supprimée et la fonction renvoie None. Pas de commit.
     """
     if rating is not None and not 1 <= rating <= 5:
         raise ValueError(f"Note invalide : {rating} (attendu : 1 à 5)")
     if isinstance(emotions, str):
         emotions = split_emotions(emotions)
     emotions_text = ", ".join(emotions) if emotions else None
-    note = note.strip() if note and note.strip() else None
+    note = _clean_text(note)
 
     existing = get_rating(session, kind, ref_id)
-    favorite_character = existing.favorite_character if existing else None
+    if favorite_character is KEEP:
+        favorite_character = existing.favorite_character if existing else None
+    else:
+        favorite_character = _clean_text(favorite_character)
     if rating is None and note is None and emotions_text is None and not favorite_character:
         if existing is not None:
             session.delete(existing)
@@ -329,8 +339,14 @@ def set_rating(session: Session, kind: str, ref_id: int, rating: int | None,
     existing.rating = rating
     existing.note = note
     existing.emotions = emotions_text
+    existing.favorite_character = favorite_character
     session.add(existing)
     return existing
+
+
+def _clean_text(text: str | None) -> str | None:
+    """Texte saisi sans espaces autour ; vide -> None."""
+    return text.strip() if text and text.strip() else None
 
 
 def refresh_completed(session: Session, today: date | None = None) -> int:
