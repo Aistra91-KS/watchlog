@@ -63,6 +63,10 @@ En cliquant sur un titre, on ouvre la **fiche** de la série (saisons, épisodes
 note) ou du film. Chaque fiche indique **où regarder** en France : abonnement (Netflix, Prime
 Video, Canal+…), location, achat (données JustWatch via TMDB, mises à jour chaque semaine).
 
+**Prochain épisode** : en haut de la fiche d'une série, le prochain épisode non vu (hors
+spéciaux) avec son titre, sa date et sa durée, et un bouton « Vu » (puis « Annuler »). S'il
+n'est pas encore diffusé : « Prochain épisode : S03E01 le 12/11/2026 ». Rien si tout est vu.
+
 **Date de visionnage** : modifiable dans la fiche du film (champ « Vu le », ou « Date de
 visionnage » avant de cliquer « Vu ») et dans la colonne « Vu le » des tableaux d'épisodes.
 Pratique pour un titre vu il y a longtemps : il compte alors dans le bon mois des statistiques.

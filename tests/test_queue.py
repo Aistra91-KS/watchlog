@@ -8,7 +8,7 @@ from sqlmodel import Session
 from helpers_db import add_episode, add_movie, add_show, watch
 from watchlog.core import queue
 from watchlog.core.models import (EPISODE, FOR_LATER, MATCH_NUMBERING, MATCH_REMAPPED, MOVIE, STOPPED,
-                                  TO_WATCH)
+                                  TO_WATCH, Show)
 from watchlog.core.queue import NO_DATE, RELEASED, UPCOMING
 
 TODAY = date(2026, 10, 12)
@@ -275,3 +275,41 @@ def test_day_entry_single_and_watched(session):
     entries = queue.group_day(queue.releases_between(session, date(2026, 10, 2), date(2026, 10, 2),
                                                      today=TODAY))
     assert entries[0].label == "S01E05" and entries[0].watched
+
+
+# --- Prochain épisode (fiche série) -------------------------------------------------
+
+def test_next_episode_first_unwatched_regular_episode(session):
+    show = add_show(session, "Série", status=STOPPED)   # tout statut : fiche série
+    first = add_episode(session, show, 1, 1, airdate=date(2026, 1, 1))
+    add_episode(session, show, 1, None, airdate=date(2026, 1, 2))   # spécial ignoré
+    add_episode(session, show, 1, 2, airdate=date(2026, 1, 8), title="Le retour", runtime=50)
+    watch(session, first)
+    session.commit()
+
+    item = queue.next_episode(session, show.id, today=TODAY)
+    assert (item.code, item.episode_title, item.runtime) == ("S01E02", "Le retour", 50)
+    assert item.availability == RELEASED and item.release_date == date(2026, 1, 8)
+
+
+def test_next_episode_upcoming_and_show_outside_library(session):
+    show = Show(title="Hors bibliothèque")
+    session.add(show)
+    session.flush()
+    add_episode(session, show, 3, 1, airdate=date(2026, 11, 12))
+    session.commit()
+
+    item = queue.next_episode(session, show.id, today=TODAY)
+    assert item.code == "S03E01" and item.availability == UPCOMING and item.status is None
+
+
+def test_next_episode_none_when_all_watched_or_numbering_unchecked(session):
+    done = add_show(session, "Finie")
+    watch(session, add_episode(session, done, 1, 1, airdate=date(2026, 1, 1)))
+    add_episode(session, done, 1, None, airdate=date(2026, 1, 2))   # spécial non vu : ignoré
+    mismatch = add_show(session, "À vérifier", match_status=MATCH_NUMBERING)
+    add_episode(session, mismatch, 1, 1, airdate=date(2026, 1, 1))
+    session.commit()
+
+    assert queue.next_episode(session, done.id, today=TODAY) is None
+    assert queue.next_episode(session, mismatch.id, today=TODAY) is None

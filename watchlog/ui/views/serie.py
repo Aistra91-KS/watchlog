@@ -10,12 +10,12 @@ import pandas as pd
 import streamlit as st
 from sqlmodel import select
 
-from watchlog.core import library, providers
+from watchlog.core import library, providers, queue
 from watchlog.core.adding import tvmaze_status_label
 from watchlog.core.dates import fmt_date, parse_date
 from watchlog.core.models import (EPISODE, MATCH_OK, MATCH_REMAPPED, SHOW, Episode, Show,
                                   Watch)
-from watchlog.core.queue import LOCAL_TZ, episode_code, local_date
+from watchlog.core.queue import LOCAL_TZ, UPCOMING, episode_code, local_date
 from watchlog.ui import common
 
 COL_SEEN = "Vu"
@@ -101,6 +101,26 @@ def apply_episode_changes(editor_key: str, episode_ids: list[int], include_speci
     refresh_tables()
 
 
+def mark_next(show_id: int, episode_id: int, label: str) -> None:
+    """Bouton « Vu » du bloc Prochain épisode (avec « Annuler » ensuite)."""
+    with common.db() as session:
+        library.mark_watched(session, EPISODE, episode_id)
+        session.commit()
+    refresh_tables()
+    st.session_state[f"serie_last_seen_{show_id}"] = {"text": f"{label} marqué vu.",
+                                                      "episode_id": episode_id}
+
+
+def undo_next(show_id: int) -> None:
+    action = st.session_state.pop(f"serie_last_seen_{show_id}", None)
+    if action is None:
+        return
+    with common.db() as session:
+        library.unmark_watched(session, EPISODE, action["episode_id"])
+        session.commit()
+    refresh_tables()
+
+
 def toggle_season(open_key: str, season: int, expander_key: str) -> None:
     """Retient quelles saisons sont dépliées (pour qu'elles le restent après une mise à jour)."""
     opened = st.session_state[open_key]
@@ -149,6 +169,38 @@ def grey_upcoming(df: pd.DataFrame, upcoming: list[int]):
         color = UPCOMING_STYLE if row.name in upcoming else ""
         return [color if col in ("Code", "Date", "Titre") else "" for col in row.index]
     return df.style.apply(style_row, axis=1)
+
+
+def fmt_runtime(minutes: int | None) -> str:
+    """45 -> « 45 min », 112 -> « 1 h 52 »."""
+    if not minutes:
+        return ""
+    return f"{minutes} min" if minutes < 60 else f"{minutes // 60} h {minutes % 60:02d}"
+
+
+def show_next_episode(show_id: int, today: date) -> None:
+    """Bloc « Prochain épisode » : le marquer vu sans chercher dans les saisons."""
+    last_key = f"serie_last_seen_{show_id}"
+    with common.db() as session:
+        nxt = queue.next_episode(session, show_id, today=today)
+    last = st.session_state.get(last_key)
+    if nxt is None and not last:
+        return  # tout est vu : rien à afficher
+    with st.container(border=True):
+        if nxt is not None and nxt.availability == UPCOMING:
+            st.markdown(f"**Prochain épisode** : {nxt.code} le {fmt_date(nxt.release_date)}")
+        elif nxt is not None:
+            text_col, button_col = st.columns([6, 1], vertical_alignment="center")
+            details = [f"**{nxt.code}**", common.md_escape(nxt.episode_title),
+                       fmt_date(nxt.release_date), fmt_runtime(nxt.runtime)]
+            text_col.markdown("Prochain épisode : " + " · ".join(d for d in details if d))
+            button_col.button("Vu", type="primary", key=f"serie_next_seen_{show_id}",
+                              on_click=mark_next, args=(show_id, nxt.ref_id, nxt.code))
+        if last:
+            text_col, undo_col = st.columns([6, 1], vertical_alignment="center")
+            text_col.caption(last["text"])
+            undo_col.button("Annuler", key=f"serie_next_undo_{show_id}", on_click=undo_next,
+                            args=(show_id,))
 
 
 # --- Page ------------------------------------------------------------------------------
@@ -215,6 +267,8 @@ with col_info:
     if regular:
         seen = sum(1 for ep in regular if ep.id in watched)
         st.caption(f"{seen}/{len(regular)} épisodes vus (hors spéciaux)")
+
+show_next_episode(show.id, today)
 
 # Correspondance TVMaze à vérifier
 if show.match_status not in (MATCH_OK, MATCH_REMAPPED):

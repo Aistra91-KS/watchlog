@@ -33,7 +33,7 @@ class QueueItem:
     episode_title: str | None
     release_date: date | None    # date locale (France) de diffusion / sortie
     availability: str            # RELEASED, UPCOMING ou NO_DATE
-    status: str                  # statut de la série ou du film dans la bibliothèque
+    status: str | None           # statut dans la bibliothèque (None : hors bibliothèque)
     runtime: int | None
     poster_path: str | None
     season: int | None = None
@@ -72,15 +72,22 @@ def sort_key(item: QueueItem):
 
 def _episode_items(session: Session, statuses, show_id, include_specials, today,
                    include_watched: bool = False, airdate_range: tuple[date, date] | None = None):
+    """Épisodes des séries de la bibliothèque ayant un des `statuses`.
+
+    statuses=None : sans filtre de statut, séries hors bibliothèque comprises (fiche série).
+    """
     watched = select(Watch.ref_id).where(Watch.kind == EPISODE)
+    on_library = (LibraryItem.kind == SHOW) & (LibraryItem.ref_id == Show.id)
     query = (
         select(Episode, Show, LibraryItem)
         .join(Show, Show.id == Episode.show_id)
-        .join(LibraryItem, (LibraryItem.kind == SHOW) & (LibraryItem.ref_id == Show.id))
-        .where(LibraryItem.status.in_(statuses))
         # Séries dont la numérotation n'est pas vérifiée : exclues (tout semblerait non vu).
         .where(Show.match_status.in_([MATCH_OK, MATCH_REMAPPED]))
     )
+    if statuses is None:
+        query = query.outerjoin(LibraryItem, on_library)
+    else:
+        query = query.join(LibraryItem, on_library).where(LibraryItem.status.in_(statuses))
     if include_watched:
         watched_ids = set(session.exec(watched).all())
     else:
@@ -99,7 +106,8 @@ def _episode_items(session: Session, statuses, show_id, include_specials, today,
         items.append(QueueItem(
             kind=EPISODE, ref_id=ep.id, show_id=show.id, title=show.title,
             code=episode_code(ep.season, ep.number), episode_title=ep.title,
-            release_date=day, availability=availability(day, today), status=lib.status,
+            release_date=day, availability=availability(day, today),
+            status=lib.status if lib is not None else None,
             runtime=ep.runtime, poster_path=show.poster_path,
             season=ep.season, number=ep.number, is_special=ep.is_special,
             poster_url=show.poster_url, watched=include_watched and ep.id in watched_ids))
@@ -152,6 +160,18 @@ def build_queue(session: Session, kinds=(EPISODE, MOVIE), statuses=DEFAULT_STATU
         items += _movie_items(session, statuses, today)
     items = [item for item in items if item.availability in availabilities]
     return sorted(items, key=sort_key)
+
+
+def next_episode(session: Session, show_id: int, today: date | None = None) -> QueueItem | None:
+    """Prochain épisode non vu d'une série (hors spéciaux), pour la fiche de la série.
+
+    Même règle que « prochain épisode seulement » de la liste À regarder, mais quel que soit
+    le statut (ou l'absence) de la série dans la bibliothèque. L'épisode peut être à venir
+    (`availability`). None : tout est vu, ou numérotation TVMaze à vérifier.
+    """
+    today = today or datetime.now(LOCAL_TZ).date()
+    items = _first_per_show(_episode_items(session, None, show_id, False, today))
+    return items[0] if items else None
 
 
 def _first_per_show(items: list[QueueItem]) -> list[QueueItem]:
