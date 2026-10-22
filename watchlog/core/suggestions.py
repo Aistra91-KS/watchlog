@@ -14,6 +14,8 @@
 4. Score = 35 % collaboratif + 50 % ressemblance au profil + 15 % qualité (note TMDB
    pondérée par le nombre de votes), petit bonus tendance ; les thèmes « moins de ça »
    font chuter le score. Puis on diversifie (pas dix titres presque identiques à la suite).
+5. « % pour toi » (match_percent) : affinité absolue (profil + recommandations), qui ne
+   dépend pas des autres candidats ; l'ordre, lui, suit le score.
 
 Les réponses TMDB sont en cache (mots-clés 90 jours, recommandations 30 jours) : seul le
 premier calcul est long (une à deux minutes).
@@ -67,6 +69,12 @@ REDUCED_FACTOR = 0.3    # titre qui a un thème « moins de ça »
 MIN_CONTENT = 0.35      # titre venu des thèmes ou des tendances : ressemblance minimale
 DIVERSITY = 0.25        # pénalité de ressemblance avec les titres déjà retenus (MMR)
 BAYES_VOTES, BAYES_MEAN = 200, 6.5
+# « % pour toi » : valeur absolue (pas relative au meilleur titre), comparable d'un calcul à
+# l'autre. Ressemblance : cosinus au profil / MATCH_FULL_COSINE (plafonné à 1 ; sur la vraie
+# bibliothèque, les meilleurs titres sont vers 0,3-0,4). Recommandations : collab / (collab +
+# MATCH_HALF_COLLAB), soit 50 % pour une recommandation en tête par 3 à 5 titres aimés.
+MATCH_FULL_COSINE = 0.30
+MATCH_HALF_COLLAB = 5.0
 MAX_FAILURE_SHARE = 0.05  # au-delà de 5 % d'appels TMDB ratés, le résultat est signalé incomplet
 
 
@@ -92,7 +100,7 @@ class Suggestion:
     vote_average: float
     vote_count: int = 0
     score: float = 0.0
-    match: int = 0                # correspondance en % (100 = meilleure suggestion du type)
+    match: int = 0                # « % pour toi », absolu (voir match_percent)
     because: list[str] = field(default_factory=list)  # titres de la bibliothèque à l'origine
     streaming: list[str] = field(default_factory=list)  # plateformes abonnement / gratuites (FR)
     rent_or_buy: bool = False     # disponible en location ou à l'achat (FR)
@@ -410,6 +418,23 @@ def quality(vote_average: float, vote_count: int) -> float:
     return min(1.0, max(0.0, (bayes - 5.5) / 3))
 
 
+def match_percent(collab: float, content: float, reduced: bool = False) -> int:
+    """« % pour toi » d'un titre, de 1 à 100, fixe quels que soient les autres candidats.
+
+    Moyenne, avec les poids du score (50 / 35), de la ressemblance au profil (cosinus brut
+    ramené sur 0-1 par MATCH_FULL_COSINE) et du signal collaboratif (somme brute des
+    recommandations, saturée par MATCH_HALF_COLLAB). La qualité TMDB, le bonus tendance et
+    la diversité n'y entrent pas : ils comptent dans l'ordre, pas dans l'affinité. Thème
+    « moins de ça » : × REDUCED_FACTOR, comme le score.
+    """
+    resemblance = min(1.0, max(0.0, content) / MATCH_FULL_COSINE)
+    recommended = collab / (collab + MATCH_HALF_COLLAB) if collab > 0 else 0.0
+    value = (W_CONTENT * resemblance + W_COLLAB * recommended) / (W_CONTENT + W_COLLAB)
+    if reduced:
+        value *= REDUCED_FACTOR
+    return max(1, min(100, round(100 * value)))
+
+
 def _keywords(item: Suggestion) -> set[str]:
     return {f for f in item.features if not taste.is_genre(f)}
 
@@ -453,17 +478,17 @@ def rank(candidates: dict[int, Suggestion], reasons: dict[int, dict[str, float]]
         s.score = (W_COLLAB * collab + W_CONTENT * content
                    + W_QUALITY * quality(s.vote_average, s.vote_count)
                    + (TRENDING_BONUS if s.trending else 0.0))
-        if profile.reduced & (set(s.features) | set(taste.genre_features(s.genres))):
+        reduced = bool(profile.reduced & (set(s.features) | set(taste.genre_features(s.genres))))
+        if reduced:
             s.score *= REDUCED_FACTOR
+        s.match = match_percent(s.collab, s.content, reduced)
         kept.append(s)
     ranked = diversify(kept, limit)
-    top = max((s.score for s in ranked), default=1.0) or 1.0
     for s in ranked:
         titles = reasons.get(s.tmdb_id, {})
         s.because = sorted(titles, key=titles.get, reverse=True)[:MAX_REASONS]
         s.matched_themes = profile.explain(s.features, MAX_THEMES)
         s.themes = list(dict.fromkeys(s.features.values()))
-        s.match = max(1, round(100 * s.score / top))
     return ranked
 
 
@@ -648,7 +673,8 @@ def filter_items(items: list[Suggestion], kinds: tuple[str, ...] = (SHOW, MOVIE)
     if sort == SORT_RATING:
         result.sort(key=lambda s: (s.vote_average, s.vote_count), reverse=True)
     elif sort == SORT_RECENT:
-        result.sort(key=lambda s: (s.year or 0, s.match), reverse=True)
+        result.sort(key=lambda s: (s.year or 0, s.score), reverse=True)
     else:
-        result.sort(key=lambda s: (s.match, s.score), reverse=True)
+        # Ordre du moteur (score diversifié) ; le « % pour toi » n'en est qu'une partie.
+        result.sort(key=lambda s: s.score, reverse=True)
     return result

@@ -169,6 +169,14 @@ n'est pas exporté (volumineux et inutile).
 4. **Score** : 35 % recommandations, 50 % ressemblance à ton profil, 15 % qualité (note TMDB
    pondérée par le nombre de votes). Puis la liste est diversifiée (pas dix titres presque
    identiques à la suite).
+5. **« % pour toi »** : l'affinité du titre avec tes goûts, sur 100, calculée pour lui seul
+   (le premier de la liste n'est pas forcément à 100 %, et un même titre garde à peu près le
+   même % d'un calcul à l'autre). Moitié-moitié environ : ressemblance à ton profil (59 % au
+   plus à elle seule) et recommandations par des titres que tu as aimés (100 % = les deux au
+   maximum). Ordre de grandeur : 70 % et plus = très proche de tes goûts, 30 % et moins =
+   lien faible. La note TMDB, les tendances et la diversité jouent sur l'ordre, pas sur le % :
+   un titre peut donc être classé devant un autre qui a un % plus élevé. Un thème
+   « Moins de… » divise le % par trois environ.
 
 Pour orienter : page Suggestions > **Ton profil de goûts** > « Plus de… » (ex. Dystopie) /
 « Moins de… » (ex. Animation), puis « Enregistrer et recalculer ».
