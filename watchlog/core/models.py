@@ -182,6 +182,13 @@ class ThemePreference(SQLModel, table=True):
     updated_at: NaiveDatetime | None = None
 
 
+class Setting(SQLModel, table=True):
+    """Réglage ou état gardé d'un lancement à l'autre (dernière synchro...) : valeur en JSON."""
+
+    key: str = Field(primary_key=True)
+    value: str | None = None
+
+
 class ApiCache(SQLModel, table=True):
     url: str = Field(primary_key=True)        # chemin + paramètres publics (jamais la clé)
     response_json: str

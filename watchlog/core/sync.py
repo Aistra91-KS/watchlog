@@ -10,6 +10,8 @@ Principe :
 - Durées réelles des épisodes (TMDB) : pour les séries jamais vérifiées et celles qui
   viennent d'être rechargées (TVMaze donne souvent la durée du créneau, pub comprise).
 - Ensuite : passage en « Terminé » si besoin, affiches manquantes, enregistrement.
+- Enfin : date et rapport de la synchro gardés en base (menu de l'interface, synchro
+  automatique au lancement si la dernière date de plus de AUTO_SYNC_AGE).
 
 Une erreur sur un élément est notée dans le rapport mais n'arrête pas le reste.
 """
@@ -22,6 +24,7 @@ from datetime import date, datetime, timedelta, timezone
 from sqlalchemy import Engine
 from sqlmodel import Session, select
 
+from watchlog.core import settings
 from watchlog.core.config import DATA_DIR
 from watchlog.core.dates import utcnow
 from watchlog.core.http import ApiError
@@ -32,6 +35,8 @@ log = logging.getLogger(__name__)
 
 # La fenêtre "week" de TVMaze couvre 7 jours : au-delà, on recharge par sécurité.
 MAX_AGE = timedelta(days=7)
+# Synchro automatique au lancement de l'interface si la dernière date de plus de ça.
+AUTO_SYNC_AGE = timedelta(hours=24)
 
 # progress(fait, total, libellé) : pour afficher l'avancement (CLI ou interface).
 Progress = Callable[[int, int, str], None]
@@ -52,6 +57,11 @@ class SyncReport:
     tvmaze_down: bool = False    # TVMaze injoignable : séries non mises à jour
     tmdb_down: bool = False      # TMDB non connecté : films ignorés
     errors: list[str] = field(default_factory=list)
+
+    @property
+    def problems(self) -> int:
+        """Nombre de choses qui n'ont pas pu être mises à jour (API en panne, erreurs)."""
+        return len(self.errors) + self.tvmaze_down + self.tmdb_down
 
     def lines(self) -> list[str]:
         """Résumé lisible, une ligne par information."""
@@ -268,8 +278,40 @@ def sync(engine: Engine, tvmaze, tmdb, progress: Progress | None = None,
         if download_posters:
             report.posters = _download_missing_posters(session, tvmaze, tmdb, report)
 
+        # 9. Date et rapport, pour l'interface.
+        remember(session, report)
         session.commit()
     return report
+
+
+def remember(session: Session, report: SyncReport, now: datetime | None = None) -> None:
+    """Garde le rapport, et la date de la synchro si TVMaze a répondu. Pas de commit.
+
+    TVMaze en panne : la date n'avance pas, la prochaine ouverture réessaiera.
+    """
+    now = now or utcnow()
+    if not report.tvmaze_down:
+        settings.set_value(session, settings.LAST_SYNC_AT, now.isoformat())
+    settings.set_value(session, settings.LAST_SYNC_REPORT,
+                       {"at": now.isoformat(), "lines": report.lines(),
+                        "problems": report.problems})
+
+
+def last_sync_at(session: Session) -> datetime | None:
+    """Fin de la dernière synchro réussie (UTC naïf), None si jamais faite."""
+    value = settings.get_value(session, settings.LAST_SYNC_AT)
+    try:
+        return datetime.fromisoformat(value) if value else None
+    except ValueError:
+        log.warning("Date de dernière synchro illisible : %r", value)
+        return None
+
+
+def sync_due(session: Session, now: datetime | None = None,
+             max_age: timedelta = AUTO_SYNC_AGE) -> bool:
+    """True si la dernière synchro réussie date de plus de `max_age` (ou n'a jamais eu lieu)."""
+    last = last_sync_at(session)
+    return last is None or (now or utcnow()) - last > max_age
 
 
 def _download_missing_posters(session: Session, tvmaze, tmdb, report: SyncReport) -> int:

@@ -52,7 +52,8 @@ watchlog/
     queue.py           liste « À regarder » + calendrier
     progress.py        vue d'ensemble de la bibliothèque
     stats.py           statistiques (pandas)
-    sync.py            mise à jour TVMaze / TMDB
+    sync.py            mise à jour TVMaze / TMDB (auto au lancement si > 24 h, thread à part)
+    settings.py        réglages et états gardés en base (table Setting, valeurs JSON)
     providers.py       plateformes en France (JustWatch via TMDB)
     preview.py         page Aperçu d'un titre TMDB hors bibliothèque
     taste.py           profil de goûts (thèmes TMDB, TF-IDF) + préférences de thèmes
@@ -79,7 +80,8 @@ tests/                 pytest ; conftest.py = faux clients TVMaze/TMDB, faux zip
   différente) ; `Show.match_status` dit pourquoi (ok, uncertain, not_found, numbering_mismatch,
   remapped).
 - `DismissedSuggestion` (« Pas intéressé »), `ThemePreference` (« plus de / moins de » un thème),
-  `ApiCache` (réponses d'API ; jamais exporté).
+  `ApiCache` (réponses d'API ; jamais exporté), `Setting` (clé → valeur JSON : date et rapport
+  de la dernière synchro...).
 - `kind` + `ref_id` : pas de clé étrangère SQL, c'est le code qui garantit la cohérence.
 
 ## Conventions (à respecter)

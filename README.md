@@ -40,8 +40,12 @@ de l'application Bingers. L'interface s'ouvre dans le navigateur (Streamlit).
   il suffit d'ouvrir http://localhost:8501 dans le navigateur.
 - Pour arrêter : fermer le terminal de la tâche (ou Ctrl+C dedans).
 
-Mettre à jour séries et films : bouton « Synchroniser maintenant » dans la page Paramètres,
-ou Ctrl+Maj+P > « Tasks: Run Task » > « Synchroniser Watchlog ».
+Mettre à jour séries et films : c'est automatique à l'ouverture de Watchlog si la dernière mise
+à jour date de plus de 24 h. Elle tourne en arrière-plan (« Mise à jour en cours… » dans le
+menu, la page se recharge à la fin) ; le menu affiche ensuite « Mis à jour il y a … » et, s'il y
+en a eu, les problèmes de la dernière mise à jour. À la demande : bouton « Synchroniser
+maintenant » dans la page Paramètres, ou Ctrl+Maj+P > « Tasks: Run Task » > « Synchroniser
+Watchlog ». Pas de mise à jour automatique avec `WATCHLOG_OFFLINE=1`.
 
 Durée des épisodes : TVMaze donne pour les séries des chaînes américaines la durée du créneau
 de diffusion (60 min, pub comprise, pour un épisode de 42 min). La synchro la remplace par la

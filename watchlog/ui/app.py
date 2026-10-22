@@ -112,6 +112,39 @@ def startup_genres() -> None:
 
 
 startup_genres()
+common.auto_sync()   # après la sauvegarde du démarrage
+
+SYNC_POLL_SECONDS = 3   # pendant la synchro automatique : vérifie toutes les 3 s si elle est finie
+
+
+@st.fragment(run_every=SYNC_POLL_SECONDS)
+def sync_running() -> None:
+    """« Mise à jour en cours » ; une fois finie, recharge la page avec les nouvelles données."""
+    if common.auto_sync()["running"]:
+        st.caption(":material/sync: Mise à jour en cours…")
+    else:
+        st.rerun()
+
+
+def show_sync_status() -> None:
+    """Menu : date de la dernière mise à jour, et ses problèmes éventuels."""
+    from watchlog.core import settings, sync
+    from watchlog.core.dates import fmt_ago, utcnow
+    state = common.auto_sync()
+    if state["running"]:
+        sync_running()
+        return
+    with common.db() as session:
+        last = sync.last_sync_at(session)
+        report = settings.get_value(session, settings.LAST_SYNC_REPORT) or {}
+    st.caption(f"Mis à jour {fmt_ago(last, utcnow())}" if last else "Jamais mis à jour")
+    if state["error"]:
+        st.caption(f":orange[Mise à jour automatique interrompue : {state['error']}]")
+    problems = report.get("problems", 0)
+    if problems:
+        with st.popover(f"{problems} problème{'s' if problems > 1 else ''} à la dernière "
+                        "mise à jour", type="tertiary"):
+            st.text("\n".join(report.get("lines", [])))
 
 
 def stop_server() -> None:
@@ -142,6 +175,7 @@ with st.sidebar:
         st.page_link(p)
     connected, _message = common.tmdb_status()
     st.caption("TMDB : connecté" if connected else "TMDB : non connecté (voir Paramètres)")
+    show_sync_status()
     st.button("Arrêter Watchlog", on_click=stop_server, type="tertiary",
               help="Ferme l'outil. Pour le rouvrir : le raccourci Watchlog (Bureau ou menu Démarrer).")
 

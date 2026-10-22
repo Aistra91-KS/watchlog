@@ -222,8 +222,12 @@ show_report("import_report")
 # --- Synchronisation -------------------------------------------------------------
 st.header("Synchronisation")
 st.write("Met à jour les séries (TVMaze) et les films (TMDB) de la bibliothèque. "
-         "Une sauvegarde de la base est faite juste avant.")
-if st.button("Synchroniser maintenant"):
+         "Une sauvegarde de la base est faite juste avant. Elle se lance aussi toute seule "
+         "à l'ouverture de Watchlog si la dernière date de plus de 24 h.")
+auto_running = common.auto_sync()["running"]
+if auto_running:
+    st.caption("Mise à jour automatique en cours : attends qu'elle soit finie (voir le menu).")
+if st.button("Synchroniser maintenant", disabled=auto_running):
     backup_or_warn()
     report = sync(get_engine(), common.tvmaze_client(), common.tmdb_client(),
                   progress=progress_bar("Synchronisation..."))

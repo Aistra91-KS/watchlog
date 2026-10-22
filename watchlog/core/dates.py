@@ -42,6 +42,19 @@ def fmt_date(value: date | datetime | None) -> str:
     return value.strftime("%d/%m/%Y") if value else ""
 
 
+def fmt_ago(when: datetime, now: datetime) -> str:
+    """Temps écoulé lisible : « à l'instant », « il y a 5 min », « il y a 3 h », « il y a 2 jours »."""
+    minutes = int((now - when).total_seconds() // 60)
+    if minutes < 1:
+        return "à l'instant"
+    if minutes < 60:
+        return f"il y a {minutes} min"
+    if minutes < 24 * 60:
+        return f"il y a {minutes // 60} h"
+    days = minutes // (24 * 60)
+    return f"il y a {days} jour{'s' if days > 1 else ''}"
+
+
 def local_day_to_utc(day: date) -> datetime:
     """Jour saisi par l'utilisateur -> datetime UTC naïf (midi, heure française).
 
