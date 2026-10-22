@@ -55,6 +55,14 @@ durée TVMaze reste, et le rapport le compte). La première synchro lit toutes l
 depuis TVMaze n'a pas d'id TMDB : la synchro le cherche d'abord (via TVDB) ; celles introuvables
 sont comptées dans le rapport.
 
+Textes en français : TVMaze donne les titres d'épisodes et le résumé des séries en anglais. La
+synchro lit aussi sur TMDB le titre français de chaque épisode (même requête que la durée, même
+contrôle de la date) et le résumé français de la série ; ils s'affichent à la place de l'anglais
+(fiche série, À regarder, calendrier, export Excel), qui reste en repli quand TMDB n'a pas de
+traduction (un titre générique « Épisode 5 » est ignoré). Toute la bibliothèque est relue une
+fois, puis seulement les séries nouvelles ou mises à jour ; le rapport compte les titres et
+résumés trouvés et ceux sans traduction.
+
 Accès : l'outil n'est joignable que depuis ce PC (`address = "localhost"` dans
 `.streamlit/config.toml`). Le serveur n'a pas de mot de passe : ne l'ouvrir au réseau
 (`0.0.0.0`) que sur un réseau de confiance.

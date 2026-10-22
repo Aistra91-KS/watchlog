@@ -15,9 +15,10 @@ from watchlog.core.tmdb import season_ttl
 class SeasonTMDB:
     """Faux TMDB : saisons {(tmdb_id, saison): [épisodes TMDB]}, None = saison inconnue."""
 
-    def __init__(self, seasons, available=True, tvdb=None):
+    def __init__(self, seasons, available=True, tvdb=None, overviews=None):
         self.seasons = seasons
         self.tvdb = tvdb or {}   # id TVDB -> id TMDB
+        self.overviews = overviews or {}   # id TMDB -> résumé français ("" = pas traduit)
         self.available = available
         self.fetched: list[tuple[int, int]] = []
 
@@ -26,6 +27,13 @@ class SeasonTMDB:
         episodes = self.seasons.get((tmdb_id, season))
         return None if episodes is None else {"episodes": episodes}
 
+    def details(self, media, tmdb_id):
+        assert media == "tv"
+        self.fetched.append((tmdb_id, "details"))
+        if tmdb_id not in self.overviews:
+            return None
+        return {"id": tmdb_id, "overview": self.overviews[tmdb_id]}
+
     def find_tv_by_tvdb(self, tvdb_id):
         return self.tvdb.get(tvdb_id)
 
@@ -33,13 +41,15 @@ class SeasonTMDB:
         return False
 
 
-def tmdb_ep(number, air_date, runtime):
-    return {"episode_number": number, "air_date": air_date, "runtime": runtime}
+def tmdb_ep(number, air_date, runtime, name=None):
+    return {"episode_number": number, "air_date": air_date, "runtime": runtime, "name": name}
 
 
-def add_show(session, tmdb_id=500, status=WATCHING, match=MATCH_OK, checked_at=None):
+def add_show(session, tmdb_id=500, status=WATCHING, match=MATCH_OK, checked_at=None,
+             texts_checked_at=None):
     show = Show(title=f"Série {tmdb_id}", tvmaze_id=tmdb_id, tmdb_id=tmdb_id, match_status=match,
-                runtimes_checked_at=checked_at, last_synced_at=utcnow())
+                runtimes_checked_at=checked_at, texts_fr_checked_at=texts_checked_at,
+                last_synced_at=utcnow())
     session.add(show)
     session.flush()
     session.add(LibraryItem(kind=SHOW, ref_id=show.id, status=status))
@@ -54,7 +64,7 @@ def add_episode(session, show, season, number, airdate, runtime=60):
     return episode
 
 
-def test_apply_tmdb_runtimes_replaces_slot_duration(engine):
+def test_apply_tmdb_episodes_replaces_slot_duration(engine):
     with Session(engine) as s:
         show = add_show(s)
         e1 = add_episode(s, show, 4, 16, date(2010, 1, 18))
@@ -62,15 +72,15 @@ def test_apply_tmdb_runtimes_replaces_slot_duration(engine):
         tmdb = SeasonTMDB({(500, 4): [tmdb_ep(16, "2010-01-18", 42),
                                       tmdb_ep(17, "2010-01-26", 43)]})  # écart d'un jour : ok
 
-        result = catalog.apply_tmdb_runtimes(s, tmdb, show)
+        result = catalog.apply_tmdb_episodes(s, tmdb, show)
 
-        assert (result.updated, result.unmatched, result.missing_seasons) == (2, 0, 0)
+        assert (result.runtimes, result.unmatched, result.missing_seasons) == (2, 0, 0)
         assert (e1.runtime, e1.tmdb_runtime) == (42, 42)
         assert e2.runtime == 43
         assert show.runtimes_checked_at is not None
 
 
-def test_apply_tmdb_runtimes_keeps_tvmaze_when_unsure(engine):
+def test_apply_tmdb_episodes_keeps_tvmaze_when_unsure(engine):
     """Date différente (autre numérotation), durée ou date absente, spécial : rien ne change."""
     with Session(engine) as s:
         show = add_show(s)
@@ -82,9 +92,9 @@ def test_apply_tmdb_runtimes_keeps_tvmaze_when_unsure(engine):
         tmdb = SeasonTMDB({(500, 1): [tmdb_ep(1, "2020-03-01", 40), tmdb_ep(2, "2020-01-08", None),
                                       tmdb_ep(3, "2020-01-15", 40)]})
 
-        result = catalog.apply_tmdb_runtimes(s, tmdb, show)
+        result = catalog.apply_tmdb_episodes(s, tmdb, show)
 
-        assert (result.updated, result.unmatched, result.missing_seasons) == (0, 2, 1)
+        assert (result.runtimes, result.unmatched, result.missing_seasons) == (0, 2, 1)
         for episode in (shifted, no_runtime, no_date, special, missing):
             assert episode.runtime == 60 and episode.tmdb_runtime is None
         assert sorted(tmdb.fetched) == [(500, 1), (500, 2)]   # pas de saison 0 / spéciaux
@@ -111,15 +121,17 @@ def test_shows_for_runtimes_selection(engine):
     with Session(engine) as s:
         never = add_show(s, 1)
         stopped = add_show(s, 2, status=STOPPED)                     # arrêtée : comprise
-        checked = add_show(s, 3, checked_at=utcnow())                # déjà faite : ignorée
-        refreshed = add_show(s, 4, checked_at=utcnow())              # rechargée : refaite
+        now = utcnow()
+        checked = add_show(s, 3, checked_at=now, texts_checked_at=now)   # déjà faite : ignorée
+        refreshed = add_show(s, 4, checked_at=now, texts_checked_at=now)  # rechargée : refaite
         add_show(s, 5, match=MATCH_NUMBERING)                        # pas vérifiée : ignorée
         s.add(Show(title="Hors bibliothèque", tmdb_id=6))
+        no_texts = add_show(s, 7, checked_at=now)        # durées lues, textes FR jamais : refaite
         s.commit()
 
         shows = shows_for_runtimes(s, refreshed_tvmaze_ids=[4])
 
-        assert {show.id for show in shows} == {never.id, stopped.id, refreshed.id}
+        assert {show.id for show in shows} == {never.id, stopped.id, refreshed.id, no_texts.id}
         assert checked not in shows
 
 

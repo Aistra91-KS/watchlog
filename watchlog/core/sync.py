@@ -7,8 +7,10 @@ Principe :
   (au-delà, la liste « week » ne suffit plus pour savoir si elles ont changé).
 - Films : on ne recharge que les films pas encore sortis (les dates peuvent bouger)
   ou jamais récupérés depuis TMDB. Le cache gère la durée de validité.
-- Durées réelles des épisodes (TMDB) : pour les séries jamais vérifiées et celles qui
-  viennent d'être rechargées (TVMaze donne souvent la durée du créneau, pub comprise).
+- Durées réelles et titres français des épisodes, résumé français de la série (TMDB) :
+  pour les séries jamais vérifiées (durées ou textes français) et celles qui viennent
+  d'être rechargées (TVMaze donne souvent la durée du créneau, pub comprise, et des textes
+  en anglais). Une même requête par saison sert aux durées et aux titres.
 - Ensuite : passage en « Terminé » si besoin, affiches manquantes, enregistrement.
 - Enfin : date et rapport de la synchro gardés en base (menu de l'interface, synchro
   automatique au lancement si la dernière date de plus de AUTO_SYNC_AGE).
@@ -52,7 +54,11 @@ class SyncReport:
     runtimes_unmatched: int = 0  # épisodes gardant la durée TVMaze (numérotation différente)
     runtimes_missing: int = 0    # saisons absentes de TMDB (durées TVMaze gardées)
     runtimes_no_tmdb: int = 0    # séries sans id TMDB : durées TVMaze gardées
-    completed: int = 0           # séries passées en « Terminé »
+    titles_fr: int = 0           # épisodes au titre français nouveau ou changé
+    titles_fr_missing: int = 0   # épisodes sans titre français sur TMDB (anglais gardé)
+    summaries_fr: int = 0        # séries avec un résumé français (parmi celles relues)
+    summaries_fr_missing: int = 0  # séries relues sans résumé français sur TMDB
+    completed: int = 0          # séries passées en « Terminé »
     posters: int = 0             # affiches téléchargées
     tvmaze_down: bool = False    # TVMaze injoignable : séries non mises à jour
     tmdb_down: bool = False      # TMDB non connecté : films ignorés
@@ -83,6 +89,12 @@ class SyncReport:
         if self.runtimes_no_tmdb:
             lines.append(f"Durées TVMaze gardées : {self.runtimes_no_tmdb} séries introuvables "
                          "sur TMDB.")
+        if self.titles_fr or self.titles_fr_missing:
+            lines.append(f"Titres d'épisodes en français (TMDB) : {self.titles_fr} ajoutés ou "
+                         f"modifiés, {self.titles_fr_missing} sans traduction (anglais gardé).")
+        if self.summaries_fr or self.summaries_fr_missing:
+            lines.append(f"Résumés de séries en français (TMDB) : {self.summaries_fr} lus, "
+                         f"{self.summaries_fr_missing} sans traduction (anglais gardé).")
         if self.completed:
             lines.append(f"Séries passées en « Terminé » : {self.completed}.")
         if self.posters:
@@ -144,14 +156,17 @@ def _runtime_candidates(session: Session):
 
 
 def shows_for_runtimes(session: Session, refreshed_tvmaze_ids=()) -> list[Show]:
-    """Séries dont il faut lire les durées TMDB : jamais vérifiées, ou rechargées à l'instant.
+    """Séries à relire sur TMDB (durées, textes français) : rechargées ou jamais vérifiées.
 
+    `texts_fr_checked_at` vide = passe initiale des textes français, une fois pour toute la
+    bibliothèque, y compris les séries dont les durées étaient déjà lues.
     Toute la bibliothèque, arrêtées comprises (leurs épisodes vus comptent dans les stats).
     """
     refreshed = set(refreshed_tvmaze_ids)
     query = _runtime_candidates(session).where(Show.tmdb_id.is_not(None))
     return [show for show in session.exec(query)
-            if show.runtimes_checked_at is None or show.tvmaze_id in refreshed]
+            if show.runtimes_checked_at is None or show.texts_fr_checked_at is None
+            or show.tvmaze_id in refreshed]
 
 
 def shows_without_tmdb(session: Session) -> list[Show]:
@@ -254,19 +269,28 @@ def sync(engine: Engine, tvmaze, tmdb, progress: Progress | None = None,
                 report.errors.append(f"Film « {title} » : {exc}")
             done += 1
 
-        # 6. Durées réelles des épisodes (après les séries : nouveaux épisodes compris).
+        # 6. Durées réelles, titres et résumé français (après les séries : nouveaux épisodes
+        # compris). Durées et résumé enregistrés ensemble : une erreur fait tout refaire.
+        # Aucune écriture en base avant le commit (pas de flush, pas de requête) : le cache
+        # d'API s'écrit par une autre connexion, qui serait bloquée (« database is locked »).
         for show_id, title in runtime_jobs:
-            progress(done, total, f"Durées : {title}")
+            progress(done, total, f"Durées et textes français : {title}")
             try:
-                result = catalog.apply_tmdb_runtimes(session, tmdb, session.get(Show, show_id))
+                show = session.get(Show, show_id)
+                result = catalog.apply_tmdb_episodes(session, tmdb, show)
+                has_summary = catalog.apply_tmdb_summary(session, tmdb, show)
                 session.commit()
-                report.runtimes_updated += result.updated
+                report.runtimes_updated += result.runtimes
                 report.runtimes_unmatched += result.unmatched
                 report.runtimes_missing += result.missing_seasons
+                report.titles_fr += result.titles
+                report.titles_fr_missing += result.no_title
+                report.summaries_fr += has_summary
+                report.summaries_fr_missing += not has_summary
             except Exception as exc:  # noqa: BLE001
                 session.rollback()
-                log.error("Synchro durées %s (série %s) : %s", title, show_id, exc)
-                report.errors.append(f"Durées de « {title} » : {exc}")
+                log.error("Synchro durées / textes %s (série %s) : %s", title, show_id, exc)
+                report.errors.append(f"Durées et textes de « {title} » : {exc}")
             done += 1
         progress(total, total, "Terminé")
 

@@ -162,7 +162,7 @@ def season_table(episodes: list[Episode], watched: dict[int, date | None],
         if day is not None and day > today:
             upcoming.append(i)
         rows.append({"Code": episode_code(ep.season, ep.number), "Date": fmt_date(day),
-                     "Titre": ep.title or "",
+                     "Titre": ep.display_title or "",
                      COL_RUNTIME: f"{ep.runtime} min" if ep.runtime else "",
                      COL_SEEN: ep.id in watched,
                      COL_DATE: watched.get(ep.id), COL_UNTIL: False})
@@ -231,8 +231,8 @@ with col_info:
         details.append("Saisie manuelle")
     if details:
         st.write(" · ".join(details))
-    if show.summary:
-        st.write(common.md_escape(show.summary))
+    if show.display_summary:
+        st.write(common.md_escape(show.display_summary))
 
     if not show.is_manual:
         tmdb_id = show.tmdb_id

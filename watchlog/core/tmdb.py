@@ -205,13 +205,15 @@ class TMDBClient:
         return self.http.get_json(f"/tv/{tmdb_id}/external_ids", ttl=timedelta(days=30)) or {}
 
     def tv_season(self, tmdb_id: int, season: int) -> dict | None:
-        """Saison d'une série TMDB avec ses épisodes (numéro, date, durée réelle).
+        """Saison d'une série TMDB avec ses épisodes (numéro, date, durée réelle, titre).
 
-        None si la saison est inconnue ou TMDB indisponible.
+        En français : une seule requête donne la durée (indépendante de la langue) et le
+        titre traduit. None si la saison est inconnue ou TMDB indisponible.
         """
         if not self.available:
             return None
-        return self.http.get_json(f"/tv/{tmdb_id}/season/{season}", ttl=season_ttl)
+        return self.http.get_json(f"/tv/{tmdb_id}/season/{season}", {"language": "fr-FR"},
+                                  ttl=season_ttl)
 
     def find_tv_by_tvdb(self, tvdb_id: int) -> int | None:
         """Id TMDB de la série qui a cet id TVDB, sinon None."""

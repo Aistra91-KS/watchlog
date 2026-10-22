@@ -48,7 +48,8 @@ class Show(SQLModel, table=True):
     premiered: date | None = None
     poster_url: str | None = None
     poster_path: str | None = None            # chemin local, relatif à data/
-    summary: str | None = None
+    summary: str | None = None                # résumé TVMaze (anglais)
+    summary_fr: str | None = None             # résumé TMDB en français, prioritaire à l'affichage
     genres: str | None = None                 # « Drame, Comédie » (traduits en français)
     match_status: str = MATCH_OK
     match_note: str | None = None             # explication lisible (rapport d'import)
@@ -56,6 +57,12 @@ class Show(SQLModel, table=True):
     is_manual: bool = False                   # saisie manuelle hors TVMaze
     last_synced_at: NaiveDatetime | None = None
     runtimes_checked_at: NaiveDatetime | None = None   # dernière lecture des durées TMDB
+    texts_fr_checked_at: NaiveDatetime | None = None   # dernière lecture des textes FR (TMDB)
+
+    @property
+    def display_summary(self) -> str | None:
+        """Résumé à afficher : le français (TMDB) s'il existe, sinon celui de TVMaze."""
+        return self.summary_fr or self.summary
 
 
 class Episode(SQLModel, table=True):
@@ -65,13 +72,19 @@ class Episode(SQLModel, table=True):
     show_id: int = Field(foreign_key="show.id", index=True)
     season: int
     number: int | None = None                 # None = épisode spécial
-    title: str | None = None
+    title: str | None = None                  # titre TVMaze (anglais)
+    title_fr: str | None = None               # titre TMDB en français, prioritaire à l'affichage
     airdate: date | None = Field(default=None, index=True)
     airstamp: NaiveDatetime | None = None          # UTC
     runtime: int | None = None                # minutes (TMDB si connue, sinon TVMaze)
     tmdb_runtime: int | None = None           # durée réelle TMDB, prioritaire sur TVMaze
     is_special: bool = False
     tvmaze_episode_id: int | None = Field(default=None, unique=True)
+
+    @property
+    def display_title(self) -> str | None:
+        """Titre à afficher : le français (TMDB) s'il existe, sinon celui de TVMaze."""
+        return self.title_fr or self.title
 
 
 class Movie(SQLModel, table=True):

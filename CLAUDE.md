@@ -71,7 +71,9 @@ tests/                 pytest ; conftest.py = faux clients TVMaze/TMDB, faux zip
 
 ### Modèle de données (models.py)
 
-- `Show`, `Episode` (TVMaze ; `number=None` = spécial), `Movie` (TMDB).
+- `Show`, `Episode` (TVMaze ; `number=None` = spécial), `Movie` (TMDB). Textes français TMDB
+  à part (`Show.summary_fr`, `Episode.title_fr`, lus par la synchro) : afficher
+  `show.display_summary` / `episode.display_title` (français, sinon TVMaze).
 - `LibraryItem` (kind + ref_id, statut, favori, added_at). Statuts : `watching` (En cours),
   `to_watch` (À voir), `for_later` (Plus tard), `stopped` (Arrêté), `completed` (Terminé).
 - `Watch` : une ligne par épisode/film vu (`plays` pour les revisionnages), dates en UTC naïf.
