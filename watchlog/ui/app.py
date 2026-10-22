@@ -19,7 +19,6 @@ if str(ROOT) not in sys.path:
 import streamlit as st  # noqa: E402
 
 from watchlog.core.config import setup_logging  # noqa: E402
-from watchlog.ui import common  # noqa: E402
 
 setup_logging()
 
@@ -95,6 +94,10 @@ if code_changed_since_start():
                "la nouvelle version (sinon certaines pages peuvent afficher des erreurs).")
     st.button("Redémarrer Watchlog", type="primary", on_click=restart_server)
     st.stop()
+
+# Importé seulement ici : après une mise à jour, les modules déjà chargés par ce serveur
+# peuvent être incompatibles avec les nouveaux fichiers (la bannière ci-dessus doit s'afficher).
+from watchlog.ui import common  # noqa: E402
 
 if not startup_backup():
     st.warning("La sauvegarde automatique du démarrage a échoué (détail dans "
