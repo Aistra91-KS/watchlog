@@ -16,6 +16,7 @@ log = logging.getLogger(__name__)
 # Clés connues
 LAST_SYNC_AT = "last_sync_at"          # fin de la dernière synchro où TVMaze a répondu (ISO, UTC)
 LAST_SYNC_REPORT = "last_sync_report"  # {"at": ISO UTC, "lines": [...], "problems": n}
+MY_PLATFORMS = "my_platforms"          # plateformes où j'ai un accès (noms TMDB, ex. "Netflix")
 
 
 def get_value(session: Session, key: str, default=None):
@@ -35,3 +36,17 @@ def set_value(session: Session, key: str, value) -> None:
     row = session.get(Setting, key) or Setting(key=key)
     row.value = json.dumps(value, ensure_ascii=False)
     session.add(row)
+
+
+def my_platforms(session: Session) -> list[str]:
+    """Plateformes choisies dans Paramètres (liste vide si aucune ou valeur invalide)."""
+    value = get_value(session, MY_PLATFORMS, default=[])
+    if not isinstance(value, list) or not all(isinstance(n, str) for n in value):
+        log.warning("Réglage %s invalide, ignoré : %r", MY_PLATFORMS, value)
+        return []
+    return value
+
+
+def set_my_platforms(session: Session, names) -> None:
+    """Enregistre les plateformes choisies (sans doublon, ordre gardé). Pas de commit."""
+    set_value(session, MY_PLATFORMS, list(dict.fromkeys(n for n in names if n)))

@@ -1,11 +1,12 @@
 """Page « À regarder » : épisodes et films non vus, dans une seule liste triée par date
 (ou par dernier visionnage de la série, au choix)."""
 
+import time
 from datetime import date, datetime
 
 import streamlit as st
 
-from watchlog.core import library, progress, queue
+from watchlog.core import library, progress, queue, settings
 from watchlog.core.dates import LOCAL_TZ
 from watchlog.core.models import EPISODE, MOVIE, TO_WATCH, WATCHING
 from watchlog.core.queue import (AVAILABILITY_LABELS, NO_DATE, RELEASED, SORT_DATE, SORT_LABELS,
@@ -25,6 +26,56 @@ SECTION_TITLES = {RELEASED: ":material/play_circle: Disponibles",
 
 
 md = common.md_escape  # protège les caractères Markdown des titres
+PLATFORMS_TTL = 3600  # secondes : plateformes d'un titre gardées une heure entre deux affichages
+
+
+# --- Filtre « Sur mes plateformes » ------------------------------------------------
+
+@st.cache_resource
+def platform_cache() -> dict:
+    """{titre (queue.title_key): (horodatage, plateformes)}, partagé entre les onglets.
+
+    Évite de relire les plateformes de chaque titre à chaque clic (« Vu »...).
+    """
+    return {}
+
+
+def platform_check(items: list[queue.QueueItem]) -> queue.PlatformCheck:
+    """Plateformes des titres de la liste : seuls les titres pas encore connus vont voir TMDB."""
+    cache = platform_cache()
+    now = time.time()
+    missing = [item for item in items
+               if (entry := cache.get(queue.title_key(item))) is None
+               or now - entry[0] > PLATFORMS_TTL]
+    check = queue.PlatformCheck()
+    if missing:
+        with st.spinner("Recherche des plateformes de chaque titre…"):
+            with common.db() as session:
+                check = queue.check_platforms(session, common.tmdb_client(), missing)
+                session.commit()   # ids TMDB de séries trouvés via TVDB : gardés
+        for key, names in check.streaming.items():
+            cache[key] = (now, names)
+        for key in (*check.failed, *check.no_id):
+            cache.pop(key, None)   # jamais d'ancienne valeur à la place d'une panne
+    for key in {queue.title_key(item) for item in items}:
+        if key in cache:
+            check.streaming[key] = cache[key][1]
+    return check
+
+
+def show_hidden(result: queue.PlatformFilter | None) -> None:
+    """Sous la liste : titres masqués parce qu'on ne connaît pas leurs plateformes."""
+    if result is None or not result.hidden:
+        return
+    details = []
+    if result.no_id:
+        details.append("pas d'identifiant TMDB : " + ", ".join(result.no_id))
+    if result.failed:
+        details.append("TMDB n'a pas répondu : " + ", ".join(result.failed))
+    plural = "s" if result.hidden > 1 else ""
+    st.info(f"{result.hidden} titre{plural} masqué{plural} faute d'information sur les "
+            f"plateformes ({md(' ; '.join(details))}). Décoche « Sur mes plateformes » pour "
+            "les voir.", icon=":material/visibility_off:")
 
 
 def fmt_runtime(minutes: int | None) -> str:
@@ -201,12 +252,21 @@ availabilities = row1[2].multiselect(
 statuses = row1[3].multiselect(
     "Statut", common.status_options(), default=[WATCHING, TO_WATCH],
     format_func=common.status_label, key="aq_statuses", persist_state="session")
-row2 = st.columns([2, 2, 2], vertical_alignment="bottom")
+row2 = st.columns([2, 2, 2, 2], vertical_alignment="bottom")
 next_only = row2[0].checkbox("Par série : prochain épisode seulement", key="aq_next_only",
                              persist_state="session")
 include_specials = row2[1].checkbox("Inclure les épisodes spéciaux", key="aq_specials",
                                     persist_state="session")
-sort = row2[2].selectbox("Trier par", list(SORT_LABELS), format_func=SORT_LABELS.get,
+with common.db() as session:
+    my_platforms = settings.my_platforms(session)
+on_my_platforms = row2[2].checkbox(
+    "Sur mes plateformes", key="aq_my_platforms", persist_state="session",
+    disabled=not my_platforms,
+    help=(f"Seulement les titres disponibles sur {', '.join(my_platforms)} (abonnement ou "
+          "gratuit, en France)." if my_platforms
+          else "Choisis d'abord tes plateformes dans Paramètres > Mes plateformes."))
+on_my_platforms = on_my_platforms and bool(my_platforms)
+sort = row2[3].selectbox("Trier par", list(SORT_LABELS), format_func=SORT_LABELS.get,
                          index=list(SORT_LABELS).index(SORT_DATE), key="aq_sort",
                          persist_state="session",
                          help="« Dernier visionnage » : les séries regardées le plus récemment "
@@ -218,6 +278,17 @@ with common.db() as session:
                               availabilities=availabilities, include_specials=include_specials,
                               next_only=next_only, sort=sort)
     to_check = progress.shows_to_check(session)
+
+# « Sur mes plateformes » : avant le choix de la série, qui ne propose alors que les séries dispo.
+platform_result = None
+if on_my_platforms and items:
+    tmdb_ok, tmdb_message = common.tmdb_status()
+    if tmdb_ok:
+        platform_result = queue.filter_on_platforms(items, platform_check(items), my_platforms)
+        items = platform_result.items
+    else:
+        st.warning(f"{tmdb_message} Le filtre « Sur mes plateformes » n'est pas appliqué : "
+                   "toute la liste est affichée.")
 
 # Choix d'une série : seulement celles présentes dans la liste
 show_titles = {item.show_id: item.title for item in items if item.kind == EPISODE}
@@ -238,6 +309,7 @@ if not statuses or not availabilities:
     st.stop()
 if not items:
     st.info("Rien à regarder avec ces filtres.")
+    show_hidden(platform_result)
     st.stop()
 
 st.markdown(card_css(), unsafe_allow_html=True)
@@ -245,7 +317,7 @@ show_summary(items)
 
 # Pagination : on revient à la première page quand les filtres changent.
 filters = (kind, tuple(availabilities), tuple(statuses), next_only, include_specials, show_id,
-           sort)
+           sort, on_my_platforms, tuple(my_platforms))
 if st.session_state.get("aq_filters") != filters:
     st.session_state["aq_filters"] = filters
     st.session_state["aq_page"] = 0
@@ -262,3 +334,4 @@ for item in items[page * PAGE_SIZE:(page + 1) * PAGE_SIZE]:
         st.subheader(f"{SECTION_TITLES[section]} :gray[({count})]")
     show_row(item, include_specials, today)
 show_pagination(total_pages)
+show_hidden(platform_result)

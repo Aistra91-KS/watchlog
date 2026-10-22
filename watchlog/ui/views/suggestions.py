@@ -6,7 +6,7 @@ from datetime import date
 
 import streamlit as st
 
-from watchlog.core import suggestions, taste
+from watchlog.core import settings, suggestions, taste
 from watchlog.core.http import ApiError
 from watchlog.core.models import COMPLETED, MOVIE, SHOW, TO_WATCH
 from watchlog.ui import common
@@ -50,8 +50,9 @@ def load() -> suggestions.Result:
         result = suggestions.compute_all(session, tmdb, progress=progress)
     failed = suggestions.attach_availability(tmdb, result.items, progress)
     if failed:
-        result.errors.append(f"Plateformes non lues pour {failed} suggestion(s) (TMDB) : le filtre "
-                             "« Dispo en streaming » est incomplet.")
+        result.errors.append(f"Plateformes non lues pour {failed} suggestion(s) (TMDB) : les "
+                             "filtres de plateformes (« Dispo en streaming », « Sur mes "
+                             "plateformes »…) sont incomplets.")
     bar.empty()
     cache.update(at=time.time(), result=result)
     return result
@@ -103,8 +104,8 @@ def restore_dismissed() -> None:
 
 
 def reset_filters() -> None:
-    for key in ("sugg_genres", "sugg_themes", "sugg_platforms", "sugg_streaming", "sugg_years",
-                "sugg_min_vote"):
+    for key in ("sugg_genres", "sugg_themes", "sugg_platforms", "sugg_streaming", "sugg_mine",
+                "sugg_years", "sugg_min_vote"):
         st.session_state.pop(key, None)
     st.session_state["sugg_count"] = PAGE_SIZE
 
@@ -209,7 +210,8 @@ def filters(items: list[suggestions.Suggestion]) -> dict:
     chosen_platforms = col_platforms.multiselect(
         "Plateformes (abonnement ou gratuit)", platforms, key="sugg_platforms",
         placeholder="Toutes les plateformes")
-    col_years, col_vote, col_streaming = st.columns([3, 2, 2], vertical_alignment="bottom")
+    col_years, col_vote, col_streaming, col_mine = st.columns([3, 2, 2, 2],
+                                                              vertical_alignment="bottom")
     year_range = None
     if years and min(years) < max(years):
         low, high = min(years), max(years)
@@ -222,6 +224,14 @@ def filters(items: list[suggestions.Suggestion]) -> dict:
     min_vote = col_vote.slider("Note TMDB minimale", 0.0, 9.0, 0.0, 0.5, key="sugg_min_vote")
     streaming_only = col_streaming.checkbox("Dispo en streaming uniquement", key="sugg_streaming",
                                             help="Sur une plateforme d'abonnement ou gratuite, en France.")
+    with common.db() as session:
+        mine = settings.my_platforms(session)
+    on_mine = col_mine.checkbox(
+        "Sur mes plateformes", key="sugg_mine", disabled=not mine,
+        help=(f"Ajoute tes plateformes ({', '.join(mine)}) au filtre « Plateformes »."
+              if mine else "Choisis d'abord tes plateformes dans Paramètres > Mes plateformes."))
+    if on_mine and mine:
+        chosen_platforms = list(dict.fromkeys([*chosen_platforms, *mine]))
     return {"kinds": kinds, "genres": tuple(chosen_genres), "themes": tuple(chosen_themes),
             "platforms": tuple(chosen_platforms),
             "streaming_only": streaming_only, "years": year_range, "min_vote": min_vote,

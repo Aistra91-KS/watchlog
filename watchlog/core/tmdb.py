@@ -185,6 +185,19 @@ class TMDBClient:
         data = self.http.get_json(f"/{media}/{tmdb_id}/watch/providers", ttl=timedelta(days=7))
         return (data or {}).get("results", {})
 
+    def provider_list(self, media: str, region: str) -> list[dict]:
+        """Plateformes présentes dans un pays ([{provider_name, display_priorities...}]).
+
+        Pour le réglage « Mes plateformes ». Gardé 7 jours : la liste bouge peu.
+        [] si TMDB est indisponible.
+        """
+        if not self.available:
+            return []
+        data = self.http.get_json(f"/watch/providers/{media}",
+                                  {"watch_region": region, "language": "fr-FR"},
+                                  ttl=timedelta(days=7))
+        return (data or {}).get("results", [])
+
     def tv_external_ids(self, tmdb_id: int) -> dict:
         """Identifiants externes d'une série TMDB (tvdb_id, imdb_id...). {} si inconnue."""
         if not self.available:

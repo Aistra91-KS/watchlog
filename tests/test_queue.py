@@ -7,6 +7,7 @@ from sqlmodel import Session
 
 from helpers_db import add_episode, add_movie, add_show, watch
 from watchlog.core import queue
+from watchlog.core.http import ApiError
 from watchlog.core.models import (EPISODE, FOR_LATER, MATCH_NUMBERING, MATCH_REMAPPED, MOVIE, STOPPED,
                                   TO_WATCH, Show, Watch)
 from watchlog.core.queue import NO_DATE, RELEASED, UPCOMING
@@ -353,3 +354,75 @@ def test_show_activity_uses_latest_rewatch(session):
     session.add(Watch(kind=EPISODE, ref_id=second.id, watched_at=None))   # date inconnue
     session.commit()
     assert queue.show_activity(session) == {show.id: datetime(2026, 5, 1)}
+
+
+# --- Filtre « Sur mes plateformes » ----------------------------------------------------
+
+class PlatformTMDB:
+    """Faux TMDB : plateformes en France par (média, id TMDB), pannes simulées."""
+    available = True
+
+    def __init__(self, offers, failing=(), find=None):
+        self.offers, self.failing, self.find = offers, set(failing), find or {}
+        self.calls = []
+
+    def watch_providers(self, media, tmdb_id):
+        if not self.available:   # comme TMDBClient : aucun appel
+            return {}
+        self.calls.append((media, tmdb_id))
+        if (media, tmdb_id) in self.failing:
+            raise ApiError("TMDB indisponible (simulé)")
+        return {"FR": self.offers.get((media, tmdb_id), {})}
+
+    def find_tv_by_tvdb(self, tvdb_id):
+        return self.find.get(tvdb_id)
+
+
+def offer(kind, *names):
+    return {kind: [{"provider_name": n, "display_priority": i} for i, n in enumerate(names)]}
+
+
+def test_platform_filter_one_call_per_title_and_hidden_titles_counted(session, caplog):
+    netflix = add_show(session, "Sur Netflix", tmdb_id=10)
+    resolved = add_show(session, "Via TVDB", tvdb_id=500)          # id TMDB trouvé via TVDB
+    manual = add_show(session, "Saisie à la main")                 # aucun id
+    broken = add_show(session, "En panne", tmdb_id=30)
+    for show in (netflix, resolved, manual, broken):
+        add_episode(session, show, 1, 1, airdate=date(2026, 1, 1))
+        add_episode(session, show, 1, 2, airdate=date(2026, 1, 8))
+    add_movie(session, "Film en location", release=date(2025, 1, 1), tmdb_id=40)
+    add_movie(session, "Film gratuit", release=date(2025, 2, 1), tmdb_id=41)
+    add_movie(session, "Film sans id", release=date(2025, 3, 1))
+    session.commit()
+    tmdb = PlatformTMDB({("tv", 10): offer("flatrate", "Netflix"),
+                         ("tv", 20): offer("flatrate", "Canal+"),
+                         ("movie", 40): offer("rent", "Netflix"),
+                         ("movie", 41): offer("ads", "Netflix", "TF1+")},
+                        failing={("tv", 30)}, find={500: 20})
+    items = build(session)
+
+    check = queue.check_platforms(session, tmdb, items)
+
+    assert sorted(tmdb.calls) == [("movie", 40), ("movie", 41), ("tv", 10), ("tv", 20),
+                                  ("tv", 30)]                     # une fois par titre
+    assert resolved.tmdb_id == 20
+    assert "En panne" in caplog.text
+    result = queue.filter_on_platforms(items, check, ["Netflix"])
+    assert codes(result.items) == ["Film gratuit", "Sur Netflix S01E01", "Sur Netflix S01E02"]
+    assert result.no_id == ["Film sans id", "Saisie à la main"]
+    assert result.failed == ["En panne"]
+    assert result.hidden == 3
+    both = queue.filter_on_platforms(items, check, ("Netflix", "Canal+"))
+    assert {i.title for i in both.items} == {"Sur Netflix", "Via TVDB", "Film gratuit"}
+
+
+def test_platform_filter_tmdb_not_connected(session):
+    show = add_show(session, "Série", tmdb_id=10)
+    add_episode(session, show, 1, 1, airdate=date(2026, 1, 1))
+    session.commit()
+    tmdb = PlatformTMDB({})
+    tmdb.available = False
+    items = build(session)
+    check = queue.check_platforms(session, tmdb, items)
+    result = queue.filter_on_platforms(items, check, ["Netflix"])
+    assert result.items == [] and result.failed == ["Série"] and tmdb.calls == []

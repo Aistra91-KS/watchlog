@@ -5,16 +5,20 @@ ou sans date sont inclus (l'interface les grise), les sans-date à la fin.
 Autre ordre possible (SORT_RECENT) : les séries regardées le plus récemment d'abord.
 """
 
-from dataclasses import dataclass
+import logging
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 
 from sqlmodel import Session, func, select
 
+from watchlog.core import providers
 from watchlog.core.dates import LOCAL_TZ
+from watchlog.core.http import ApiError
 from watchlog.core.models import (COMPLETED, EPISODE, FOR_LATER, MATCH_OK, MATCH_REMAPPED, MOVIE,
                                   SHOW, TO_WATCH, WATCHING, Episode, LibraryItem, Movie, Show,
                                   Watch)
 
+log = logging.getLogger(__name__)
 
 # Disponibilité d'un élément
 RELEASED, UPCOMING, NO_DATE = "released", "upcoming", "no_date"
@@ -235,6 +239,91 @@ def calendar(session: Session, days: int = 60, today: date | None = None,
                         availabilities=(RELEASED, UPCOMING), include_specials=include_specials,
                         today=today)
     return [item for item in items if today <= item.release_date <= end]
+
+
+@dataclass
+class PlatformCheck:
+    """Plateformes « streaming » (abonnement, gratuit) des titres de la liste, par titre.
+
+    Clé d'un titre : (SHOW, id de la série) ou (MOVIE, id du film). Les titres sans id TMDB
+    et ceux dont TMDB n'a pas donné les plateformes sont gardés à part : on ne sait pas.
+    """
+    streaming: dict[tuple[str, int], list[str]] = field(default_factory=dict)
+    no_id: dict[tuple[str, int], str] = field(default_factory=dict)    # clé -> titre
+    failed: dict[tuple[str, int], str] = field(default_factory=dict)   # clé -> titre
+
+
+@dataclass
+class PlatformFilter:
+    items: list[QueueItem]
+    no_id: list[str]     # titres masqués : pas d'id TMDB
+    failed: list[str]    # titres masqués : TMDB n'a pas répondu
+
+    @property
+    def hidden(self) -> int:
+        """Titres masqués faute d'information (à signaler sous la liste)."""
+        return len(self.no_id) + len(self.failed)
+
+
+def title_key(item: QueueItem) -> tuple[str, int]:
+    """Le titre d'un élément : la série pour un épisode, le film sinon."""
+    return (SHOW, item.show_id) if item.kind == EPISODE else (MOVIE, item.ref_id)
+
+
+def check_platforms(session: Session, tmdb, items: list[QueueItem]) -> PlatformCheck:
+    """Plateformes de chaque titre de `items` : un seul appel TMDB par série ou film.
+
+    L'id TMDB d'une série est cherché via TVDB s'il manque (enregistré, pas de commit).
+    Une panne TMDB est journalisée et comptée dans `failed`, jamais prise pour « pas dispo ».
+    """
+    check = PlatformCheck()
+    titles = {title_key(item): item.title for item in items}
+    for key, title in titles.items():
+        kind, ref_id = key
+        try:
+            obj = session.get(Show if kind == SHOW else Movie, ref_id)
+            if obj is None:
+                tmdb_id = None
+            elif kind == SHOW:
+                tmdb_id = providers.show_tmdb_id(session, tmdb, obj, raise_errors=True)
+            else:
+                tmdb_id = obj.tmdb_id
+            if tmdb_id is None:
+                check.no_id[key] = title
+                continue
+            data = providers.availability(tmdb, kind, tmdb_id, raise_errors=True)
+        except ApiError as exc:
+            log.warning("Plateformes inconnues pour « %s » : %s", title, exc)
+            check.failed[key] = title
+            continue
+        if data is None:   # TMDB non connecté
+            log.warning("Plateformes inconnues pour « %s » : TMDB indisponible", title)
+            check.failed[key] = title
+            continue
+        check.streaming[key] = providers.streaming_names(data)
+    return check
+
+
+def filter_on_platforms(items: list[QueueItem], check: PlatformCheck,
+                        platforms: list[str] | tuple[str, ...]) -> PlatformFilter:
+    """Garde les éléments disponibles sur au moins une de `platforms`.
+
+    Les titres dont on ne connaît pas les plateformes sont retirés mais listés
+    (no_id, failed), pour que l'interface le dise.
+    """
+    mine = set(platforms)
+    kept, no_id, failed = [], {}, {}
+    for item in items:
+        key = title_key(item)
+        if key in check.streaming:
+            if mine & set(check.streaming[key]):
+                kept.append(item)
+        elif key in check.failed:
+            failed[key] = item.title
+        else:   # pas d'id TMDB (ou titre absent du contrôle : on ne sait pas non plus)
+            no_id[key] = item.title
+    return PlatformFilter(kept, sorted(no_id.values(), key=str.casefold),
+                          sorted(failed.values(), key=str.casefold))
 
 
 def week_start(day: date) -> date:

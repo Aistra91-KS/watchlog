@@ -29,6 +29,17 @@ def test_unreadable_value_falls_back_to_default(engine, caplog):
     assert "illisible" in caplog.text
 
 
+def test_my_platforms(engine, caplog):
+    with Session(engine) as s:
+        assert settings.my_platforms(s) == []
+        settings.set_my_platforms(s, ["Netflix", "Canal+", "Netflix", ""])
+        s.commit()
+        assert settings.my_platforms(s) == ["Netflix", "Canal+"]
+        settings.set_value(s, settings.MY_PLATFORMS, {"pas": "une liste"})
+        assert settings.my_platforms(s) == []
+    assert "invalide" in caplog.text
+
+
 def test_fmt_ago():
     now = datetime(2026, 10, 22, 12, 0)
     assert fmt_ago(datetime(2026, 10, 22, 11, 59, 40), now) == "à l'instant"
