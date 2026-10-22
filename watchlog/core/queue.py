@@ -2,12 +2,13 @@
 
 Les séries s'entremêlent selon leurs dates de diffusion. Les éléments à venir
 ou sans date sont inclus (l'interface les grise), les sans-date à la fin.
+Autre ordre possible (SORT_RECENT) : les séries regardées le plus récemment d'abord.
 """
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 
-from sqlmodel import Session, select
+from sqlmodel import Session, func, select
 
 from watchlog.core.dates import LOCAL_TZ
 from watchlog.core.models import (COMPLETED, EPISODE, FOR_LATER, MATCH_OK, MATCH_REMAPPED, MOVIE,
@@ -21,6 +22,12 @@ AVAILABILITY_LABELS = {RELEASED: "Sorti", UPCOMING: "À venir", NO_DATE: "Sans d
 
 # Statuts affichés par défaut dans « À regarder »
 DEFAULT_STATUSES = (WATCHING, TO_WATCH)
+
+# Ordres possibles de la liste (date de sortie par défaut)
+SORT_DATE, SORT_RECENT = "date", "recent"
+SORT_LABELS = {SORT_DATE: "Date de sortie", SORT_RECENT: "Dernier visionnage"}
+# Les sections restent dans cet ordre quel que soit le tri
+AVAILABILITY_ORDER = {RELEASED: 0, UPCOMING: 1, NO_DATE: 2}
 
 
 @dataclass
@@ -68,6 +75,29 @@ def sort_key(item: QueueItem):
     """Par date (sans date à la fin), puis titre, puis ordre des épisodes."""
     return (item.release_date is None, item.release_date or date.max, item.title.lower(),
             item.season or 0, item.number if item.number is not None else 10_000)
+
+
+def show_activity(session: Session) -> dict[int, datetime]:
+    """Date du dernier visionnage de chaque série (le plus récent de ses épisodes vus)."""
+    last = func.max(func.coalesce(Watch.last_watched_at, Watch.watched_at))
+    rows = session.exec(select(Episode.show_id, last)
+                        .join(Watch, (Watch.kind == EPISODE) & (Watch.ref_id == Episode.id))
+                        .group_by(Episode.show_id))
+    return {show_id: when for show_id, when in rows if when is not None}
+
+
+def recent_sort_key(activity: dict[int, datetime]):
+    """Clé de tri SORT_RECENT : parmi les sortis, séries vues le plus récemment d'abord.
+
+    Chaque série reste groupée (épisodes dans l'ordre). Films, séries jamais commencées,
+    à venir et sans date : ordre habituel (date de sortie).
+    """
+    def key(item: QueueItem):
+        when = activity.get(item.show_id) if item.kind == EPISODE else None
+        if item.availability != RELEASED or when is None:
+            return (AVAILABILITY_ORDER[item.availability], 1, 0.0, 0, *sort_key(item))
+        return (0, 0, -when.timestamp(), item.show_id, *sort_key(item))
+    return key
 
 
 def _episode_items(session: Session, statuses, show_id, include_specials, today,
@@ -131,7 +161,7 @@ def _movie_items(session: Session, statuses, today, include_watched: bool = Fals
 def build_queue(session: Session, kinds=(EPISODE, MOVIE), statuses=DEFAULT_STATUSES,
                 availabilities=(RELEASED, UPCOMING, NO_DATE), show_id: int | None = None,
                 include_specials: bool = False, next_only: bool = False,
-                today: date | None = None) -> list[QueueItem]:
+                today: date | None = None, sort: str = SORT_DATE) -> list[QueueItem]:
     """Construit la liste « À regarder ».
 
     - kinds : types affichés ("episode", "movie")
@@ -140,6 +170,7 @@ def build_queue(session: Session, kinds=(EPISODE, MOVIE), statuses=DEFAULT_STATU
     - show_id : une seule série (les films sont alors exclus)
     - include_specials : inclure les épisodes spéciaux
     - next_only : seulement le prochain épisode non vu de chaque série
+    - sort : SORT_DATE (date de sortie) ou SORT_RECENT (dernier visionnage de la série)
     """
     today = today or datetime.now(LOCAL_TZ).date()
     items = []
@@ -151,6 +182,8 @@ def build_queue(session: Session, kinds=(EPISODE, MOVIE), statuses=DEFAULT_STATU
     if MOVIE in kinds and show_id is None:
         items += _movie_items(session, statuses, today)
     items = [item for item in items if item.availability in availabilities]
+    if sort == SORT_RECENT:
+        return sorted(items, key=recent_sort_key(show_activity(session)))
     return sorted(items, key=sort_key)
 
 

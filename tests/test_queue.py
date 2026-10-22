@@ -8,7 +8,7 @@ from sqlmodel import Session
 from helpers_db import add_episode, add_movie, add_show, watch
 from watchlog.core import queue
 from watchlog.core.models import (EPISODE, FOR_LATER, MATCH_NUMBERING, MATCH_REMAPPED, MOVIE, STOPPED,
-                                  TO_WATCH)
+                                  TO_WATCH, Watch)
 from watchlog.core.queue import NO_DATE, RELEASED, UPCOMING
 
 TODAY = date(2026, 10, 12)
@@ -275,3 +275,43 @@ def test_day_entry_single_and_watched(session):
     entries = queue.group_day(queue.releases_between(session, date(2026, 10, 2), date(2026, 10, 2),
                                                      today=TODAY))
     assert entries[0].label == "S01E05" and entries[0].watched
+
+
+# --- Tri par dernier visionnage ------------------------------------------------------
+
+def test_sort_recent_puts_last_watched_shows_first(session):
+    old = add_show(session, "Ancienne")
+    recent = add_show(session, "Récente")
+    fresh = add_show(session, "Jamais commencée")
+    for show in (old, recent):
+        seen = add_episode(session, show, 1, 1, airdate=date(2025, 1, 1))
+        session.add(Watch(kind=EPISODE, ref_id=seen.id,
+                          watched_at=datetime(2026, 1, 1) if show is old else datetime(2026, 9, 1)))
+    add_episode(session, old, 1, 2, airdate=date(2025, 1, 5))
+    add_episode(session, old, 1, 3, airdate=date(2025, 1, 6))
+    add_episode(session, recent, 1, 2, airdate=date(2026, 9, 10))
+    add_episode(session, fresh, 1, 1, airdate=date(2024, 6, 1))
+    add_episode(session, recent, 1, 3, airdate=TODAY + timedelta(days=3))   # à venir
+    add_movie(session, "Film", release=date(2025, 3, 1))
+    session.commit()
+
+    assert codes(build(session)) == [
+        "Jamais commencée S01E01", "Ancienne S01E02", "Ancienne S01E03", "Film",
+        "Récente S01E02", "Récente S01E03"]
+    items = build(session, sort=queue.SORT_RECENT)
+    assert codes(items) == [
+        "Récente S01E02", "Ancienne S01E02", "Ancienne S01E03",   # vues récemment d'abord
+        "Jamais commencée S01E01", "Film",                       # puis l'ordre habituel
+        "Récente S01E03"]                                        # les à venir restent à la fin
+    assert [i.availability for i in items][-1] == UPCOMING
+
+
+def test_show_activity_uses_latest_rewatch(session):
+    show = add_show(session, "Série")
+    first = add_episode(session, show, 1, 1, airdate=date(2025, 1, 1))
+    second = add_episode(session, show, 1, 2, airdate=date(2025, 1, 2))
+    session.add(Watch(kind=EPISODE, ref_id=first.id, watched_at=datetime(2025, 2, 1),
+                      last_watched_at=datetime(2026, 5, 1), plays=2))
+    session.add(Watch(kind=EPISODE, ref_id=second.id, watched_at=None))   # date inconnue
+    session.commit()
+    assert queue.show_activity(session) == {show.id: datetime(2026, 5, 1)}

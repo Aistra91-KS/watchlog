@@ -1,4 +1,5 @@
-"""Page « À regarder » : épisodes et films non vus, dans une seule liste triée par date."""
+"""Page « À regarder » : épisodes et films non vus, dans une seule liste triée par date
+(ou par dernier visionnage de la série, au choix)."""
 
 from datetime import date, datetime
 
@@ -7,7 +8,8 @@ import streamlit as st
 from watchlog.core import library, progress, queue
 from watchlog.core.dates import LOCAL_TZ
 from watchlog.core.models import EPISODE, MOVIE, TO_WATCH, WATCHING
-from watchlog.core.queue import AVAILABILITY_LABELS, NO_DATE, RELEASED, UPCOMING
+from watchlog.core.queue import (AVAILABILITY_LABELS, NO_DATE, RELEASED, SORT_DATE, SORT_LABELS,
+                                 UPCOMING)
 from watchlog.ui import common
 
 PAGE_SIZE = 50
@@ -199,17 +201,22 @@ availabilities = row1[2].multiselect(
 statuses = row1[3].multiselect(
     "Statut", common.status_options(), default=[WATCHING, TO_WATCH],
     format_func=common.status_label, key="aq_statuses", persist_state="session")
-row2 = st.columns(2)
+row2 = st.columns([2, 2, 2], vertical_alignment="bottom")
 next_only = row2[0].checkbox("Par série : prochain épisode seulement", key="aq_next_only",
                              persist_state="session")
 include_specials = row2[1].checkbox("Inclure les épisodes spéciaux", key="aq_specials",
                                     persist_state="session")
+sort = row2[2].selectbox("Trier par", list(SORT_LABELS), format_func=SORT_LABELS.get,
+                         index=list(SORT_LABELS).index(SORT_DATE), key="aq_sort",
+                         persist_state="session",
+                         help="« Dernier visionnage » : les séries regardées le plus récemment "
+                              "en premier (parmi les épisodes disponibles).")
 
 kinds = (EPISODE, MOVIE) if kind == "all" else (kind,)
 with common.db() as session:
     items = queue.build_queue(session, kinds=kinds, statuses=statuses,
                               availabilities=availabilities, include_specials=include_specials,
-                              next_only=next_only)
+                              next_only=next_only, sort=sort)
     to_check = progress.shows_to_check(session)
 
 # Choix d'une série : seulement celles présentes dans la liste
@@ -237,7 +244,8 @@ st.markdown(card_css(), unsafe_allow_html=True)
 show_summary(items)
 
 # Pagination : on revient à la première page quand les filtres changent.
-filters = (kind, tuple(availabilities), tuple(statuses), next_only, include_specials, show_id)
+filters = (kind, tuple(availabilities), tuple(statuses), next_only, include_specials, show_id,
+           sort)
 if st.session_state.get("aq_filters") != filters:
     st.session_state["aq_filters"] = filters
     st.session_state["aq_page"] = 0
