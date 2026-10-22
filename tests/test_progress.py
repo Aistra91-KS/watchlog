@@ -7,8 +7,8 @@ from sqlmodel import Session
 
 from helpers_db import add_episode, add_movie, add_show, watch
 from watchlog.core import progress
-from watchlog.core.models import (COMPLETED, MATCH_NUMBERING, MATCH_UNCERTAIN, MOVIE, SHOW,
-                                  TO_WATCH, WATCHING, PendingWatch)
+from watchlog.core.models import (COMPLETED, EPISODE, MATCH_NUMBERING, MATCH_UNCERTAIN, MOVIE,
+                                  SHOW, TO_WATCH, WATCHING, PendingWatch, Watch)
 
 TODAY = date(2026, 10, 12)
 
@@ -152,6 +152,88 @@ def test_sort_by_title_or_last_added(session):
     assert [e.title for e in overview(session)] == ["alpha", "Bravo", "Charlie", "Éclair"]
     assert [e.title for e in overview(session, sort=progress.SORT_ADDED)] == [
         "Charlie", "alpha", "Bravo", "Éclair"]
+
+
+def _seen(session, kind, ref_id, first, last=None):
+    session.add(Watch(kind=kind, ref_id=ref_id, watched_at=first, last_watched_at=last))
+    session.flush()
+
+
+def _recent_library(session):
+    """Bibliothèque avec des derniers visionnages variés (et une date inconnue)."""
+    old = add_show(session, "Ancienne", status=WATCHING)
+    _seen(session, EPISODE, add_episode(session, old, 1, 1).id, datetime(2025, 1, 1))
+    new = add_show(session, "Récente", status=WATCHING)
+    _seen(session, EPISODE, add_episode(session, new, 1, 1).id, datetime(2026, 9, 1))
+    # Un spécial vu plus tard compte aussi comme dernier visionnage.
+    _seen(session, EPISODE, add_episode(session, new, 0, None).id, datetime(2026, 10, 10))
+    undated = add_show(session, "Sans date", status=WATCHING)
+    _seen(session, EPISODE, add_episode(session, undated, 1, 1).id, None)
+    add_show(session, "Pas commencée", status=WATCHING)
+    done = add_show(session, "Finie", status=COMPLETED)
+    _seen(session, EPISODE, add_episode(session, done, 1, 1).id, datetime(2024, 1, 1))
+    movie = add_movie(session, "Film revu", status=COMPLETED)
+    # Revu : c'est le dernier visionnage qui compte.
+    _seen(session, MOVIE, movie.id, datetime(2020, 1, 1), datetime(2026, 10, 1))
+    add_movie(session, "Film pas vu", status=TO_WATCH)
+    session.commit()
+
+
+def test_sort_recently_watched(session):
+    _recent_library(session)
+    entries = overview(session, sort=progress.SORT_RECENT)
+    assert [e.title for e in entries] == [
+        "Récente", "Film revu", "Ancienne", "Finie",
+        "Film pas vu", "Pas commencée", "Sans date"]   # dates inconnues à la fin, par titre
+    assert by_title(entries)["Récente"].last_watched == datetime(2026, 10, 10)
+
+
+def test_sort_paused_longest_keeps_watching_shows_only(session):
+    _recent_library(session)
+    assert [e.title for e in overview(session, sort=progress.SORT_PAUSED)] == [
+        "Ancienne", "Récente", "Pas commencée", "Sans date"]
+    assert overview(session, sort=progress.SORT_PAUSED, kind=MOVIE) == []
+    assert overview(session, sort=progress.SORT_PAUSED, status=[COMPLETED]) == []
+    assert len(overview(session, sort=progress.SORT_PAUSED, status=[COMPLETED, WATCHING])) == 4
+
+
+def test_last_watched_label(session):
+    _recent_library(session)
+    entries = by_title(overview(session))
+    assert label_last(entries["Récente"]) == "Vu il y a 2 jours"
+    assert label_last(entries["Film revu"]) == "Vu il y a 11 jours"
+    assert label_last(entries["Ancienne"]) == "Vu il y a 1 an"
+    assert label_last(entries["Finie"]) == "Vu il y a 2 ans"
+    assert label_last(entries["Sans date"]) == "Date de visionnage inconnue"
+    assert label_last(entries["Pas commencée"]) == ""
+    assert label_last(entries["Film pas vu"]) == ""
+    entry = entries["Récente"]
+    entry.last_watched = datetime(2026, 7, 1)
+    assert label_last(entry) == "Vu il y a 3 mois"
+    entry.last_watched = datetime(2026, 10, 11, 12)
+    assert label_last(entry) == "Vu hier"
+    entry.last_watched = datetime(2026, 10, 11, 23)   # 01:00 le 12 à Paris
+    assert label_last(entry) == "Vu aujourd'hui"
+
+
+def test_import_day_counts_as_unknown_date(session, monkeypatch):
+    """Dernier visionnage un jour d'import : date inconnue, à la fin des tris par date."""
+    monkeypatch.setattr(progress.stats.count_bulk_days, "__defaults__", (3,))  # seuil : 3
+    imported = add_show(session, "Importée")
+    for n in range(1, 4):
+        _seen(session, EPISODE, add_episode(session, imported, 1, n).id, datetime(2026, 8, 13, 9))
+    real = add_show(session, "Datée")
+    _seen(session, EPISODE, add_episode(session, real, 1, 1).id, datetime(2025, 1, 1))
+    session.commit()
+
+    entries = overview(session, sort=progress.SORT_PAUSED)
+    assert [e.title for e in entries] == ["Datée", "Importée"]
+    assert entries[1].last_watched is None and entries[1].import_day
+    assert label_last(entries[1]) == "Date inconnue (import)"
+
+
+def label_last(entry) -> str:
+    return progress.last_watched_label(entry, today=TODAY)
 
 
 def test_shows_to_check(session):
