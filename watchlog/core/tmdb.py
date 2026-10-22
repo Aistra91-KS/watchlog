@@ -39,6 +39,15 @@ def extract_release_dates(movie: dict) -> tuple[date | None, date | None]:
     return (min(fr_dates) if fr_dates else None), original
 
 
+def season_ttl(season: dict) -> timedelta:
+    """30 jours pour une saison complète, 1 jour s'il manque une date ou une durée."""
+    episodes = season.get("episodes") or []
+    complete = episodes and all(
+        (d := parse_date(ep.get("air_date"))) and d <= date.today() and ep.get("runtime")
+        for ep in episodes)
+    return timedelta(days=30) if complete else timedelta(days=1)
+
+
 def movie_ttl(movie: dict) -> timedelta:
     """30 jours pour un film déjà sorti, 1 jour sinon."""
     fr, original = extract_release_dates(movie)
@@ -73,7 +82,14 @@ class TMDBClient:
         except ApiError:
             self._connected = False
             return False, "TMDB non connecté : API injoignable (films sans métadonnées pour l'instant)."
-        if response.status_code == 200 and response.json().get("success"):
+        try:
+            success = response.status_code == 200 and response.json().get("success")
+        except ValueError:  # page HTML (portail Wi-Fi, proxy) au lieu du JSON de TMDB
+            self._connected = False
+            log.warning("TMDB : réponse illisible au test de connexion (HTTP %s)",
+                        response.status_code)
+            return False, "TMDB non connecté : réponse illisible (réseau filtré ?)."
+        if success:
             self._connected = True
             return True, "TMDB connecté."
         self._connected = False
@@ -174,6 +190,15 @@ class TMDBClient:
         if not self.available:
             return {}
         return self.http.get_json(f"/tv/{tmdb_id}/external_ids", ttl=timedelta(days=30)) or {}
+
+    def tv_season(self, tmdb_id: int, season: int) -> dict | None:
+        """Saison d'une série TMDB avec ses épisodes (numéro, date, durée réelle).
+
+        None si la saison est inconnue ou TMDB indisponible.
+        """
+        if not self.available:
+            return None
+        return self.http.get_json(f"/tv/{tmdb_id}/season/{season}", ttl=season_ttl)
 
     def find_tv_by_tvdb(self, tvdb_id: int) -> int | None:
         """Id TMDB de la série qui a cet id TVDB, sinon None."""

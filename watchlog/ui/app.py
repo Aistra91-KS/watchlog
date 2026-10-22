@@ -19,7 +19,6 @@ if str(ROOT) not in sys.path:
 import streamlit as st  # noqa: E402
 
 from watchlog.core.config import setup_logging  # noqa: E402
-from watchlog.ui import common  # noqa: E402
 
 setup_logging()
 
@@ -60,10 +59,13 @@ st.set_page_config(page_title="Watchlog", page_icon=str(ROOT / "assets" / "watch
 
 
 @st.cache_resource
-def startup_backup() -> None:
-    """Sauvegarde automatique de la base, une fois par lancement de l'application."""
+def startup_backup() -> bool:
+    """Sauvegarde automatique de la base, une fois par lancement. False si elle a échoué."""
     from watchlog.core.backup import make_backup
-    make_backup()
+    from watchlog.core.config import DB_PATH
+    if not DB_PATH.is_file():   # tout premier lancement : rien à sauvegarder
+        return True
+    return make_backup() is not None
 
 
 # Recharge la page quand le nouveau serveur répond (après la coupure de l'ancien).
@@ -93,7 +95,14 @@ if code_changed_since_start():
     st.button("Redémarrer Watchlog", type="primary", on_click=restart_server)
     st.stop()
 
-startup_backup()
+# Importé seulement ici : après une mise à jour, les modules déjà chargés par ce serveur
+# peuvent être incompatibles avec les nouveaux fichiers (la bannière ci-dessus doit s'afficher).
+from watchlog.ui import common  # noqa: E402
+
+if not startup_backup():
+    st.warning("La sauvegarde automatique du démarrage a échoué (détail dans "
+               "data/watchlog.log) : aucune copie récente de ta base. Essaie « Sauvegarder "
+               "maintenant » dans Paramètres.")
 
 
 @st.cache_resource
@@ -106,6 +115,39 @@ def startup_genres() -> None:
 
 
 startup_genres()
+common.auto_sync()   # après la sauvegarde du démarrage
+
+SYNC_POLL_SECONDS = 3   # pendant la synchro automatique : vérifie toutes les 3 s si elle est finie
+
+
+@st.fragment(run_every=SYNC_POLL_SECONDS)
+def sync_running() -> None:
+    """« Mise à jour en cours » ; une fois finie, recharge la page avec les nouvelles données."""
+    if common.auto_sync()["running"]:
+        st.caption(":material/sync: Mise à jour en cours…")
+    else:
+        st.rerun()
+
+
+def show_sync_status() -> None:
+    """Menu : date de la dernière mise à jour, et ses problèmes éventuels."""
+    from watchlog.core import settings, sync
+    from watchlog.core.dates import fmt_ago, utcnow
+    state = common.auto_sync()
+    if state["running"]:
+        sync_running()
+        return
+    with common.db() as session:
+        last = sync.last_sync_at(session)
+        report = settings.get_value(session, settings.LAST_SYNC_REPORT) or {}
+    st.caption(f"Mis à jour {fmt_ago(last, utcnow())}" if last else "Jamais mis à jour")
+    if state["error"]:
+        st.caption(f":orange[Mise à jour automatique interrompue : {state['error']}]")
+    problems = report.get("problems", 0)
+    if problems:
+        with st.popover(f"{problems} problème{'s' if problems > 1 else ''} à la dernière "
+                        "mise à jour", type="tertiary"):
+            st.text("\n".join(report.get("lines", [])))
 
 
 def stop_server() -> None:
@@ -136,6 +178,7 @@ with st.sidebar:
         st.page_link(p)
     connected, _message = common.tmdb_status()
     st.caption("TMDB : connecté" if connected else "TMDB : non connecté (voir Paramètres)")
+    show_sync_status()
     st.button("Arrêter Watchlog", on_click=stop_server, type="tertiary",
               help="Ferme l'outil. Pour le rouvrir : le raccourci Watchlog (Bureau ou menu Démarrer).")
 

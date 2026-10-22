@@ -67,6 +67,29 @@ def test_set_watch_date_none_means_unknown(session):
     assert library.get_watch(session, EPISODE, episode.id) is not None   # toujours vu
 
 
+
+def test_set_show_watch_dates(session):
+    """Seuls les épisodes vus de la série (et des saisons choisies) changent."""
+    show = add_show(session, "Lost")
+    other = add_show(session, "Autre")
+    s1e1, s1e2 = add_episode(session, show, 1, 1), add_episode(session, show, 1, 2)
+    s2e1, special = add_episode(session, show, 2, 1), add_episode(session, show, 2, None)
+    unseen = add_episode(session, show, 2, 2)
+    elsewhere = add_episode(session, other, 1, 1)
+    for ep in (s1e1, s1e2, s2e1, special, elsewhere):
+        library.mark_watched(session, EPISODE, ep.id)
+
+    assert library.set_show_watch_dates(session, show.id, date(2015, 3, 1), seasons=[2]) == 2
+    assert local_date(library.get_watch(session, EPISODE, special.id).watched_at,
+                      None) == date(2015, 3, 1)
+    assert library.get_watch(session, EPISODE, s1e1.id).watched_at is not None
+    assert library.get_watch(session, EPISODE, unseen.id) is None       # pas marqué vu
+
+    assert library.set_show_watch_dates(session, show.id, None) == 4    # date inconnue
+    for ep in (s1e1, s1e2, s2e1, special):
+        assert library.get_watch(session, EPISODE, ep.id).watched_at is None
+    assert library.get_watch(session, EPISODE, elsewhere.id).watched_at is not None
+
 # --- Ajout d'un film en « Terminé » -----------------------------------------------------------
 
 def test_add_movie_completed_records_watch(session):

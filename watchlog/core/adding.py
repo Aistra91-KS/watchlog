@@ -1,16 +1,21 @@
 """Ajout de séries et de films à la bibliothèque (recherche TVMaze / TMDB ou saisie manuelle).
 
 Ces fonctions ne font pas de commit : l'appelant (l'interface) enregistre.
-Une ApiError (API injoignable) remonte à l'appelant, qui affiche un message.
+Une ApiError (API injoignable) remonte à l'appelant, qui affiche un message ; seule
+search_all la rattrape, pour montrer les séries même si TMDB est en panne (et inversement).
 """
 
+import logging
+from dataclasses import dataclass, field
 from datetime import date
+from itertools import zip_longest
 
 from sqlmodel import Session, select
 
 from watchlog.core import catalog, library
 from watchlog.core.http import ApiError
-from watchlog.core.models import COMPLETED, MATCH_OK, MOVIE, SHOW, STATUSES, Episode, Movie, Show
+from watchlog.core.models import (COMPLETED, EPISODE, MATCH_OK, MOVIE, SHOW, STATUSES, WATCHING,
+                                  Episode, Movie, Show)
 from watchlog.core.tmdb import TMDBClient
 
 # Statuts de diffusion TVMaze, traduits pour l'affichage.
@@ -22,6 +27,12 @@ TVMAZE_STATUS_LABELS = {
 }
 
 SUMMARY_LENGTH = 220  # longueur maximale du résumé dans les résultats de recherche
+
+# Recherche unique quand TMDB n'est pas utilisable (les séries sont quand même cherchées).
+MOVIES_UNAVAILABLE = ("Films non cherchés : TMDB n'est pas connecté. "
+                      "Tu peux ajouter un film dans « Saisie manuelle ».")
+
+log = logging.getLogger(__name__)
 
 
 def tvmaze_status_label(status: str | None) -> str:
@@ -135,6 +146,47 @@ def search_movies(session: Session, tmdb, query: str) -> list[dict]:
     return results
 
 
+@dataclass
+class SearchOutcome:
+    """Résultat de la recherche unique : séries et films mêlés, et les sources en panne.
+
+    results : dicts de search_shows / search_movies, avec en plus « kind » (SHOW ou MOVIE).
+    errors : type (SHOW / MOVIE) -> message lisible, pour la source qui n'a pas répondu.
+    """
+    results: list[dict] = field(default_factory=list)
+    errors: dict[str, str] = field(default_factory=dict)
+
+
+def search_all(session: Session, tvmaze, tmdb, query: str) -> SearchOutcome:
+    """Cherche à la fois les séries (TVMaze) et les films (TMDB).
+
+    Une source en panne n'empêche pas l'autre : son erreur est journalisée et rendue dans
+    `errors`. `tmdb` None ou non connecté : films non cherchés (dit dans `errors`).
+    Les deux listes sont alternées, pour garder l'ordre de pertinence propre à chaque API.
+    """
+    outcome = SearchOutcome()
+    if not (query or "").strip():
+        return outcome
+    shows: list[dict] = []
+    movies: list[dict] = []
+    try:
+        shows = search_shows(session, tvmaze, query)
+    except ApiError as exc:
+        log.warning("Recherche TVMaze impossible pour « %s » : %s", query, exc)
+        outcome.errors[SHOW] = f"Séries non cherchées : {exc}"
+    if tmdb is None or not tmdb.available:
+        outcome.errors[MOVIE] = MOVIES_UNAVAILABLE
+    else:
+        try:
+            movies = search_movies(session, tmdb, query)
+        except ApiError as exc:
+            log.warning("Recherche TMDB impossible pour « %s » : %s", query, exc)
+            outcome.errors[MOVIE] = f"Films non cherchés : {exc}"
+    for show, movie in zip_longest(shows, movies):
+        outcome.results += [dict(r, kind=k) for r, k in ((show, SHOW), (movie, MOVIE)) if r]
+    return outcome
+
+
 # --- Ajout depuis TVMaze / TMDB ------------------------------------------------
 
 def french_title(tvmaze, tvmaze_id: int) -> str | None:
@@ -190,6 +242,59 @@ def add_movie(session: Session, tmdb, tmdb_id: int, status: str,
     _record_movie_watch(session, movie, status, watched_on)
     session.flush()
     return movie
+
+
+# --- « J'en suis à S2E5 » (série déjà commencée) --------------------------------
+
+def _regular_episodes(session: Session, show_id: int) -> list[Episode]:
+    """Épisodes numérotés (hors spéciaux) de la série, dans l'ordre (saison, numéro)."""
+    return list(session.exec(
+        select(Episode).where(Episode.show_id == show_id,
+                              Episode.is_special == False,  # noqa: E712 (syntaxe SQLAlchemy)
+                              Episode.number.is_not(None))
+        .order_by(Episode.season, Episode.number)))
+
+
+def episode_choices(session: Session, show_id: int,
+                    today: date | None = None) -> dict[int, list[tuple[int, str | None]]]:
+    """Saison -> [(numéro, titre)] des épisodes qu'on peut avoir vus : pour « j'en suis à ».
+
+    Hors spéciaux et hors épisodes pas encore diffusés (date inconnue : gardé).
+    """
+    today = today or date.today()
+    choices: dict[int, list[tuple[int, str | None]]] = {}
+    for ep in _regular_episodes(session, show_id):
+        if ep.airdate is None or ep.airdate <= today:
+            choices.setdefault(ep.season, []).append((ep.number, ep.title))
+    return choices
+
+
+def mark_progress(session: Session, show_id: int, season: int, number: int,
+                  day: date | None = None, status: str | None = WATCHING) -> int:
+    """« J'en suis à S2E5 » : marque vus tous les épisodes jusqu'à celui-ci inclus.
+
+    Hors spéciaux (leur place dans l'ordre est incertaine). Date `day` pour tous ; None =
+    date inconnue, car ils ont été vus dans le passé et la date du jour fausserait les
+    statistiques. Un épisode déjà vu garde sa date. `status` (« En cours » par défaut,
+    None : inchangé) est aussi appliqué. Renvoie le nombre d'épisodes nouvellement vus.
+    ValueError si l'épisode n'existe pas. Pas de commit.
+    """
+    if status is not None:
+        _check_status(status)
+    episodes = _regular_episodes(session, show_id)
+    if not any((ep.season, ep.number) == (season, number) for ep in episodes):
+        raise ValueError(f"Épisode S{season}E{number} introuvable pour cette série.")
+    count = 0
+    for ep in episodes:
+        if (ep.season, ep.number) > (season, number):
+            break
+        if library.get_watch(session, EPISODE, ep.id) is None:
+            library.set_watch_date(session, EPISODE, ep.id, day)
+            count += 1
+    if status is not None:
+        library.set_status(session, SHOW, show_id, status)
+    session.flush()
+    return count
 
 
 # --- Saisie manuelle -------------------------------------------------------------

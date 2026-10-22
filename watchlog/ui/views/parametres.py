@@ -222,8 +222,12 @@ show_report("import_report")
 # --- Synchronisation -------------------------------------------------------------
 st.header("Synchronisation")
 st.write("Met à jour les séries (TVMaze) et les films (TMDB) de la bibliothèque. "
-         "Une sauvegarde de la base est faite juste avant.")
-if st.button("Synchroniser maintenant"):
+         "Une sauvegarde de la base est faite juste avant. Elle se lance aussi toute seule "
+         "à l'ouverture de Watchlog si la dernière date de plus de 24 h.")
+auto_running = common.auto_sync()["running"]
+if auto_running:
+    st.caption("Mise à jour automatique en cours : attends qu'elle soit finie (voir le menu).")
+if st.button("Synchroniser maintenant", disabled=auto_running):
     backup_or_warn()
     report = sync(get_engine(), common.tvmaze_client(), common.tmdb_client(),
                   progress=progress_bar("Synchronisation..."))
@@ -245,11 +249,12 @@ def csv_zip_bytes() -> bytes:
     return buffer.getvalue()
 
 
-def bingers_zip_bytes() -> bytes:
+def bingers_zip() -> tuple[bytes, list[str]]:
+    """Le .zip et son rapport (dates inventées, titres omis : à montrer avant l'import)."""
     buffer = io.BytesIO()
     with common.db() as session:
-        export_bingers_zip(session, buffer)
-    return buffer.getvalue()
+        report = export_bingers_zip(session, buffer)
+    return buffer.getvalue(), report.lines()
 
 
 st.header("Export")
@@ -266,11 +271,18 @@ left.download_button(
 middle.download_button(
     "Télécharger la base complète (CSV)", data=csv_zip_bytes, file_name=f"watchlog-{stamp}.zip",
     mime="application/zip", on_click="ignore")
-right.download_button(
-    "Télécharger pour Bingers (.zip)", data=bingers_zip_bytes,
-    file_name=f"watchlog-bingers-{stamp}.zip", mime="application/zip", on_click="ignore",
-    help="Séries, films, épisodes vus avec leurs dates, statuts, favoris, notes et listes. "
-         "Les titres saisis à la main et les épisodes spéciaux ne sont pas repris.")
+# Bingers : préparé d'abord, pour montrer le rapport (dates inventées, titres omis).
+if right.button("Préparer l'export pour Bingers",
+                help="Séries, films, épisodes vus avec leurs dates, statuts, favoris, notes et "
+                     "listes. Les titres saisis à la main et les épisodes spéciaux ne sont pas "
+                     "repris."):
+    st.session_state["bingers_export"] = bingers_zip()
+if "bingers_export" in st.session_state:
+    bingers_data, bingers_lines = st.session_state["bingers_export"]
+    right.download_button(
+        "Télécharger pour Bingers (.zip)", data=bingers_data,
+        file_name=f"watchlog-bingers-{stamp}.zip", mime="application/zip", on_click="ignore")
+    right.text("\n".join(bingers_lines))
 
 # --- Sauvegardes -------------------------------------------------------------------
 st.header("Sauvegardes")

@@ -10,7 +10,7 @@ import pandas as pd
 import streamlit as st
 from sqlmodel import select
 
-from watchlog.core import library, providers, queue
+from watchlog.core import library, providers, queue, stats
 from watchlog.core.adding import tvmaze_status_label
 from watchlog.core.dates import fmt_date, parse_date
 from watchlog.core.models import (EPISODE, MATCH_OK, MATCH_REMAPPED, SHOW, Episode, Show,
@@ -21,8 +21,14 @@ from watchlog.ui import common
 COL_SEEN = "Vu"
 COL_UNTIL = "Vu jusqu'ici"
 COL_DATE = "Vu le"
-UPCOMING_STYLE = "color: #9aa5b1"   # épisodes pas encore diffusés : texte grisé
+COL_RUNTIME = "Durée"
+# Colonnes d'information (non modifiables), grisées pour les épisodes à venir
+INFO_COLUMNS = ["Code", "Date", "Titre", COL_RUNTIME]
+# Épisodes pas encore diffusés : texte grisé, contraste ≥ 4,5:1 dans chaque thème.
+UPCOMING_STYLE = {"dark": "color: #9aa5b1", "light": "color: #5f6b7a"}
 RATING_OPTIONS = [0, 1, 2, 3, 4, 5]  # 0 = pas de note
+DATE_UNKNOWN, DATE_CHOSEN = "Date inconnue", "Choisir une date"
+MIN_WATCH_DATE = date(1900, 1, 1)
 
 
 def rating_label(value: int) -> str:
@@ -78,6 +84,26 @@ def mark_season(show_id: int, season: int, include_specials: bool) -> None:
         session.commit()
     refresh_tables()
     st.session_state["serie_message"] = f"Saison {season} : {count} épisode(s) marqué(s) vu(s)."
+
+
+def apply_bulk_date(show_id: int, prefix: str) -> None:
+    """Change la date de visionnage de tous les épisodes vus des saisons choisies."""
+    seasons = st.session_state[f"{prefix}_seasons"]
+    if not seasons:
+        st.session_state["serie_warning"] = "Choisis au moins une saison."
+        return
+    day = None
+    if st.session_state[f"{prefix}_mode"] == DATE_CHOSEN:
+        day = st.session_state.get(f"{prefix}_day")
+        if day is None:
+            st.session_state["serie_warning"] = "Choisis une date (ou « Date inconnue »)."
+            return
+    with common.db() as session:
+        count = library.set_show_watch_dates(session, show_id, day, seasons)
+        session.commit()
+    refresh_tables()
+    shown = fmt_date(day) if day else "date inconnue"
+    st.session_state["serie_message"] = f"Date de visionnage de {count} épisode(s) : {shown}."
 
 
 def apply_episode_changes(editor_key: str, episode_ids: list[int], include_specials: bool) -> None:
@@ -156,18 +182,22 @@ def season_table(episodes: list[Episode], watched: dict[int, date | None],
         if day is not None and day > today:
             upcoming.append(i)
         rows.append({"Code": episode_code(ep.season, ep.number), "Date": fmt_date(day),
-                     "Titre": ep.title or "", COL_SEEN: ep.id in watched,
+                     "Titre": ep.title or "",
+                     COL_RUNTIME: f"{ep.runtime} min" if ep.runtime else "",
+                     COL_SEEN: ep.id in watched,
                      COL_DATE: watched.get(ep.id), COL_UNTIL: False})
-    df = pd.DataFrame(rows, columns=["Code", "Date", "Titre", COL_SEEN, COL_DATE, COL_UNTIL])
+    df = pd.DataFrame(rows, columns=[*INFO_COLUMNS, COL_SEEN, COL_DATE, COL_UNTIL])
     df[COL_DATE] = pd.to_datetime(df[COL_DATE])   # type date : case vide (et non « None ») si pas vu
     return df, upcoming
 
 
 def grey_upcoming(df: pd.DataFrame, upcoming: list[int]):
     """Grise le texte des épisodes à venir (colonnes non modifiables seulement)."""
+    style = UPCOMING_STYLE["dark" if common.is_dark_theme() else "light"]
+
     def style_row(row):
-        color = UPCOMING_STYLE if row.name in upcoming else ""
-        return [color if col in ("Code", "Date", "Titre") else "" for col in row.index]
+        color = style if row.name in upcoming else ""
+        return [color if col in INFO_COLUMNS else "" for col in row.index]
     return df.style.apply(style_row, axis=1)
 
 
@@ -216,6 +246,7 @@ with common.db() as session:
         watched = {ref_id: local_date(when, None) for ref_id, when in session.exec(
             select(Watch.ref_id, Watch.watched_at).join(Episode, Episode.id == Watch.ref_id)
             .where(Watch.kind == EPISODE, Episode.show_id == show.id)).all()}
+        durations = stats.show_time(session, show.id)
 
 if show is None:
     st.info("Aucune série sélectionnée. Choisis une série dans la bibliothèque.")
@@ -226,6 +257,9 @@ today = datetime.now(LOCAL_TZ).date()
 message = st.session_state.pop("serie_message", None)
 if message:
     st.success(message)
+warning = st.session_state.pop("serie_warning", None)
+if warning:
+    st.warning(warning)
 
 # En-tête : affiche + informations
 col_poster, col_info = st.columns([1, 3])
@@ -267,6 +301,23 @@ with col_info:
     if regular:
         seen = sum(1 for ep in regular if ep.id in watched)
         st.caption(f"{seen}/{len(regular)} épisodes vus (hors spéciaux)")
+    if episodes:
+        col_spent, col_left = st.columns(2)
+        col_spent.metric("Temps passé", stats.format_duration(durations["spent_minutes"]),
+                         border=True)
+        left = durations["remaining_episodes"]
+        col_left.metric("Temps restant", stats.format_duration(durations["remaining_minutes"]),
+                        f"{left} épisode{'s' if left > 1 else ''} à voir", delta_color="off",
+                        delta_arrow="off", border=True)
+        notes = []
+        if durations["upcoming_episodes"]:
+            notes.append(f"{durations['upcoming_episodes']} épisode(s) pas encore diffusé(s) "
+                         "non compté(s)")
+        if durations["estimated"]:
+            notes.append(f"durée inconnue pour {durations['estimated']} épisode(s) : "
+                         "estimée à la moyenne de la série")
+        if notes:
+            st.caption(" · ".join(notes).capitalize())
 
 show_next_episode(show.id, today)
 
@@ -309,6 +360,27 @@ else:
 st.subheader("Épisodes")
 show_specials = st.checkbox("Afficher les épisodes spéciaux", key=f"serie_specials_{show.id}")
 shown = [ep for ep in episodes if show_specials or not ep.is_special]
+
+# Date de visionnage en bloc (série vue il y a longtemps, cochée d'un coup aujourd'hui)
+watched_seasons = sorted({ep.season for ep in episodes if ep.id in watched})
+if watched_seasons:
+    with st.expander("Changer la date de visionnage de plusieurs épisodes"):
+        prefix = f"serie_bulk_{show.id}"
+        if f"{prefix}_seasons" in st.session_state:  # saison qui n'a plus d'épisode vu : retirée
+            st.session_state[f"{prefix}_seasons"] = [
+                s for s in st.session_state[f"{prefix}_seasons"] if s in watched_seasons]
+        st.caption("S'applique aux épisodes déjà vus des saisons choisies (spéciaux compris). "
+                   "« Date inconnue » : ils restent vus, mais sans date, et ne comptent dans "
+                   "aucun mois des statistiques.")
+        st.multiselect("Saisons", watched_seasons, default=watched_seasons,
+                       format_func=lambda season: f"Saison {season}", key=f"{prefix}_seasons")
+        mode = st.radio("Date", [DATE_UNKNOWN, DATE_CHOSEN], horizontal=True,
+                        key=f"{prefix}_mode")
+        if mode == DATE_CHOSEN:
+            st.date_input("Vu le", value=None, format="DD/MM/YYYY", min_value=MIN_WATCH_DATE,
+                          max_value=today, key=f"{prefix}_day")
+        st.button("Appliquer", key=f"{prefix}_apply", on_click=apply_bulk_date,
+                  args=(show.id, prefix))
 seasons: dict[int, list[Episode]] = {}
 for ep in sorted(shown, key=lambda e: (e.season, episode_sort_key(e))):
     seasons.setdefault(ep.season, []).append(ep)
@@ -338,14 +410,16 @@ for season, season_episodes in seasons.items():
         editor_key = f"serie_table_{show.id}_{season}_{version}"
         st.data_editor(
             grey_upcoming(df, upcoming), key=editor_key, hide_index=True,
-            disabled=["Code", "Date", "Titre"],
+            disabled=INFO_COLUMNS,
             height=min(36 * (len(df) + 1) + 3, 900),
             column_config={
                 "Code": st.column_config.TextColumn(width="small"),
                 "Date": st.column_config.TextColumn(width="small"),
+                COL_RUNTIME: st.column_config.TextColumn(
+                    width="small", help="Durée de l'épisode (vide : inconnue)"),
                 COL_SEEN: st.column_config.CheckboxColumn(width="small"),
                 COL_DATE: st.column_config.DateColumn(
-                    width="small", format="DD/MM/YYYY", min_value=date(1900, 1, 1),
+                    width="small", format="DD/MM/YYYY", min_value=MIN_WATCH_DATE,
                     max_value=today,
                     help="Date de visionnage, modifiable (vide : date inconnue)"),
                 COL_UNTIL: st.column_config.CheckboxColumn(

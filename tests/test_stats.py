@@ -2,12 +2,14 @@
 
 from datetime import date, datetime
 
+import pandas as pd
 import pytest
-from sqlmodel import Session
+from sqlmodel import Session, select
 
+from helpers_db import add_episode, add_movie, add_show, watch
 from watchlog.core import stats
-from watchlog.core.models import (COMPLETED, EPISODE, MOVIE, SHOW, WATCHING, Episode, LibraryItem,
-                                  Movie, Rating, Show, Watch)
+from watchlog.core.models import (COMPLETED, EPISODE, FOR_LATER, MOVIE, SHOW, TO_WATCH, WATCHING,
+                                  Episode, LibraryItem, Movie, Rating, Show, Watch)
 
 TODAY = date(2026, 10, 12)
 
@@ -102,3 +104,135 @@ def test_global_counts(session):
 
     assert counts == {"shows": 2, "movies": 1, "completed_shows": 1,
                       "episodes_watched": 3, "movies_watched": 2, "ratings": 3}
+
+
+# --- Temps restant pour finir la liste ------------------------------------------------
+
+FINISH_TODAY = date(2026, 10, 21)
+
+
+def test_remaining_time(engine):
+    """Sorti et pas vu, hors spéciaux ; durée inconnue = moyenne des durées connues du lot."""
+    with Session(engine) as s:
+        current = add_show(s, "Silo", status=WATCHING, match_status="ok")
+        aired = date(2026, 1, 1)
+        watch(s, add_episode(s, current, 1, 1, airdate=aired, runtime=60))   # déjà vu
+        add_episode(s, current, 1, 2, airdate=aired, runtime=None)          # durée estimée
+        add_episode(s, current, 1, 3, airdate=aired, runtime=40)
+        add_episode(s, current, 1, 4, airdate=date(2027, 1, 1), runtime=50)  # à venir
+        add_episode(s, current, 1, None, airdate=aired, runtime=90)          # spécial
+        later = add_show(s, "3%", status=FOR_LATER, match_status="ok")
+        add_episode(s, later, 1, 1, airdate=aired, runtime=30)
+        add_movie(s, "Matrix", release=date(1999, 6, 23), status=TO_WATCH)  # 120 min
+        add_movie(s, "Pas sorti", release=date(2027, 5, 1), status=TO_WATCH)
+        watch(s, add_movie(s, "Déjà vu", release=date(2020, 1, 1), status=COMPLETED))
+
+        result = stats.remaining_time(s, today=FINISH_TODAY)
+        with_later = stats.remaining_time(s, statuses=(WATCHING, TO_WATCH, FOR_LATER),
+                                          today=FINISH_TODAY)
+
+    assert result == {"episodes": 2, "episode_minutes": 80, "movies": 1, "movie_minutes": 120,
+                      "total_minutes": 200, "estimated": 1}
+    assert with_later["episodes"] == 3
+    assert with_later["episode_minutes"] == 30 + 40 + 35   # inconnue = moyenne (30 + 40) / 2
+
+
+def pace_frame() -> pd.DataFrame:
+    rows = [(EPISODE, date(2026, 10, 20), 60),
+            (EPISODE, date(2026, 10, 15), None),   # durée inconnue
+            (MOVIE, date(2026, 10, 14), 120),
+            (EPISODE, date(2026, 10, 12), 60),      # jour d'import
+            (EPISODE, date(2026, 10, 1), 30),
+            (EPISODE, None, 45)]                    # date inconnue : jamais comptée
+    return pd.DataFrame(rows, columns=["kind", "day", "runtime"])
+
+
+def test_watch_pace_window():
+    pace = stats.watch_pace(pace_frame(), 7, today=FINISH_TODAY)
+
+    assert pace["start"] == date(2026, 10, 15)
+    assert (pace["days"], pace["watches"], pace["minutes"], pace["estimated"]) == (7, 2, 120, 1)
+    assert pace["per_day"] == pytest.approx(120 / 7)
+
+
+def test_watch_pace_without_bulk_days():
+    pace = stats.watch_pace(pace_frame(), 30, today=FINISH_TODAY)
+
+    assert pace["days"] == 30 and pace["watches"] == 5
+    assert pace["minutes"] == (60 + 50 + 60 + 30) + 120
+
+
+def test_watch_pace_empty_frame():
+    """Aucun visionnage (base neuve) : rythme nul, pas de KeyError."""
+    pace = stats.watch_pace(pd.DataFrame([], columns=["kind", "day", "runtime"]), 7,
+                            today=FINISH_TODAY)
+
+    assert (pace["watches"], pace["minutes"], pace["per_day"]) == (0, 0, 0.0)
+
+
+def test_watch_pace_starts_at_first_bulk_day():
+    """Avant le jour d'import, l'historique n'est pas daté : la période ne remonte pas plus loin."""
+    pace = stats.watch_pace(pace_frame(), 365, bulk={date(2026, 10, 12)}, today=FINISH_TODAY)
+
+    assert pace["start"] == date(2026, 10, 12)
+    assert pace["days"] == 9                      # 10 jours, moins le jour d'import
+    assert pace["watches"] == 3
+    assert pace["minutes"] == 60 + 60 + 120
+    assert pace["per_day"] == pytest.approx(240 / 9)
+
+
+def test_finish_estimate():
+    assert stats.finish_estimate(300, 100, FINISH_TODAY) == {"days": 3,
+                                                            "date": date(2026, 10, 24)}
+    assert stats.finish_estimate(301, 100, FINISH_TODAY)["days"] == 4   # jour entamé
+    assert stats.finish_estimate(0, 100, FINISH_TODAY)["days"] == 0
+    assert stats.finish_estimate(300, 0, FINISH_TODAY) is None
+
+
+def test_format_span():
+    today = FINISH_TODAY                                          # 21/10/2026
+    assert stats.format_span(today, date(2026, 10, 22)) == "1 jour"
+    assert stats.format_span(today, date(2026, 11, 2)) == "12 jours"
+    assert stats.format_span(today, date(2027, 1, 21)) == "3 mois"
+    assert stats.format_span(today, date(2027, 2, 15)) == "3 mois et 25 jours"
+    assert stats.format_span(today, date(2027, 10, 21)) == "1 an"
+    assert stats.format_span(today, date(2028, 12, 26)) == "2 ans, 2 mois et 5 jours"
+    assert stats.format_span(today, today) == "0 jour"
+
+
+def test_format_span_short_months():
+    """31 janvier + 1 mois = 28 février : pas de mois sauté ni de jour négatif."""
+    assert stats.format_span(date(2026, 1, 31), date(2026, 2, 28)) == "1 mois"
+    assert stats.format_span(date(2026, 1, 31), date(2026, 3, 2)) == "1 mois et 2 jours"
+
+
+def test_show_time(engine):
+    """Passé = vus × revisionnages (spéciaux compris) ; restant = diffusés pas vus, hors spéciaux."""
+    with Session(engine) as s:
+        show = add_show(s, "Silo", status=WATCHING, match_status="ok")
+        other = add_show(s, "3%", status=WATCHING, match_status="ok")
+        aired = date(2026, 1, 1)
+        seen = add_episode(s, show, 1, 1, airdate=aired, runtime=60)
+        special = add_episode(s, show, 1, None, airdate=aired, runtime=20)
+        add_episode(s, show, 1, 2, airdate=aired, runtime=None)          # durée estimée
+        add_episode(s, show, 1, 3, airdate=aired, runtime=40)
+        add_episode(s, show, 1, 4, airdate=date(2027, 1, 1), runtime=50)  # à venir
+        add_episode(s, show, 1, None, airdate=aired, runtime=90)          # spécial pas vu
+        watch(s, seen)
+        watch(s, special)
+        s.exec(select(Watch).where(Watch.ref_id == seen.id)).one().plays = 2   # revu
+        watch(s, add_episode(s, other, 1, 1, airdate=aired, runtime=30))  # autre série
+
+        result = stats.show_time(s, show.id, today=FINISH_TODAY)
+
+    average = (60 + 20 + 40 + 50 + 90) / 5
+    assert result == {"spent_minutes": 60 * 2 + 20, "remaining_minutes": round(average + 40),
+                      "remaining_episodes": 2, "upcoming_episodes": 1, "estimated": 1}
+
+
+def test_show_time_without_episodes(engine):
+    with Session(engine) as s:
+        show = add_show(s, "Vide")
+        result = stats.show_time(s, show.id, today=FINISH_TODAY)
+
+    assert result["spent_minutes"] == 0 and result["remaining_minutes"] == 0

@@ -4,6 +4,8 @@ Remarque : les dates de visionnage importées de Bingers sont parfois des dates
 d'import (beaucoup d'épisodes le même jour). C'est normal, on les garde telles quelles.
 """
 
+import calendar
+import math
 from datetime import date, datetime, timedelta
 
 import pandas as pd
@@ -11,7 +13,8 @@ from sqlmodel import Session, func, select
 
 from watchlog.core.models import (COMPLETED, EPISODE, MOVIE, SHOW, WATCHING, Episode, LibraryItem,
                                   Movie, Rating, Show, Watch)
-from watchlog.core.queue import LOCAL_TZ, episode_code, local_date
+from watchlog.core.queue import (DEFAULT_STATUSES, LOCAL_TZ, RELEASED, build_queue, episode_code,
+                                 local_date)
 
 
 def _month(day: date) -> str:
@@ -310,7 +313,10 @@ def genre_counts(frame: pd.DataFrame, kind: str, limit: int = 10) -> pd.DataFram
         rows = rows.drop_duplicates("show_id")
     counts: dict[str, int] = {}
     for genres in rows["genres"]:
-        for genre in [g.strip() for g in (genres or "").split(",") if g.strip()]:
+        # Genres inconnus : pandas met NaN (un float « vrai ») là où la base a None.
+        if not isinstance(genres, str):
+            continue
+        for genre in [g.strip() for g in genres.split(",") if g.strip()]:
             counts[genre] = counts.get(genre, 0) + 1
     ordered = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:limit]
     return pd.DataFrame(ordered, columns=["genre", "titres"])
@@ -417,3 +423,148 @@ def without_days(frame: pd.DataFrame, days) -> pd.DataFrame:
     if not days:
         return frame
     return frame[~frame["day"].map(lambda d: d in days)].reset_index(drop=True)
+
+
+# --- Temps restant pour finir la liste ------------------------------------------------
+
+# Périodes de référence du rythme : libellé -> jours glissants (aujourd'hui compris)
+PACE_PERIODS = {"Au rythme de la semaine dernière": 7, "Au rythme du mois dernier": 30,
+                "Au rythme de l'année dernière": 365}
+# Durée (minutes) d'un élément sans durée connue, quand aucune durée du même type n'est connue
+DEFAULT_RUNTIMES = {EPISODE: 45, MOVIE: 110}
+
+
+def _estimated_minutes(runtimes: list, kind: str) -> tuple[int, int]:
+    """Somme des durées ; une durée inconnue vaut la moyenne des durées connues du lot.
+
+    Renvoie (minutes, nombre de durées estimées) : l'estimation doit pouvoir être affichée.
+    """
+    known = [int(r) for r in runtimes if pd.notna(r) and r > 0]
+    missing = len(runtimes) - len(known)
+    average = sum(known) / len(known) if known else DEFAULT_RUNTIMES[kind]
+    return round(sum(known) + missing * average), missing
+
+
+def remaining_time(session: Session, statuses=DEFAULT_STATUSES,
+                   today: date | None = None) -> dict:
+    """Ce qui reste à voir : épisodes (hors spéciaux) et films déjà sortis, pas encore vus.
+
+    Mêmes éléments que « À regarder » filtré sur « Sorti » : une sortie à venir ne compte pas.
+    {"episodes", "movies", "episode_minutes", "movie_minutes", "total_minutes", "estimated"}
+    """
+    items = build_queue(session, statuses=statuses, availabilities=(RELEASED,), today=today)
+    result = {"estimated": 0}
+    for kind, name in ((EPISODE, "episode"), (MOVIE, "movie")):
+        runtimes = [item.runtime for item in items if item.kind == kind]
+        minutes, estimated = _estimated_minutes(runtimes, kind)
+        result[f"{name}s"] = len(runtimes)
+        result[f"{name}_minutes"] = minutes
+        result["estimated"] += estimated
+    result["total_minutes"] = result["episode_minutes"] + result["movie_minutes"]
+    return result
+
+
+def show_time(session: Session, show_id: int, today: date | None = None) -> dict:
+    """Temps passé sur une série et temps restant pour la finir (page de la série).
+
+    Passé : épisodes vus (spéciaux compris) × nombre de visionnages. Restant : épisodes
+    diffusés pas encore vus, hors spéciaux, comme « À regarder ». Une durée inconnue vaut
+    la moyenne des durées connues de la série, pour ne pas sous-estimer en silence.
+    {"spent_minutes", "remaining_minutes", "remaining_episodes", "upcoming_episodes",
+    "estimated"}
+    """
+    today = today or datetime.now(LOCAL_TZ).date()
+    episodes = session.exec(select(Episode).where(Episode.show_id == show_id)).all()
+    plays = dict(session.exec(
+        select(Watch.ref_id, Watch.plays).join(Episode, Episode.id == Watch.ref_id)
+        .where(Watch.kind == EPISODE, Episode.show_id == show_id)).all())
+    known = [ep.runtime for ep in episodes if ep.runtime]
+    average = sum(known) / len(known) if known else DEFAULT_RUNTIMES[EPISODE]
+    spent = remaining = 0.0
+    result = {"remaining_episodes": 0, "upcoming_episodes": 0, "estimated": 0}
+    for ep in episodes:
+        runtime = ep.runtime or average
+        if ep.id in plays:
+            spent += runtime * (plays[ep.id] or 1)
+        elif ep.is_special:
+            continue
+        else:
+            day = local_date(ep.airstamp, ep.airdate)
+            if day is None or day > today:  # à venir ou sans date : pas encore regardable
+                result["upcoming_episodes"] += 1
+                continue
+            remaining += runtime
+            result["remaining_episodes"] += 1
+        if not ep.runtime:
+            result["estimated"] += 1
+    result["spent_minutes"], result["remaining_minutes"] = round(spent), round(remaining)
+    return result
+
+
+def watch_pace(frame: pd.DataFrame, days: int, bulk=(), today: date | None = None) -> dict:
+    """Rythme de visionnage des `days` derniers jours (aujourd'hui compris), en minutes par jour.
+
+    Un revisionnage compte pour une durée : il n'avance pas la liste. Les jours d'import
+    (`bulk`) sont retirés, visionnages et jours. La période commence au plus tôt au premier
+    jour d'import : avant, l'historique importé est daté du jour de l'import, donc vide, et
+    ces jours vides feraient croire à un rythme bien plus lent.
+    {"start", "days" (jours comptés), "watches", "minutes", "per_day", "estimated"}
+    """
+    today = today or datetime.now(LOCAL_TZ).date()
+    bulk = set(bulk)
+    start = today - timedelta(days=days - 1)
+    if bulk:
+        start = max(start, min(bulk))
+    counted = sum(1 for n in range((today - start).days + 1)
+                  if start + timedelta(days=n) not in bulk)
+    # astype(bool) : sur un frame vide, le masque serait de type object et pandas le lirait
+    # comme une liste de colonnes (frame sans colonne, KeyError plus bas).
+    window = frame[frame["day"].map(
+        lambda d: isinstance(d, date) and start <= d <= today and d not in bulk).astype(bool)]
+    minutes = estimated = 0
+    for kind in (EPISODE, MOVIE):
+        kind_minutes, kind_estimated = _estimated_minutes(
+            list(window.loc[window["kind"] == kind, "runtime"]), kind)
+        minutes += kind_minutes
+        estimated += kind_estimated
+    return {"start": start, "days": counted, "watches": len(window), "minutes": minutes,
+            "per_day": minutes / counted if counted else 0.0, "estimated": estimated}
+
+
+def finish_estimate(remaining_minutes: int, per_day: float,
+                    today: date | None = None) -> dict | None:
+    """Jours nécessaires pour tout voir à ce rythme, et date de fin. None si le rythme est nul.
+
+    La liste grossit avec les nouvelles sorties : c'est un minimum, pas une promesse.
+    """
+    if per_day <= 0:
+        return None
+    today = today or datetime.now(LOCAL_TZ).date()
+    days = math.ceil(remaining_minutes / per_day)
+    return {"days": days, "date": today + timedelta(days=days)}
+
+
+def _add_months(day: date, months: int) -> date:
+    """Même jour `months` mois plus tard (31 janvier + 1 mois = 28 ou 29 février)."""
+    year, month = divmod(day.month - 1 + months, 12)
+    year, month = day.year + year, month + 1
+    return date(year, month, min(day.day, calendar.monthrange(year, month)[1]))
+
+
+def format_span(start: date, end: date) -> str:
+    """Écart exact sur le calendrier : « 3 mois et 25 jours », « 1 an, 2 mois et 5 jours ».
+
+    Mois réels (pas des mois de 30 jours) : la durée tombe pile sur la date de fin affichée.
+    """
+    months = (end.year - start.year) * 12 + end.month - start.month
+    if _add_months(start, months) > end:
+        months -= 1
+    days = (end - _add_months(start, months)).days
+    years, months = divmod(months, 12)
+    parts = [f"{years} an{'s' if years > 1 else ''}" if years else "",
+             f"{months} mois" if months else "",
+             f"{days} jour{'s' if days > 1 else ''}" if days else ""]
+    parts = [part for part in parts if part]
+    if not parts:
+        return "0 jour"
+    return parts[0] if len(parts) == 1 else f"{', '.join(parts[:-1])} et {parts[-1]}"

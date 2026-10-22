@@ -55,6 +55,7 @@ class Show(SQLModel, table=True):
     candidate_tvmaze_id: int | None = None    # proposition à confirmer si match incertain
     is_manual: bool = False                   # saisie manuelle hors TVMaze
     last_synced_at: NaiveDatetime | None = None
+    runtimes_checked_at: NaiveDatetime | None = None   # dernière lecture des durées TMDB
 
 
 class Episode(SQLModel, table=True):
@@ -67,7 +68,8 @@ class Episode(SQLModel, table=True):
     title: str | None = None
     airdate: date | None = Field(default=None, index=True)
     airstamp: NaiveDatetime | None = None          # UTC
-    runtime: int | None = None                # minutes
+    runtime: int | None = None                # minutes (TMDB si connue, sinon TVMaze)
+    tmdb_runtime: int | None = None           # durée réelle TMDB, prioritaire sur TVMaze
     is_special: bool = False
     tvmaze_episode_id: int | None = Field(default=None, unique=True)
 
@@ -178,6 +180,13 @@ class ThemePreference(SQLModel, table=True):
     label: str                                # libellé affiché (« Dystopie »)
     weight: int                               # 1 = plus de ça, -1 = moins de ça
     updated_at: NaiveDatetime | None = None
+
+
+class Setting(SQLModel, table=True):
+    """Réglage ou état gardé d'un lancement à l'autre (dernière synchro...) : valeur en JSON."""
+
+    key: str = Field(primary_key=True)
+    value: str | None = None
 
 
 class ApiCache(SQLModel, table=True):

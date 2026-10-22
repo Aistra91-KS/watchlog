@@ -119,6 +119,9 @@ class FakeTMDB:
     def search_movies(self, query):
         return []
 
+    def find_tv_by_tvdb(self, tvdb_id):
+        return None
+
     @staticmethod
     def poster_url(poster_path):
         return f"https://image.tmdb.org/t/p/w342{poster_path}" if poster_path else None

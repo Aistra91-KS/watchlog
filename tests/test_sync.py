@@ -4,12 +4,13 @@ from datetime import date, datetime, timedelta, timezone
 
 from sqlmodel import Session, select
 
+from watchlog.core import settings
 from watchlog.core.dates import utcnow
 from watchlog.core.db import make_engine
 from watchlog.core.http import ApiError
 from watchlog.core.models import (MATCH_OK, MATCH_REMAPPED, MATCH_UNCERTAIN, MOVIE, SHOW,
                                   STOPPED, WATCHING, LibraryItem, Movie, Show)
-from watchlog.core.sync import show_needs_refresh, sync
+from watchlog.core.sync import last_sync_at, show_needs_refresh, sync, sync_due
 
 NOW = utcnow()
 
@@ -206,3 +207,42 @@ def test_sync_error_on_one_show_does_not_stop_the_others(tmp_path):
         synced = {sh.tvmaze_id: sh.last_synced_at for sh in s.exec(select(Show))}
         assert synced[1] is not None and synced[3] is not None
         assert synced[2] is None
+
+
+# --- Date de la dernière synchro et synchro automatique --------------------------
+
+def test_sync_remembers_date_and_report(tmp_path):
+    engine = make_db(tmp_path)
+    with Session(engine) as s:
+        assert sync_due(s)                       # jamais synchronisé
+    sync(engine, FakeTVMaze(), FakeTMDB(), download_posters=False)
+
+    with Session(engine) as s:
+        last = last_sync_at(s)
+        assert last is not None and utcnow() - last < timedelta(minutes=1)
+        assert not sync_due(s)
+        report = settings.get_value(s, settings.LAST_SYNC_REPORT)
+        assert report["problems"] == 0 and "Aucune erreur." in report["lines"]
+
+
+def test_sync_tvmaze_down_keeps_old_date_but_reports_problem(tmp_path):
+    engine = make_db(tmp_path)
+    old = NOW - timedelta(days=2)
+    with Session(engine) as s:
+        settings.set_value(s, settings.LAST_SYNC_AT, old.isoformat())
+        s.commit()
+    sync(engine, FakeTVMaze(down=True), FakeTMDB(), download_posters=False)
+
+    with Session(engine) as s:
+        assert last_sync_at(s) == old            # la prochaine ouverture réessaiera
+        assert sync_due(s)
+        assert settings.get_value(s, settings.LAST_SYNC_REPORT)["problems"] == 1
+
+
+def test_sync_due_after_24_hours(tmp_path):
+    engine = make_db(tmp_path)
+    with Session(engine) as s:
+        settings.set_value(s, settings.LAST_SYNC_AT, (NOW - timedelta(hours=23)).isoformat())
+        s.commit()
+        assert not sync_due(s, now=NOW)
+        assert sync_due(s, now=NOW + timedelta(hours=2))

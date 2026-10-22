@@ -2,6 +2,7 @@
 
 from datetime import date, datetime, timedelta
 
+import pandas as pd
 import pytest
 from sqlalchemy import text
 from sqlmodel import Session
@@ -102,6 +103,11 @@ def test_top_shows_genres_decades_runtimes(session, data):
     assert stats.genre_counts(frame, EPISODE).to_dict("records") == [
         {"genre": "Comédie", "titres": 1}, {"genre": "Drame", "titres": 1},
         {"genre": "Thriller", "titres": 1}]
+    # genres inconnus (NaN côté pandas) : ignorés sans planter
+    unknown = pd.DataFrame({"kind": [EPISODE, EPISODE], "show_id": [1, 2],
+                            "genres": [float("nan"), "Drame"]})
+    assert stats.genre_counts(unknown, EPISODE).to_dict("records") == [
+        {"genre": "Drame", "titres": 1}]
     assert stats.movie_decades(frame)[["libelle", "films"]].to_dict("records") == [
         {"libelle": "1990s", "films": 1}, {"libelle": "2020s", "films": 1}]
     assert stats.movie_runtime_stats(frame) == {"average": 120, "longest": ("Récent", 150),

@@ -40,8 +40,24 @@ de l'application Bingers. L'interface s'ouvre dans le navigateur (Streamlit).
   il suffit d'ouvrir http://localhost:8501 dans le navigateur.
 - Pour arrêter : fermer le terminal de la tâche (ou Ctrl+C dedans).
 
-Mettre à jour séries et films : bouton « Synchroniser maintenant » dans la page Paramètres,
-ou Ctrl+Maj+P > « Tasks: Run Task » > « Synchroniser Watchlog ».
+Mettre à jour séries et films : c'est automatique à l'ouverture de Watchlog si la dernière mise
+à jour date de plus de 24 h. Elle tourne en arrière-plan (« Mise à jour en cours… » dans le
+menu, la page se recharge à la fin) ; le menu affiche ensuite « Mis à jour il y a … » et, s'il y
+en a eu, les problèmes de la dernière mise à jour. À la demande : bouton « Synchroniser
+maintenant » dans la page Paramètres, ou Ctrl+Maj+P > « Tasks: Run Task » > « Synchroniser
+Watchlog ». Pas de mise à jour automatique avec `WATCHLOG_OFFLINE=1`.
+
+Durée des épisodes : TVMaze donne pour les séries des chaînes américaines la durée du créneau
+de diffusion (60 min, pub comprise, pour un épisode de 42 min). La synchro la remplace par la
+durée réelle donnée par TMDB, épisode par épisode, si la date de diffusion concorde (sinon la
+durée TVMaze reste, et le rapport le compte). La première synchro lit toutes les saisons
+(quelques minutes) ; ensuite, seulement les séries nouvelles ou mises à jour. Une série ajoutée
+depuis TVMaze n'a pas d'id TMDB : la synchro le cherche d'abord (via TVDB) ; celles introuvables
+sont comptées dans le rapport.
+
+Accès : l'outil n'est joignable que depuis ce PC (`address = "localhost"` dans
+`.streamlit/config.toml`). Le serveur n'a pas de mot de passe : ne l'ouvrir au réseau
+(`0.0.0.0`) que sur un réseau de confiance.
 
 Mode sombre : menu **⋮** en haut à droite > **Settings** > choisir *Light*, *Dark* ou
 *Use system setting* (par défaut, l'outil suit le thème du système). Le choix est
@@ -51,17 +67,20 @@ mémorisé par le navigateur.
 
 | Page | Rôle |
 | --- | --- |
-| À regarder | épisodes et films non vus, en une seule liste triée par date de sortie ; filtres (type, série, disponibilité, statut, prochain épisode seulement, spéciaux) ; boutons « Vu » et « Vu jusqu'ici » |
+| À regarder | épisodes et films non vus, en cartes avec affiche, triés par date de sortie, ou au choix par dernier visionnage de la série (sections Disponibles / À venir / Sans date, badge « Nouveau », compteurs et temps à rattraper) ; filtres (type, série, disponibilité, statut, prochain épisode seulement, spéciaux) ; boutons « Vu » et « Vu jusqu'ici » |
 | Bibliothèque | toutes les séries et tous les films suivis, avec leur statut et leur progression |
 | Calendrier | sorties des séries et films suivis avec leurs affiches, en vue **Mois** (grille de calendrier, épisodes vus en grisé), **Semaine** (grandes affiches) ou **Liste** (sorties non vues des 60 prochains jours, par semaine) ; résumé en chiffres, filtre séries / films, épisodes d'une même série sortis le même jour regroupés (ex. S01E01–E08). Clic sur un titre : sa fiche |
 | Suggestions | séries et films à découvrir (voir « Comment marchent les suggestions » plus bas), avec un score « % pour toi », les thèmes en commun, un badge « Tendance de la semaine » et les plateformes. **Ton profil de goûts** : les thèmes détectés (dystopie, super-héros…) et les réglages « Plus de… » / « Moins de… ». Filtres : type, genres, thèmes, plateformes, dispo en streaming, années, note TMDB minimale ; tri par pertinence, note ou date. Clic sur un titre : page **Aperçu** (résumé, casting, bande-annonce, où regarder, titres similaires, bouton Ajouter). Premier calcul : une à deux minutes, ensuite quelques secondes |
-| Ajouter | ajout d'une série (recherche TVMaze) ou d'un film (recherche TMDB), ou ajout manuel. Un film ajouté en « Terminé » compte comme vu, à la date choisie (« Vu le », facultatif) |
-| Statistiques | chiffres clés (temps total, note moyenne…) puis 4 onglets. **Activité** : records (jour, jours d'affilée, mois), calendrier des 12 derniers mois jour par jour, vus et heures par mois, par jour de la semaine, par année — les jours d'import massif (tout l'historique daté du jour de l'import) peuvent être ignorés. **Séries** : temps passé par série, genres, avancement des séries en cours, séries terminées. **Films** : durées, genres, décennies, liste des films vus (recherche, tri). **Notes** : répartition et meilleures notes. Clic sur une ligne d'un tableau : la fiche |
+| Ajouter | une seule recherche pour les séries (TVMaze) et les films (TMDB), résultats mêlés avec un badge « Série » (bleu) ou « Film » (orange) ; si une des deux API est en panne, l'autre répond quand même. Onglet « Saisie manuelle » pour un titre absent. Série déjà commencée : juste après l'ajout, « Tu as déjà commencé… ? » permet de dire « j'en suis à S2E5 » (tous les épisodes jusque-là marqués vus, hors spéciaux, date inconnue par défaut ou date choisie, statut proposé « En cours »). Un film ajouté en « Terminé » compte comme vu, à la date choisie (« Vu le », facultatif) |
+| Statistiques | chiffres clés (temps total, note moyenne…), **temps pour finir ta liste** (épisodes et films sortis, pas vus : au rythme de la semaine, du mois ou de l'année passés, avec la date de fin estimée ; « Plus tard » en option) puis 4 onglets. **Activité** : records (jour, jours d'affilée, mois), calendrier des 12 derniers mois jour par jour, vus et heures par mois, par jour de la semaine, par année — les jours d'import massif (tout l'historique daté du jour de l'import) peuvent être ignorés. **Séries** : temps passé par série, genres, avancement des séries en cours, séries terminées. **Films** : durées, genres, décennies, liste des films vus (recherche, tri). **Notes** : répartition et meilleures notes. Clic sur une ligne d'un tableau : la fiche |
 | Paramètres | connexion TMDB, correspondances à vérifier, import Bingers, synchronisation, export (Excel, CSV, format Bingers), sauvegardes |
 
-En cliquant sur un titre, on ouvre la **fiche** de la série (saisons, épisodes à cocher, statut,
-note) ou du film. Chaque fiche indique **où regarder** en France : abonnement (Netflix, Prime
+En cliquant sur un titre, on ouvre la **fiche** de la série (saisons, épisodes à cocher avec
+leur durée, statut, note) ou du film. Chaque fiche indique **où regarder** en France : abonnement (Netflix, Prime
 Video, Canal+…), location, achat (données JustWatch via TMDB, mises à jour chaque semaine).
+La fiche d'une série montre aussi le **temps passé** à la regarder (revisionnages et
+spéciaux compris) et le **temps restant** pour la finir (épisodes diffusés pas vus, hors
+spéciaux ; une durée inconnue vaut la moyenne de la série).
 
 **Prochain épisode** : en haut de la fiche d'une série, le prochain épisode non vu (hors
 spéciaux) avec son titre, sa date et sa durée, et un bouton « Vu » (puis « Annuler »). S'il
@@ -70,7 +89,11 @@ n'est pas encore diffusé : « Prochain épisode : S03E01 le 12/11/2026 ». Rien
 **Date de visionnage** : modifiable dans la fiche du film (champ « Vu le », ou « Date de
 visionnage » avant de cliquer « Vu ») et dans la colonne « Vu le » des tableaux d'épisodes.
 Pratique pour un titre vu il y a longtemps : il compte alors dans le bon mois des statistiques.
-Champ vide : vu, date inconnue.
+Si tu ne sais plus quand : bouton **Date inconnue** de la fiche du film (ou case « Date inconnue »
+avant de cliquer « Vu ») ; le titre reste vu, mais ne compte dans aucun mois.
+Pour une série vue il y a longtemps et cochée d'un coup (tout tombe à la date du jour),
+le bloc **Changer la date de visionnage de plusieurs épisodes** de la fiche donne une même
+date, ou « Date inconnue », à tous les épisodes vus des saisons choisies.
 
 Statuts possibles : En cours, À voir, Plus tard, Arrêté, Terminé. Une série finie dont tous
 les épisodes sont vus passe toute seule en « Terminé ».
@@ -122,8 +145,9 @@ d'abord une sauvegarde de la base. `import`, `sync` et `check` affichent d'abord
 ### Renvoyer ses données dans Bingers
 
 L'export « base complète » est illisible pour Bingers (« Impossible de lire cette archive ») :
-Bingers ne lit que des formats connus. Le bouton **Télécharger pour Bingers (.zip)** écrit le
-format d'export de Bingers lui-même (`library.csv`, `watches.csv`, `ratings.csv`, `lists.csv`).
+Bingers ne lit que des formats connus. Le bouton **Préparer l'export pour Bingers** écrit le
+format d'export de Bingers lui-même (`library.csv`, `watches.csv`, `ratings.csv`, `lists.csv`)
+et affiche un rapport (titres omis, dates complétées) ; puis **Télécharger pour Bingers (.zip)**.
 Dans Bingers : Importer l'historique > Choisir le fichier .zip.
 
 Repris : séries et films, statuts, favoris, épisodes et films vus avec leurs dates et nombre
@@ -185,7 +209,8 @@ Tout est dans le dossier `data/` (ignoré par git) :
 Une copie de la base est faite automatiquement à chaque lancement de l'interface, avant chaque
 import et avant chaque synchronisation (`data/backups/watchlog-AAAAMMJJ-HHMMSS.db`).
 Les 5 plus récentes sont gardées. La page Paramètres liste les sauvegardes et propose
-« Sauvegarder maintenant ».
+« Sauvegarder maintenant ». Si la sauvegarde du lancement échoue, un avertissement reste affiché
+en haut de l'interface jusqu'au prochain démarrage.
 
 Pour revenir à une sauvegarde : fermer l'outil, puis remplacer `data/watchlog.db` par la copie
 choisie (renommée en `watchlog.db`) et supprimer `data/watchlog.db-wal` et `data/watchlog.db-shm`

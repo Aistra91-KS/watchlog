@@ -2,20 +2,25 @@
 
 import base64
 import html
+import logging
 import os
 import re
+import threading
 from pathlib import Path
 
 import streamlit as st
 from sqlmodel import Session
 
 from watchlog.core import providers
+from watchlog.core import sync as sync_module
 from watchlog.core import tmdb as tmdb_module
 from watchlog.core import tvmaze as tvmaze_module
 from watchlog.core.config import DATA_DIR
 from watchlog.core.dates import fmt_date  # noqa: F401  (réexporté pour les pages)
 from watchlog.core.db import get_engine
 from watchlog.core.models import STATUS_LABELS, STATUSES
+
+log = logging.getLogger(__name__)
 
 # Chemins des pages (relatifs à app.py), utilisés pour la navigation entre pages.
 PAGE_QUEUE = "views/a_regarder.py"
@@ -61,6 +66,38 @@ def tmdb_status() -> tuple[bool, str]:
     return tmdb_client().check_connection()
 
 
+@st.cache_resource
+def auto_sync() -> dict:
+    """Synchro automatique, lancée une fois par démarrage si la dernière date de plus de 24 h.
+
+    Elle tourne dans un thread à part : les pages restent utilisables pendant ce temps.
+    Renvoie son état, partagé par toutes les pages : {"running": bool, "error": message ou None}.
+    WATCHLOG_OFFLINE=1 : jamais lancée (essais).
+    """
+    state = {"running": False, "error": None}
+    if os.getenv("WATCHLOG_OFFLINE") == "1":
+        return state
+    with db() as session:
+        due = sync_module.sync_due(session)
+    if due:
+        state["running"] = True
+        tvmaze, tmdb = clients()   # lus ici : le thread ne doit appeler aucune fonction Streamlit
+        threading.Thread(target=_run_auto_sync, args=(state, tvmaze, tmdb), daemon=True,
+                         name="watchlog-auto-sync").start()
+    return state
+
+
+def _run_auto_sync(state: dict, tvmaze, tmdb) -> None:
+    """Corps du thread de synchro (le rapport est gardé en base par sync)."""
+    try:
+        sync_module.sync(get_engine(), tvmaze, tmdb)
+    except Exception as exc:  # noqa: BLE001  (montré dans le menu, détail dans le journal)
+        log.exception("Synchro automatique interrompue")
+        state["error"] = str(exc)
+    finally:
+        state["running"] = False
+
+
 def md_escape(text: str | None) -> str:
     """Protège les caractères Markdown d'un titre (ex. « *batteries not included »)."""
     return re.sub(r"([\\`*_\[\]$~|#<>])", r"\\\1", text or "")
@@ -85,16 +122,17 @@ def poster_src(poster_path: str | None, poster_url: str | None) -> str | None:
     return None
 
 
-def show_poster(poster_path: str | None, width: int | None = None) -> None:
-    """Affiche l'image, ou un cadre gris neutre s'il n'y en a pas."""
-    path = poster_file(poster_path)
+def show_poster(poster_path: str | None, width: int | None = None,
+                poster_url: str | None = None) -> None:
+    """Affiche l'image (locale, sinon en ligne), ou un cadre gris neutre s'il n'y en a pas."""
+    path = poster_file(poster_path) or poster_url
     if path:
         st.image(path, width=width or "stretch")
     else:
-        # Gris semi-transparent : lisible en thème clair comme en sombre.
+        # Fond gris semi-transparent, texte de la couleur du thème : lisible en clair et sombre.
         st.markdown(
             "<div style='aspect-ratio:2/3;background:rgba(128,128,128,0.15);border-radius:4px;"
-            "display:flex;align-items:center;justify-content:center;color:rgba(128,128,128,0.9);"
+            "display:flex;align-items:center;justify-content:center;color:inherit;opacity:0.8;"
             "font-size:0.8rem'>Pas d'affiche</div>", unsafe_allow_html=True)
 
 
@@ -111,7 +149,8 @@ def is_dark_theme() -> bool:
 CHART_COLORS = {
     "light": {"episodes": "#2a78d6", "films": "#eb6834", "surface": "#ffffff",
               "empty": "#ebedf0",
-              "ramp": ["#cde2fb", "#86b6ef", "#3987e5", "#1c5cab", "#0d366b"]},
+              # 1er cran assez foncé pour qu'un jour à 1 visionnage se distingue d'un jour vide
+              "ramp": ["#86b6ef", "#3987e5", "#1c5cab", "#0d366b", "#06203f"]},
     "dark": {"episodes": "#3987e5", "films": "#d95926", "surface": "#14181d",
              "empty": "#232a32",
              "ramp": ["#184f95", "#256abf", "#3987e5", "#6da7ec", "#b7d3f6"]},
@@ -165,7 +204,7 @@ def add_from_tmdb(kind: str, tmdb_id: int, status: str, title: str | None = None
     Série : fiche TVMaze retrouvée via TVDB / IMDb. Renvoie (id en base, titre).
     ApiError / ValueError remontent à l'appelant (message à afficher).
     """
-    from watchlog.core import catalog, suggestions
+    from watchlog.core import suggestions
     from watchlog.core.models import SHOW
 
     with db() as session:
@@ -179,12 +218,19 @@ def add_from_tmdb(kind: str, tmdb_id: int, status: str, title: str | None = None
                                                   watched_on=watched_on)
         session.commit()
         obj_id, obj_title = obj.id, obj.title
-        try:
-            catalog.ensure_poster(session, obj, client)
-            session.commit()
-        except Exception:  # noqa: BLE001  (une affiche ratée n'est pas grave)
-            session.rollback()
+        download_poster(session, obj, client)
     return obj_id, obj_title
+
+
+def download_poster(session, obj, client) -> None:
+    """Télécharge l'affiche d'un titre ajouté ; un échec n'empêche pas l'ajout (mais est noté)."""
+    from watchlog.core import catalog
+    try:
+        catalog.ensure_poster(session, obj, client)
+        session.commit()
+    except Exception as exc:  # noqa: BLE001  (une affiche ratée n'est pas grave)
+        session.rollback()
+        log.warning("Affiche non téléchargée pour %s : %s", obj.title, exc)
 
 
 def preview_params(kind: str, tmdb_id: int) -> dict:
