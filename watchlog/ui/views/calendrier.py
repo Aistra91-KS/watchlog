@@ -27,7 +27,6 @@ MONTH_NAMES = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet",
 VIEW_MONTH, VIEW_WEEK, VIEW_LIST = "Mois", "Semaine", "Liste"
 VIEW_PARAMS = {VIEW_MONTH: "mois", VIEW_WEEK: "semaine", VIEW_LIST: "liste"}
 TYPE_ALL, TYPE_SHOWS, TYPE_MOVIES = "Tout", "Séries", "Films"
-MOVIE_COLOR = "#8e6bbf"   # liseré des films (les épisodes n'en ont pas)
 
 THUMB_WIDTH = 26        # vue Mois : vignette à côté du titre (px)
 CARD_WIDTH = 280        # vue Liste : largeur d'une carte (px), elles passent à la ligne
@@ -216,7 +215,7 @@ def card(entry: queue.DayEntry, today: date, key: str) -> None:
 st.title("Calendrier")
 today = datetime.now(queue.LOCAL_TZ).date()
 st.markdown(f"<style>:root{{--wl-primary:{common.primary_color()}}}</style>"
-            + CSS % {"movie": MOVIE_COLOR}, unsafe_allow_html=True)
+            + CSS % {"movie": common.chart_colors()["films"]}, unsafe_allow_html=True)
 
 with common.db() as session:
     upcoming = queue.calendar(session, DAYS)
@@ -320,4 +319,4 @@ else:
     in_period = [i for i in items if start <= i.release_date <= last]
     seen = sum(1 for i in in_period if i.watched)
     st.caption(f"{len(in_period)} sortie(s) sur la période, dont {seen} déjà vue(s). "
-               "Liseré violet : film. Clic sur un titre : sa fiche.")
+               "Liseré orange : film. Clic sur un titre : sa fiche.")

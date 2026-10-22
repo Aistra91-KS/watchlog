@@ -98,6 +98,16 @@ def _run_auto_sync(state: dict, tvmaze, tmdb) -> None:
         state["running"] = False
 
 
+def fmt_runtime(minutes: int | None) -> str:
+    """Durée lisible, la même partout : 45 -> « 45 min », 112 -> « 1 h 52 », 120 -> « 2 h »."""
+    if not minutes:
+        return ""
+    hours, rest = divmod(minutes, 60)
+    if hours == 0:
+        return f"{rest} min"
+    return f"{hours} h {rest:02d}" if rest else f"{hours} h"
+
+
 def md_escape(text: str | None) -> str:
     """Protège les caractères Markdown d'un titre (ex. « *batteries not included »)."""
     return re.sub(r"([\\`*_\[\]$~|#<>])", r"\\\1", text or "")

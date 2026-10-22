@@ -17,15 +17,6 @@ from watchlog.ui import common
 MIN_DATE = date(1900, 1, 1)
 
 
-def fmt_runtime(minutes: int | None) -> str:
-    if not minutes:
-        return ""
-    hours, rest = divmod(minutes, 60)
-    if hours == 0:
-        return f"{rest} min"
-    return f"{hours} h {rest:02d}" if rest else f"{hours} h"
-
-
 def requested() -> tuple[str, int] | None:
     kind = {"serie": SHOW, "film": MOVIE}.get(st.query_params.get("type", ""))
     try:
@@ -122,7 +113,7 @@ with col_info:
     if item.tagline:
         st.markdown(f"*{common.md_escape(item.tagline)}*")
 
-    badges = [":blue-badge[Série]" if kind == SHOW else ":violet-badge[Film]"]
+    badges = [":blue-badge[Série]" if kind == SHOW else ":orange-badge[Film]"]
     badges += [f":gray-badge[{common.md_escape(g)}]" for g in item.genres]
     if item.vote_count:
         badges.append(f":orange-badge[★ {item.vote_average:.1f}/10 · {item.vote_count} votes]")
@@ -136,11 +127,11 @@ with col_info:
         if item.seasons:
             facts.append(f"{item.seasons} saison(s), {item.episodes or '?'} épisodes")
         if item.runtime:
-            facts.append(f"~{fmt_runtime(item.runtime)} par épisode")
+            facts.append(f"~{common.fmt_runtime(item.runtime)} par épisode")
         if item.networks:
             facts.append(", ".join(item.networks))
     elif item.runtime:
-        facts.append(f"Durée : {fmt_runtime(item.runtime)}")
+        facts.append(f"Durée : {common.fmt_runtime(item.runtime)}")
     if item.status:
         facts.append(item.status)
     if facts:

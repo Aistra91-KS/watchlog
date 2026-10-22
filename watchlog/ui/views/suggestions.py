@@ -142,7 +142,7 @@ def show_card(item: suggestions.Suggestion) -> None:
             st.page_link(common.PAGE_PREVIEW, label=f"**{title}**", icon=":material/open_in_new:",
                          query_params=common.preview_params(item.kind, item.tmdb_id),
                          help="Voir la fiche détaillée")
-            badges = ":blue-badge[Série]" if item.kind == SHOW else ":violet-badge[Film]"
+            badges = ":blue-badge[Série]" if item.kind == SHOW else ":orange-badge[Film]"
             badges += f" :green-badge[{item.match} % pour toi]"
             if item.trending:
                 badges += " :orange-badge[:material/trending_up: Tendance de la semaine]"

@@ -271,13 +271,6 @@ def grey_upcoming(df: pd.DataFrame, upcoming: list[int]):
     return df.style.apply(style_row, axis=1)
 
 
-def fmt_runtime(minutes: int | None) -> str:
-    """45 -> « 45 min », 112 -> « 1 h 52 »."""
-    if not minutes:
-        return ""
-    return f"{minutes} min" if minutes < 60 else f"{minutes // 60} h {minutes % 60:02d}"
-
-
 def show_next_episode(show_id: int, today: date) -> None:
     """Bloc « Prochain épisode » : le marquer vu sans chercher dans les saisons."""
     last_key = f"serie_last_seen_{show_id}"
@@ -292,7 +285,7 @@ def show_next_episode(show_id: int, today: date) -> None:
         elif nxt is not None:
             text_col, button_col = st.columns([6, 1], vertical_alignment="center")
             details = [f"**{nxt.code}**", common.md_escape(nxt.episode_title),
-                       fmt_date(nxt.release_date), fmt_runtime(nxt.runtime)]
+                       fmt_date(nxt.release_date), common.fmt_runtime(nxt.runtime)]
             text_col.markdown("Prochain épisode : " + " · ".join(d for d in details if d))
             button_col.button("Vu", type="primary", key=f"serie_next_seen_{show_id}",
                               on_click=mark_next, args=(show_id, nxt.ref_id, nxt.code))

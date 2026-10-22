@@ -13,16 +13,6 @@ from watchlog.ui import avis, common
 MIN_DATE = date(1900, 1, 1)
 
 
-def fmt_runtime(minutes: int | None) -> str:
-    """112 -> « 1 h 52 », 45 -> « 45 min », 120 -> « 2 h »."""
-    if not minutes:
-        return ""
-    hours, rest = divmod(minutes, 60)
-    if hours == 0:
-        return f"{rest} min"
-    return f"{hours} h {rest:02d}" if rest else f"{hours} h"
-
-
 # --- Enregistrement (fonctions appelées quand l'utilisateur agit) ---------------------
 
 def save_status(movie_id: int, key: str) -> None:
@@ -147,7 +137,7 @@ with col_info:
     if not lines and movie.year:
         lines.append(f"Année : {movie.year}")
     if movie.runtime:
-        lines.append(f"Durée : {fmt_runtime(movie.runtime)}")
+        lines.append(f"Durée : {common.fmt_runtime(movie.runtime)}")
     if movie.is_manual:
         lines.append("Saisie manuelle")
     if lines:

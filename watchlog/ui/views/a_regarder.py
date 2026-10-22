@@ -78,15 +78,6 @@ def show_hidden(result: queue.PlatformFilter | None) -> None:
             "les voir.", icon=":material/visibility_off:")
 
 
-def fmt_runtime(minutes: int | None) -> str:
-    """45 -> « 45 min », 112 -> « 1 h 52 »."""
-    if not minutes:
-        return ""
-    if minutes < 60:
-        return f"{minutes} min"
-    return f"{minutes // 60} h {minutes % 60:02d}"
-
-
 def gray_if(text: str, gray: bool) -> str:
     return f":gray[{text}]" if gray and text else text
 
@@ -184,7 +175,7 @@ def show_summary(items: list[queue.QueueItem]) -> None:
     cols[1].metric("Épisodes / films dispo", f"{episodes} / {len(released) - episodes}",
                    border=True)
     cols[2].metric("À venir", len(items) - len(released), border=True)
-    cols[3].metric("Temps à rattraper", fmt_runtime(minutes) or "—", border=True)
+    cols[3].metric("Temps à rattraper", common.fmt_runtime(minutes) or "—", border=True)
 
 
 def show_row(item: queue.QueueItem, include_specials: bool, today: date) -> None:
@@ -211,7 +202,7 @@ def show_row(item: queue.QueueItem, include_specials: bool, today: date) -> None
             st.markdown(" ".join(badges))
             details = [f":material/calendar_today: {relative_day(item.release_date, today)}"]
             if item.runtime:
-                details.append(f":material/schedule: {fmt_runtime(item.runtime)}")
+                details.append(f":material/schedule: {common.fmt_runtime(item.runtime)}")
             st.caption(" · ".join(details))
         if gray:
             return
@@ -305,7 +296,7 @@ show_check_banner(to_check)
 show_last_action()
 
 if not statuses or not availabilities:
-    st.info("Choisissez au moins un statut et une disponibilité.")
+    st.info("Choisis au moins un statut et une disponibilité.")
     st.stop()
 if not items:
     st.info("Rien à regarder avec ces filtres.")
