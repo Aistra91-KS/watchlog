@@ -81,6 +81,26 @@ def set_watch_date(session: Session, kind: str, ref_id: int, day: date | None) -
     return watch
 
 
+def set_show_watch_dates(session: Session, show_id: int, day: date | None,
+                         seasons: list[int] | None = None) -> int:
+    """Change d'un coup la date des épisodes déjà vus d'une série (toutes ou certaines saisons).
+
+    Pour une série vue il y a longtemps, cochée d'un bloc : sans ça, tout tombe à la date du
+    jour et fausse les statistiques. day=None : date inconnue. Les épisodes pas vus ne sont
+    pas touchés (spéciaux compris s'ils sont vus). Renvoie le nombre d'épisodes changés.
+    Pas de commit.
+    """
+    query = (select(Episode.id)
+             .join(Watch, (Watch.kind == EPISODE) & (Watch.ref_id == Episode.id))
+             .where(Episode.show_id == show_id))
+    if seasons is not None:
+        query = query.where(Episode.season.in_(seasons))
+    episode_ids = session.exec(query).all()
+    for episode_id in episode_ids:
+        set_watch_date(session, EPISODE, episode_id, day)
+    return len(episode_ids)
+
+
 def unmark_watched(session: Session, kind: str, ref_id: int) -> None:
     """Retire le visionnage d'un épisode ou d'un film."""
     watch = get_watch(session, kind, ref_id)

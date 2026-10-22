@@ -27,6 +27,8 @@ INFO_COLUMNS = ["Code", "Date", "Titre", COL_RUNTIME]
 # Épisodes pas encore diffusés : texte grisé, contraste ≥ 4,5:1 dans chaque thème.
 UPCOMING_STYLE = {"dark": "color: #9aa5b1", "light": "color: #5f6b7a"}
 RATING_OPTIONS = [0, 1, 2, 3, 4, 5]  # 0 = pas de note
+DATE_UNKNOWN, DATE_CHOSEN = "Date inconnue", "Choisir une date"
+MIN_WATCH_DATE = date(1900, 1, 1)
 
 
 def rating_label(value: int) -> str:
@@ -82,6 +84,26 @@ def mark_season(show_id: int, season: int, include_specials: bool) -> None:
         session.commit()
     refresh_tables()
     st.session_state["serie_message"] = f"Saison {season} : {count} épisode(s) marqué(s) vu(s)."
+
+
+def apply_bulk_date(show_id: int, prefix: str) -> None:
+    """Change la date de visionnage de tous les épisodes vus des saisons choisies."""
+    seasons = st.session_state[f"{prefix}_seasons"]
+    if not seasons:
+        st.session_state["serie_warning"] = "Choisis au moins une saison."
+        return
+    day = None
+    if st.session_state[f"{prefix}_mode"] == DATE_CHOSEN:
+        day = st.session_state.get(f"{prefix}_day")
+        if day is None:
+            st.session_state["serie_warning"] = "Choisis une date (ou « Date inconnue »)."
+            return
+    with common.db() as session:
+        count = library.set_show_watch_dates(session, show_id, day, seasons)
+        session.commit()
+    refresh_tables()
+    shown = fmt_date(day) if day else "date inconnue"
+    st.session_state["serie_message"] = f"Date de visionnage de {count} épisode(s) : {shown}."
 
 
 def apply_episode_changes(editor_key: str, episode_ids: list[int], include_specials: bool) -> None:
@@ -183,6 +205,9 @@ today = datetime.now(LOCAL_TZ).date()
 message = st.session_state.pop("serie_message", None)
 if message:
     st.success(message)
+warning = st.session_state.pop("serie_warning", None)
+if warning:
+    st.warning(warning)
 
 # En-tête : affiche + informations
 col_poster, col_info = st.columns([1, 3])
@@ -281,6 +306,27 @@ else:
 st.subheader("Épisodes")
 show_specials = st.checkbox("Afficher les épisodes spéciaux", key=f"serie_specials_{show.id}")
 shown = [ep for ep in episodes if show_specials or not ep.is_special]
+
+# Date de visionnage en bloc (série vue il y a longtemps, cochée d'un coup aujourd'hui)
+watched_seasons = sorted({ep.season for ep in episodes if ep.id in watched})
+if watched_seasons:
+    with st.expander("Changer la date de visionnage de plusieurs épisodes"):
+        prefix = f"serie_bulk_{show.id}"
+        if f"{prefix}_seasons" in st.session_state:  # saison qui n'a plus d'épisode vu : retirée
+            st.session_state[f"{prefix}_seasons"] = [
+                s for s in st.session_state[f"{prefix}_seasons"] if s in watched_seasons]
+        st.caption("S'applique aux épisodes déjà vus des saisons choisies (spéciaux compris). "
+                   "« Date inconnue » : ils restent vus, mais sans date, et ne comptent dans "
+                   "aucun mois des statistiques.")
+        st.multiselect("Saisons", watched_seasons, default=watched_seasons,
+                       format_func=lambda season: f"Saison {season}", key=f"{prefix}_seasons")
+        mode = st.radio("Date", [DATE_UNKNOWN, DATE_CHOSEN], horizontal=True,
+                        key=f"{prefix}_mode")
+        if mode == DATE_CHOSEN:
+            st.date_input("Vu le", value=None, format="DD/MM/YYYY", min_value=MIN_WATCH_DATE,
+                          max_value=today, key=f"{prefix}_day")
+        st.button("Appliquer", key=f"{prefix}_apply", on_click=apply_bulk_date,
+                  args=(show.id, prefix))
 seasons: dict[int, list[Episode]] = {}
 for ep in sorted(shown, key=lambda e: (e.season, episode_sort_key(e))):
     seasons.setdefault(ep.season, []).append(ep)
@@ -319,7 +365,7 @@ for season, season_episodes in seasons.items():
                     width="small", help="Durée de l'épisode (vide : inconnue)"),
                 COL_SEEN: st.column_config.CheckboxColumn(width="small"),
                 COL_DATE: st.column_config.DateColumn(
-                    width="small", format="DD/MM/YYYY", min_value=date(1900, 1, 1),
+                    width="small", format="DD/MM/YYYY", min_value=MIN_WATCH_DATE,
                     max_value=today,
                     help="Date de visionnage, modifiable (vide : date inconnue)"),
                 COL_UNTIL: st.column_config.CheckboxColumn(

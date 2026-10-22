@@ -82,6 +82,9 @@ spéciaux ; une durée inconnue vaut la moyenne de la série).
 visionnage » avant de cliquer « Vu ») et dans la colonne « Vu le » des tableaux d'épisodes.
 Pratique pour un titre vu il y a longtemps : il compte alors dans le bon mois des statistiques.
 Champ vide : vu, date inconnue.
+Pour une série vue il y a longtemps et cochée d'un coup (tout tombe à la date du jour),
+le bloc **Changer la date de visionnage de plusieurs épisodes** de la fiche donne une même
+date, ou « Date inconnue », à tous les épisodes vus des saisons choisies.
 
 Statuts possibles : En cours, À voir, Plus tard, Arrêté, Terminé. Une série finie dont tous
 les épisodes sont vus passe toute seule en « Terminé ».
