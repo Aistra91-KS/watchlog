@@ -146,30 +146,46 @@ def fetch_and_upsert_show(session: Session, tvmaze, tvmaze_id: int, force: bool 
     return upsert_show_from_tvmaze(session, data, episodes, **kwargs)
 
 
-# --- Durées réelles des épisodes (TMDB) --------------------------------------
+# --- Durées réelles et titres français des épisodes (TMDB) -------------------
 
 # Écart maximal entre les dates TVMaze et TMDB d'un même épisode. Au-delà, la numérotation
 # diffère sans doute (Lupin, Top Gear...) : la durée TMDB serait celle d'un autre épisode.
 MAX_AIRDATE_GAP = timedelta(days=3)
 
+# Titre que TMDB fabrique faute de traduction (« Épisode 5 », « Episode 5 ») : pas un vrai titre.
+GENERIC_EPISODE_TITLE = re.compile(r"(é|e)pisod(e|io)\s*#?\s*[\d.]+|ep\.?\s*\d+|folge\s*\d+",
+                                   re.IGNORECASE)
+
+
+def french_episode_title(name: str | None) -> str | None:
+    """Titre TMDB (fr-FR) utilisable, ou None s'il est vide ou générique (« Épisode 5 »)."""
+    name = (name or "").strip()
+    if not name or GENERIC_EPISODE_TITLE.fullmatch(name):
+        return None
+    return name
+
 
 @dataclass
-class RuntimeResult:
-    updated: int = 0          # épisodes dont la durée a changé
-    unmatched: int = 0        # épisodes laissés à la durée TVMaze (date TMDB différente)
+class EpisodesResult:
+    runtimes: int = 0         # épisodes dont la durée a changé
+    titles: int = 0           # épisodes dont le titre français est nouveau ou a changé
+    no_title: int = 0         # épisodes retrouvés sans titre français sur TMDB (anglais gardé)
+    unmatched: int = 0        # épisodes laissés aux données TVMaze (date TMDB différente)
     missing_seasons: int = 0  # saisons absentes de TMDB
 
 
-def apply_tmdb_runtimes(session: Session, tmdb, show: Show) -> RuntimeResult:
-    """Remplace les durées TVMaze des épisodes par celles de TMDB.
+def apply_tmdb_episodes(session: Session, tmdb, show: Show) -> EpisodesResult:
+    """Complète les épisodes avec TMDB : durée réelle et titre français.
 
     TVMaze donne pour les séries des chaînes américaines la durée du créneau de diffusion
-    (60 min pour un épisode de 42 min), ce qui gonfle les statistiques. TMDB donne la durée
-    réelle. Correspondance par saison + numéro, vérifiée par la date de diffusion : sans
-    date des deux côtés ou avec un écart, la durée TVMaze reste (et c'est compté).
+    (60 min pour un épisode de 42 min), ce qui gonfle les statistiques, et des titres en
+    anglais. TMDB donne la durée réelle et le titre traduit, dans la même réponse.
+    Correspondance par saison + numéro, vérifiée par la date de diffusion : sans date des
+    deux côtés ou avec un écart, les données TVMaze restent (et c'est compté).
+    Le titre TVMaze n'est jamais remplacé : le français va dans `title_fr`.
     Pas de commit. Une ApiError remonte à l'appelant.
     """
-    result = RuntimeResult()
+    result = EpisodesResult()
     seasons: dict[int, list[Episode]] = defaultdict(list)
     for episode in session.exec(select(Episode).where(Episode.show_id == show.id,
                                                       Episode.number.is_not(None),
@@ -184,26 +200,51 @@ def apply_tmdb_runtimes(session: Session, tmdb, show: Show) -> RuntimeResult:
             continue
         tmdb_episodes = {ep.get("episode_number"): ep for ep in data.get("episodes") or []}
         for episode in episodes:
-            tmdb_ep = tmdb_episodes.get(episode.number)
-            runtime = (tmdb_ep or {}).get("runtime")
-            if not runtime:
-                continue  # TMDB ne connaît pas la durée : celle de TVMaze reste
+            tmdb_ep = tmdb_episodes.get(episode.number) or {}
+            runtime = tmdb_ep.get("runtime")
+            title = french_episode_title(tmdb_ep.get("name"))
+            if not runtime and title is None and episode.title_fr is None:
+                continue  # TMDB ne sait rien de plus : les données TVMaze restent
             tmdb_date = parse_date(tmdb_ep.get("air_date"))
             if (episode.airdate is None or tmdb_date is None
                     or abs(tmdb_date - episode.airdate) > MAX_AIRDATE_GAP):
-                log.warning("Durées TMDB : %s S%02dE%02d écarté (date TVMaze %s, TMDB %s)",
+                log.warning("Épisodes TMDB : %s S%02dE%02d écarté (date TVMaze %s, TMDB %s)",
                             show.title, season, episode.number, episode.airdate, tmdb_date)
                 result.unmatched += 1
                 continue
-            episode.tmdb_runtime = runtime
-            if episode.runtime != runtime:
-                episode.runtime = runtime
-                result.updated += 1
+            if runtime:
+                episode.tmdb_runtime = runtime
+                if episode.runtime != runtime:
+                    episode.runtime = runtime
+                    result.runtimes += 1
+            if title is None:
+                result.no_title += 1
+            elif title != episode.title_fr:
+                result.titles += 1
+            episode.title_fr = title   # None efface une traduction retirée de TMDB
             session.add(episode)
-    show.runtimes_checked_at = utcnow()
+    now = utcnow()
+    show.runtimes_checked_at = now
+    show.texts_fr_checked_at = now
     session.add(show)
-    session.flush()
+    # Pas de flush : il ouvrirait une écriture, et le cache d'API (autre connexion) attendrait
+    # la fin de la transaction pour enregistrer la réponse suivante (« database is locked »).
     return result
+
+
+def apply_tmdb_summary(session: Session, tmdb, show: Show) -> bool:
+    """Lit le résumé français de la série sur TMDB (`summary_fr`, celui de TVMaze reste).
+
+    Renvoie True si TMDB a un résumé français. Série inconnue de TMDB : False, et c'est
+    journalisé. Pas de commit. Une ApiError remonte à l'appelant.
+    """
+    data = tmdb.details("tv", show.tmdb_id)
+    if data is None:
+        log.warning("Résumé TMDB : %s (TMDB %s) introuvable", show.title, show.tmdb_id)
+        return False
+    show.summary_fr = (data.get("overview") or "").strip() or None
+    session.add(show)
+    return show.summary_fr is not None
 
 
 # --- Films (TMDB) ------------------------------------------------------------

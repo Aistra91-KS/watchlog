@@ -265,7 +265,7 @@ def episode_choices(session: Session, show_id: int,
     choices: dict[int, list[tuple[int, str | None]]] = {}
     for ep in _regular_episodes(session, show_id):
         if ep.airdate is None or ep.airdate <= today:
-            choices.setdefault(ep.season, []).append((ep.number, ep.title))
+            choices.setdefault(ep.season, []).append((ep.number, ep.display_title))
     return choices
 
 

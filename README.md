@@ -55,6 +55,14 @@ durée TVMaze reste, et le rapport le compte). La première synchro lit toutes l
 depuis TVMaze n'a pas d'id TMDB : la synchro le cherche d'abord (via TVDB) ; celles introuvables
 sont comptées dans le rapport.
 
+Textes en français : TVMaze donne les titres d'épisodes et le résumé des séries en anglais. La
+synchro lit aussi sur TMDB le titre français de chaque épisode (même requête que la durée, même
+contrôle de la date) et le résumé français de la série ; ils s'affichent à la place de l'anglais
+(fiche série, À regarder, calendrier, export Excel), qui reste en repli quand TMDB n'a pas de
+traduction (un titre générique « Épisode 5 » est ignoré). Toute la bibliothèque est relue une
+fois, puis seulement les séries nouvelles ou mises à jour ; le rapport compte les titres et
+résumés trouvés et ceux sans traduction.
+
 Accès : l'outil n'est joignable que depuis ce PC (`address = "localhost"` dans
 `.streamlit/config.toml`). Le serveur n'a pas de mot de passe : ne l'ouvrir au réseau
 (`0.0.0.0`) que sur un réseau de confiance.
@@ -68,8 +76,8 @@ mémorisé par le navigateur.
 | Page | Rôle |
 | --- | --- |
 | À regarder | épisodes et films non vus, en cartes avec affiche, triés par date de sortie, ou au choix par dernier visionnage de la série (sections Disponibles / À venir / Sans date, badge « Nouveau », compteurs et temps à rattraper) ; filtres (type, série, disponibilité, statut, prochain épisode seulement, spéciaux, **sur mes plateformes** : titres dispo en abonnement ou gratuitement chez toi ; ceux dont on ne connaît pas les plateformes sont masqués et signalés sous la liste) ; boutons « Vu » et « Vu jusqu'ici » |
-| Bibliothèque | toutes les séries et tous les films suivis, avec leur statut et leur progression |
-| Calendrier | sorties des séries et films suivis avec leurs affiches, en vue **Mois** (grille de calendrier, épisodes vus en grisé), **Semaine** (grandes affiches) ou **Liste** (sorties non vues des 60 prochains jours, par semaine) ; résumé en chiffres, filtre séries / films, épisodes d'une même série sortis le même jour regroupés (ex. S01E01–E08). Clic sur un titre : sa fiche |
+| Bibliothèque | toutes les séries et tous les films suivis, avec leur statut et leur progression. Tris : titre, derniers ajouts, **vu récemment**, **en pause depuis le plus longtemps** (séries « En cours » dont le dernier visionnage est le plus ancien : de quoi en reprendre une). Dates inconnues (ou jour d'import Bingers) à la fin |
+| Calendrier | sorties des séries et films suivis avec leurs affiches, en vue **Mois** (grille de calendrier, épisodes vus en grisé), **Semaine** (grandes affiches) ou **Liste** (sorties non vues des 60 prochains jours, par semaine) ; résumé en chiffres, filtre séries / films, épisodes d'une même série sortis le même jour regroupés (ex. S01E01–E08). Clic sur un titre : sa fiche, sans recharger l'application (les filtres des autres pages sont gardés) |
 | Suggestions | séries et films à découvrir (voir « Comment marchent les suggestions » plus bas), avec un score « % pour toi », les thèmes en commun, un badge « Tendance de la semaine » et les plateformes. **Ton profil de goûts** : les thèmes détectés (dystopie, super-héros…) et les réglages « Plus de… » / « Moins de… ». Filtres : type, genres, thèmes, plateformes, dispo en streaming, sur mes plateformes, années, note TMDB minimale ; tri par pertinence, note ou date. Clic sur un titre : page **Aperçu** (résumé, casting, bande-annonce, où regarder, titres similaires, bouton Ajouter). Premier calcul : une à deux minutes, ensuite quelques secondes |
 | Ajouter | une seule recherche pour les séries (TVMaze) et les films (TMDB), résultats mêlés avec un badge « Série » (bleu) ou « Film » (orange) ; si une des deux API est en panne, l'autre répond quand même. Onglet « Saisie manuelle » pour un titre absent. Série déjà commencée : juste après l'ajout, « Tu as déjà commencé… ? » permet de dire « j'en suis à S2E5 » (tous les épisodes jusque-là marqués vus, hors spéciaux, date inconnue par défaut ou date choisie, statut proposé « En cours »). Un film ajouté en « Terminé » compte comme vu, à la date choisie (« Vu le », facultatif) |
 | Statistiques | chiffres clés (temps total, note moyenne…), **temps pour finir ta liste** (épisodes et films sortis, pas vus : au rythme de la semaine, du mois ou de l'année passés, avec la date de fin estimée ; « Plus tard » en option) puis 4 onglets. **Activité** : records (jour, jours d'affilée, mois), calendrier des 12 derniers mois jour par jour, vus et heures par mois, par jour de la semaine, par année — les jours d'import massif (tout l'historique daté du jour de l'import) peuvent être ignorés. **Séries** : temps passé par série, genres, avancement des séries en cours, séries terminées. **Films** : durées, genres, décennies, liste des films vus (recherche, tri). **Notes** : répartition et meilleures notes. Clic sur une ligne d'un tableau : la fiche |
@@ -186,6 +194,14 @@ n'est pas exporté (volumineux et inutile).
 4. **Score** : 35 % recommandations, 50 % ressemblance à ton profil, 15 % qualité (note TMDB
    pondérée par le nombre de votes). Puis la liste est diversifiée (pas dix titres presque
    identiques à la suite).
+5. **« % pour toi »** : l'affinité du titre avec tes goûts, sur 100, calculée pour lui seul
+   (le premier de la liste n'est pas forcément à 100 %, et un même titre garde à peu près le
+   même % d'un calcul à l'autre). Moitié-moitié environ : ressemblance à ton profil (59 % au
+   plus à elle seule) et recommandations par des titres que tu as aimés (100 % = les deux au
+   maximum). Ordre de grandeur : 70 % et plus = très proche de tes goûts, 30 % et moins =
+   lien faible. La note TMDB, les tendances et la diversité jouent sur l'ordre, pas sur le % :
+   un titre peut donc être classé devant un autre qui a un % plus élevé. Un thème
+   « Moins de… » divise le % par trois environ.
 
 Pour orienter : page Suggestions > **Ton profil de goûts** > « Plus de… » (ex. Dystopie) /
 « Moins de… » (ex. Animation), puis « Enregistrer et recalculer ».

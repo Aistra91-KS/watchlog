@@ -139,7 +139,7 @@ def _episode_items(session: Session, statuses, show_id, include_specials, today,
         day = local_date(ep.airstamp, ep.airdate)
         items.append(QueueItem(
             kind=EPISODE, ref_id=ep.id, show_id=show.id, title=show.title,
-            code=episode_code(ep.season, ep.number), episode_title=ep.title,
+            code=episode_code(ep.season, ep.number), episode_title=ep.display_title,
             release_date=day, availability=availability(day, today),
             status=lib.status if lib is not None else None,
             runtime=ep.runtime, poster_path=show.poster_path,

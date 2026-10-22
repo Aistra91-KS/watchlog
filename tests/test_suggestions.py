@@ -297,7 +297,20 @@ def make(kind=MOVIE, tmdb_id=1, year=2020, genres=("Drame",), vote=7.0, match=50
         score=match / 10, streaming=list(streaming))
 
 
-def test_compute_match_relative_to_best(session):
+def test_match_percent_is_absolute():
+    match = suggestions.match_percent
+    full = suggestions.MATCH_FULL_COSINE
+    assert match(0, 0) == 1                                      # rien en commun : plancher
+    assert match(0, full) == round(100 * 0.50 / 0.85)            # 59 : profil seul, au maximum
+    assert match(0, 2 * full) == match(0, full)                  # cosinus plafonné
+    assert match(suggestions.MATCH_HALF_COLLAB, 0) == round(100 * 0.35 * 0.5 / 0.85)  # 21
+    assert match(1e9, full) == 100
+    assert match(-3, -0.2) == 1                                  # signaux négatifs : 0
+    assert match(5, 0.15) > match(5, 0.10) and match(8, 0.15) > match(5, 0.15)
+    assert match(5, 0.15, reduced=True) == round(match(5, 0.15) * suggestions.REDUCED_FACTOR)
+
+
+def test_compute_match_not_relative_to_best(session):
     add_movie(session, "A", status=COMPLETED, favorite=True, tmdb_id=1)
     add_movie(session, "B", status=COMPLETED, tmdb_id=2)
     session.flush()
@@ -306,9 +319,17 @@ def test_compute_match_relative_to_best(session):
 
     result = suggestions.compute(session, tmdb, MOVIE)
 
-    assert result[0].title == "Top" and result[0].match == 100
-    assert 0 < result[1].match < 100
+    assert [s.title for s in result] == ["Top", "Moins"]          # classement inchangé
+    for s in result:   # le meilleur n'est plus forcément à 100 % : valeur propre à chaque titre
+        assert s.match == suggestions.match_percent(s.collab, s.content)
+    assert result[0].match < 100 and result[0].match > result[1].match
     assert result[0].vote_count == 100
+
+
+def test_filter_items_relevance_follows_score_not_match():
+    a, b = make(tmdb_id=1, match=40), make(tmdb_id=2, match=90)
+    a.score, b.score = 0.8, 0.5   # a : mieux classé (qualité, diversité...) malgré un % plus bas
+    assert [s.tmdb_id for s in suggestions.filter_items([b, a])] == [1, 2]
 
 
 def test_attach_availability():

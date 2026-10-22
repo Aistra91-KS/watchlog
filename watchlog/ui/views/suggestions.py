@@ -18,6 +18,10 @@ MIN_DATE = date(1900, 1, 1)
 MAX_AGE = 3600          # secondes : résultat gardé une heure (ou jusqu'à « Recalculer »)
 MAX_AGE_INCOMPLETE = 120  # résultat incomplet (TMDB a mal répondu) : recalculé vite
 PROFILE_THEMES = 15     # thèmes affichés dans « Ton profil de goûts »
+# Infobulle du « % pour toi » : valeur absolue, qui ne décide pas seule de l'ordre
+MATCH_HELP = ("% pour toi : ressemblance à tes thèmes préférés et recommandations par des "
+              "titres que tu as aimés (70 % et plus : très proche de tes goûts). L'ordre tient "
+              "aussi compte de la note TMDB et de la variété de la liste.")
 
 
 @st.cache_resource
@@ -142,7 +146,7 @@ def show_card(item: suggestions.Suggestion) -> None:
             badges += f" :green-badge[{item.match} % pour toi]"
             if item.trending:
                 badges += " :orange-badge[:material/trending_up: Tendance de la semaine]"
-            st.markdown(badges)
+            st.markdown(badges, help=MATCH_HELP)
             details = []
             if item.original_title and item.original_title != item.title:
                 details.append(f"Titre original : {item.original_title}")

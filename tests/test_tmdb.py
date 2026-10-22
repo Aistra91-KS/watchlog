@@ -272,3 +272,4 @@ def test_tv_season_reads_and_caches(engine):
     assert client.tv_season(1639, 1) == season       # deuxième appel : cache
     assert client.tv_season(1639, 9) is None         # saison inconnue
     assert api.paths.count("/3/tv/1639/season/1") == 1
+    assert api.requests[-1].url.params["language"] == "fr-FR"   # titres d'épisodes traduits

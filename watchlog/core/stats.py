@@ -6,6 +6,8 @@ d'import (beaucoup d'épisodes le même jour). C'est normal, on les garde telles
 
 import calendar
 import math
+from collections import Counter
+from collections.abc import Iterable
 from datetime import date, datetime, timedelta
 
 import pandas as pd
@@ -403,18 +405,24 @@ def rating_distribution(session: Session) -> pd.DataFrame:
 
 # --- Jours d'import massif ----------------------------------------------------------
 
-BULK_THRESHOLD = 50  # visionnages le même jour au-delà desquels c'est un import, pas un binge
+# Visionnages le même jour à partir desquels c'est un import, pas un binge. Seule définition :
+# les suggestions (suggestions.py) s'en servent aussi pour ignorer ces dates.
+BULK_THRESHOLD = 50
+
+
+def count_bulk_days(days: Iterable[date], threshold: int = BULK_THRESHOLD) -> dict[date, int]:
+    """Jours « d'import » : un import (Bingers...) date souvent tout l'historique au jour de l'import.
+
+    `days` : un jour par visionnage. Renvoie {jour: nombre de visionnages} pour les jours
+    d'au moins `threshold` visionnages, dans l'ordre chronologique.
+    """
+    counts = Counter(days)
+    return {day: n for day, n in sorted(counts.items()) if n >= threshold}
 
 
 def bulk_days(frame: pd.DataFrame, threshold: int = BULK_THRESHOLD) -> dict[date, int]:
-    """Jours « d'import » : un import (Bingers...) date souvent tout l'historique au jour de l'import.
-
-    Renvoie {jour: nombre de visionnages} pour les jours d'au moins `threshold` visionnages.
-    """
-    counts: dict[date, int] = {}
-    for day in _days(frame):
-        counts[day] = counts.get(day, 0) + 1
-    return {day: n for day, n in sorted(counts.items()) if n >= threshold}
+    """Jours d'import du tableau des visionnages (voir count_bulk_days)."""
+    return count_bulk_days(_days(frame), threshold)
 
 
 def without_days(frame: pd.DataFrame, days) -> pd.DataFrame:

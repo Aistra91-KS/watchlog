@@ -11,16 +11,22 @@ from datetime import date, datetime, time, timedelta, timezone
 from sqlalchemy import and_, case, func, or_
 from sqlmodel import Session, select
 
+from watchlog.core import stats
 from watchlog.core.dates import fmt_date
 from watchlog.core.models import (EPISODE, MATCH_NOT_FOUND, MATCH_NUMBERING, MATCH_UNCERTAIN, MOVIE,
-                                  SHOW, Episode, LibraryItem, Movie, PendingWatch, Show, Watch)
-from watchlog.core.queue import LOCAL_TZ, episode_code
+                                  SHOW, WATCHING, Episode, LibraryItem, Movie, PendingWatch, Show,
+                                  Watch)
+from watchlog.core.queue import LOCAL_TZ, episode_code, local_date, show_activity
 
 # Correspondances TVMaze à vérifier par l'utilisateur (page Paramètres)
 MATCH_TO_CHECK = (MATCH_UNCERTAIN, MATCH_NOT_FOUND, MATCH_NUMBERING)
 
-# Tris possibles de la bibliothèque
-SORT_TITLE, SORT_ADDED = "title", "added"
+# Durées approximatives pour « Vu il y a 3 mois » (libellé, pas un calcul de calendrier)
+DAYS_PER_MONTH, DAYS_PER_YEAR = 30, 365
+
+# Tris possibles de la bibliothèque. SORT_RECENT : dernier visionnage d'abord ;
+# SORT_PAUSED : séries « En cours » dont le dernier visionnage est le plus ancien (à reprendre).
+SORT_TITLE, SORT_ADDED, SORT_RECENT, SORT_PAUSED = "title", "added", "recent", "paused"
 
 
 @dataclass
@@ -34,6 +40,8 @@ class LibraryEntry:
     poster_path: str | None
     year: int | None
     added_at: datetime | None = None
+    last_watched: datetime | None = None   # dernier visionnage daté (UTC naïf), épisodes compris
+    import_day: bool = False          # dernier visionnage daté d'un jour d'import : date inconnue
     # Série
     premiered: date | None = None
     last_watched_code: str | None = None   # ex. "S09E09" (plus loin vu, hors spéciaux)
@@ -94,18 +102,24 @@ def _show_counters(session: Session, today: date) -> dict[int, dict]:
     return counters
 
 
+# Date d'un visionnage : le plus récent (revisionnage), sinon le premier.
+WATCH_DATE = func.coalesce(Watch.last_watched_at, Watch.watched_at)
+
+
 def _show_entries(session: Session, statuses, today: date) -> list[LibraryEntry]:
     query = select(LibraryItem, Show).join(
         Show, (LibraryItem.kind == SHOW) & (LibraryItem.ref_id == Show.id))
     if statuses:
         query = query.where(LibraryItem.status.in_(statuses))
     counters = _show_counters(session, today)
+    last_watched = show_activity(session)  # même calcul que le tri de « À regarder »
     entries = []
     for lib, show in session.exec(query):
         entries.append(LibraryEntry(
             kind=SHOW, ref_id=show.id, title=show.title, original_title=show.original_title,
             status=lib.status, favorite=lib.favorite, poster_path=show.poster_path,
             year=show.premiered.year if show.premiered else None, added_at=lib.added_at,
+            last_watched=last_watched.get(show.id),
             premiered=show.premiered, match_status=show.match_status,
             **counters.get(show.id, {})))
     return entries
@@ -113,20 +127,33 @@ def _show_entries(session: Session, statuses, today: date) -> list[LibraryEntry]
 
 def _movie_entries(session: Session, statuses) -> list[LibraryEntry]:
     query = (
-        select(LibraryItem, Movie, Watch.id)
+        select(LibraryItem, Movie, Watch.id, WATCH_DATE)
         .join(Movie, (LibraryItem.kind == MOVIE) & (LibraryItem.ref_id == Movie.id))
         .join(Watch, and_(Watch.kind == MOVIE, Watch.ref_id == Movie.id), isouter=True)
     )
     if statuses:
         query = query.where(LibraryItem.status.in_(statuses))
     entries = []
-    for lib, movie, watch_id in session.exec(query):
+    for lib, movie, watch_id, watched_at in session.exec(query):
         release = movie.release_date_fr or movie.release_date_original
         entries.append(LibraryEntry(
             kind=MOVIE, ref_id=movie.id, title=movie.title, original_title=movie.original_title,
             status=lib.status, favorite=lib.favorite, poster_path=movie.poster_path,
             year=movie.year or (release.year if release else None), added_at=lib.added_at,
+            last_watched=watched_at,
             watched=watch_id is not None, release_date=release))
+    return entries
+
+
+def _sort(entries: list[LibraryEntry], sort: str) -> list[LibraryEntry]:
+    """Trie les éléments ; les dates inconnues vont toujours à la fin."""
+    entries.sort(key=lambda e: normalize(e.title))  # départage stable : par titre
+    if sort == SORT_ADDED:
+        entries.sort(key=lambda e: e.added_at or datetime.min, reverse=True)
+    elif sort == SORT_RECENT:
+        entries.sort(key=lambda e: e.last_watched or datetime.min, reverse=True)
+    elif sort == SORT_PAUSED:
+        entries.sort(key=lambda e: (e.last_watched is None, e.last_watched or datetime.min))
     return entries
 
 
@@ -139,10 +166,17 @@ def library_overview(session: Session, kind: str | None = None, status=None,
     - status : un statut ou une liste de statuts (None : tous)
     - search : texte cherché dans le titre ou le titre original (sans accents ni majuscules)
     - favorite_only : seulement les favoris
-    - sort : SORT_TITLE (alphabétique) ou SORT_ADDED (derniers ajouts en premier)
+    - sort : SORT_TITLE (alphabétique), SORT_ADDED (derniers ajouts en premier),
+      SORT_RECENT (vus récemment en premier) ou SORT_PAUSED (séries « En cours » seulement,
+      la plus longtemps délaissée en premier : un film n'est jamais « en pause »)
     """
     today = today or datetime.now(LOCAL_TZ).date()
     statuses = [status] if isinstance(status, str) else status
+    if sort == SORT_PAUSED:
+        statuses = [s for s in statuses if s == WATCHING] if statuses else [WATCHING]
+        if kind == MOVIE or not statuses:
+            return []
+        kind = SHOW
     entries = []
     if kind in (None, SHOW):
         entries += _show_entries(session, statuses, today)
@@ -154,12 +188,43 @@ def library_overview(session: Session, kind: str | None = None, status=None,
         wanted = normalize(search.strip())
         entries = [e for e in entries
                    if wanted in normalize(e.title) or wanted in normalize(e.original_title)]
-    if sort == SORT_ADDED:
-        # Les plus récents d'abord ; les éléments sans date d'ajout à la fin.
-        entries.sort(key=lambda e: e.added_at or datetime.min, reverse=True)
-    else:
-        entries.sort(key=lambda e: normalize(e.title))
-    return entries
+    _forget_import_days(session, entries)
+    return _sort(entries, sort)
+
+
+def _forget_import_days(session: Session, entries: list[LibraryEntry]) -> None:
+    """Un dernier visionnage daté d'un jour d'import (Bingers) ne dit rien : date inconnue.
+
+    Sinon « Vu récemment » / « En pause » classeraient l'historique importé à sa date
+    d'import. Même détection que les statistiques et les suggestions (stats.count_bulk_days).
+    """
+    if not any(e.last_watched for e in entries):
+        return
+    dates = session.exec(select(WATCH_DATE).where(WATCH_DATE.is_not(None))).all()
+    bulk = set(stats.count_bulk_days(value.date() for value in dates))
+    for entry in entries:
+        if entry.last_watched and entry.last_watched.date() in bulk:
+            entry.last_watched, entry.import_day = None, True
+
+
+def last_watched_label(entry: LibraryEntry, today: date | None = None) -> str:
+    """« Vu aujourd'hui », « Vu il y a 3 mois »... ; chaîne vide si rien n'a été vu."""
+    if entry.last_watched is None:
+        if entry.import_day:
+            return "Date inconnue (import)"
+        seen = entry.watched if entry.kind == MOVIE else entry.last_watched_code is not None
+        return "Date de visionnage inconnue" if seen else ""
+    today = today or datetime.now(LOCAL_TZ).date()
+    days = (today - local_date(entry.last_watched, None)).days
+    if days <= 0:
+        return "Vu aujourd'hui"
+    if days == 1:
+        return "Vu hier"
+    if days < DAYS_PER_MONTH:
+        return f"Vu il y a {days} jours"
+    if days < DAYS_PER_YEAR:
+        return f"Vu il y a {days // DAYS_PER_MONTH} mois"
+    return f"Vu il y a {_plural(days // DAYS_PER_YEAR, 'an')}"
 
 
 def _plural(count: int, word: str) -> str:

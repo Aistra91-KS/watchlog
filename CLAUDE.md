@@ -71,7 +71,9 @@ tests/                 pytest ; conftest.py = faux clients TVMaze/TMDB, faux zip
 
 ### Modèle de données (models.py)
 
-- `Show`, `Episode` (TVMaze ; `number=None` = spécial), `Movie` (TMDB).
+- `Show`, `Episode` (TVMaze ; `number=None` = spécial), `Movie` (TMDB). Textes français TMDB
+  à part (`Show.summary_fr`, `Episode.title_fr`, lus par la synchro) : afficher
+  `show.display_summary` / `episode.display_title` (français, sinon TVMaze).
 - `LibraryItem` (kind + ref_id, statut, favori, added_at). Statuts : `watching` (En cours),
   `to_watch` (À voir), `for_later` (Plus tard), `stopped` (Arrêté), `completed` (Terminé).
 - `Watch` : une ligne par épisode/film vu (`plays` pour les revisionnages), dates en UTC naïf.
@@ -152,7 +154,12 @@ Moteur hybride, entièrement local (pas d'IA externe) :
    Seuls 120 candidats collaboratifs par type sont analysés (mots-clés).
 4. **Score** = 0,35 collaboratif (log, normalisé) + 0,50 cosinus au profil (normalisé)
    + 0,15 qualité (moyenne bayésienne TMDB) + 0,05 si tendance ; puis diversification MMR
-   (Jaccard des mots-clés). `match` = % du meilleur score du type.
+   (Jaccard des mots-clés).
+5. **« % pour toi »** (`match`, `suggestions.match_percent`) : absolu, pas relatif au meilleur
+   titre. Moyenne pondérée 0,50 / 0,35 de min(1, cosinus brut / 0,30) et de
+   collab / (collab + 5) (valeurs brutes), × 0,3 si thème « moins de » ; 1 à 100. Sans qualité
+   ni tendance ni MMR : l'ordre (`score`) et le % peuvent diverger, le tri « Pertinence » suit
+   `score`.
 Mots-clés lus en parallèle (6 threads, `RateLimiter` thread-safe), cache 90 jours ; premier
 calcul 1-2 min, ensuite quelques secondes. Le résultat est gardé 1 h (`st.cache_resource`,
 page Suggestions) ou jusqu'à « Recalculer ».
