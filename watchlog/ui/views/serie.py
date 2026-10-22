@@ -10,7 +10,7 @@ import pandas as pd
 import streamlit as st
 from sqlmodel import select
 
-from watchlog.core import library, providers
+from watchlog.core import library, providers, stats
 from watchlog.core.adding import tvmaze_status_label
 from watchlog.core.dates import fmt_date, parse_date
 from watchlog.core.models import (EPISODE, MATCH_OK, MATCH_REMAPPED, SHOW, Episode, Show,
@@ -167,6 +167,7 @@ with common.db() as session:
         watched = {ref_id: local_date(when, None) for ref_id, when in session.exec(
             select(Watch.ref_id, Watch.watched_at).join(Episode, Episode.id == Watch.ref_id)
             .where(Watch.kind == EPISODE, Episode.show_id == show.id)).all()}
+        durations = stats.show_time(session, show.id)
 
 if show is None:
     st.info("Aucune série sélectionnée. Choisis une série dans la bibliothèque.")
@@ -218,6 +219,23 @@ with col_info:
     if regular:
         seen = sum(1 for ep in regular if ep.id in watched)
         st.caption(f"{seen}/{len(regular)} épisodes vus (hors spéciaux)")
+    if episodes:
+        col_spent, col_left = st.columns(2)
+        col_spent.metric("Temps passé", stats.format_duration(durations["spent_minutes"]),
+                         border=True)
+        left = durations["remaining_episodes"]
+        col_left.metric("Temps restant", stats.format_duration(durations["remaining_minutes"]),
+                        f"{left} épisode{'s' if left > 1 else ''} à voir", delta_color="off",
+                        delta_arrow="off", border=True)
+        notes = []
+        if durations["upcoming_episodes"]:
+            notes.append(f"{durations['upcoming_episodes']} épisode(s) pas encore diffusé(s) "
+                         "non compté(s)")
+        if durations["estimated"]:
+            notes.append(f"durée inconnue pour {durations['estimated']} épisode(s) : "
+                         "estimée à la moyenne de la série")
+        if notes:
+            st.caption(" · ".join(notes).capitalize())
 
 # Correspondance TVMaze à vérifier
 if show.match_status not in (MATCH_OK, MATCH_REMAPPED):

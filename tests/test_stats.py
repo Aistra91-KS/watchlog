@@ -4,7 +4,7 @@ from datetime import date, datetime
 
 import pandas as pd
 import pytest
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from helpers_db import add_episode, add_movie, add_show, watch
 from watchlog.core import stats
@@ -204,3 +204,35 @@ def test_format_span_short_months():
     """31 janvier + 1 mois = 28 février : pas de mois sauté ni de jour négatif."""
     assert stats.format_span(date(2026, 1, 31), date(2026, 2, 28)) == "1 mois"
     assert stats.format_span(date(2026, 1, 31), date(2026, 3, 2)) == "1 mois et 2 jours"
+
+
+def test_show_time(engine):
+    """Passé = vus × revisionnages (spéciaux compris) ; restant = diffusés pas vus, hors spéciaux."""
+    with Session(engine) as s:
+        show = add_show(s, "Silo", status=WATCHING, match_status="ok")
+        other = add_show(s, "3%", status=WATCHING, match_status="ok")
+        aired = date(2026, 1, 1)
+        seen = add_episode(s, show, 1, 1, airdate=aired, runtime=60)
+        special = add_episode(s, show, 1, None, airdate=aired, runtime=20)
+        add_episode(s, show, 1, 2, airdate=aired, runtime=None)          # durée estimée
+        add_episode(s, show, 1, 3, airdate=aired, runtime=40)
+        add_episode(s, show, 1, 4, airdate=date(2027, 1, 1), runtime=50)  # à venir
+        add_episode(s, show, 1, None, airdate=aired, runtime=90)          # spécial pas vu
+        watch(s, seen)
+        watch(s, special)
+        s.exec(select(Watch).where(Watch.ref_id == seen.id)).one().plays = 2   # revu
+        watch(s, add_episode(s, other, 1, 1, airdate=aired, runtime=30))  # autre série
+
+        result = stats.show_time(s, show.id, today=FINISH_TODAY)
+
+    average = (60 + 20 + 40 + 50 + 90) / 5
+    assert result == {"spent_minutes": 60 * 2 + 20, "remaining_minutes": round(average + 40),
+                      "remaining_episodes": 2, "upcoming_episodes": 1, "estimated": 1}
+
+
+def test_show_time_without_episodes(engine):
+    with Session(engine) as s:
+        show = add_show(s, "Vide")
+        result = stats.show_time(s, show.id, today=FINISH_TODAY)
+
+    assert result["spent_minutes"] == 0 and result["remaining_minutes"] == 0

@@ -74,6 +74,9 @@ mémorisé par le navigateur.
 En cliquant sur un titre, on ouvre la **fiche** de la série (saisons, épisodes à cocher, statut,
 note) ou du film. Chaque fiche indique **où regarder** en France : abonnement (Netflix, Prime
 Video, Canal+…), location, achat (données JustWatch via TMDB, mises à jour chaque semaine).
+La fiche d'une série montre aussi le **temps passé** à la regarder (revisionnages et
+spéciaux compris) et le **temps restant** pour la finir (épisodes diffusés pas vus, hors
+spéciaux ; une durée inconnue vaut la moyenne de la série).
 
 **Date de visionnage** : modifiable dans la fiche du film (champ « Vu le », ou « Date de
 visionnage » avant de cliquer « Vu ») et dans la colonne « Vu le » des tableaux d'épisodes.

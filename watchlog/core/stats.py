@@ -464,6 +464,43 @@ def remaining_time(session: Session, statuses=DEFAULT_STATUSES,
     return result
 
 
+def show_time(session: Session, show_id: int, today: date | None = None) -> dict:
+    """Temps passé sur une série et temps restant pour la finir (page de la série).
+
+    Passé : épisodes vus (spéciaux compris) × nombre de visionnages. Restant : épisodes
+    diffusés pas encore vus, hors spéciaux, comme « À regarder ». Une durée inconnue vaut
+    la moyenne des durées connues de la série, pour ne pas sous-estimer en silence.
+    {"spent_minutes", "remaining_minutes", "remaining_episodes", "upcoming_episodes",
+    "estimated"}
+    """
+    today = today or datetime.now(LOCAL_TZ).date()
+    episodes = session.exec(select(Episode).where(Episode.show_id == show_id)).all()
+    plays = dict(session.exec(
+        select(Watch.ref_id, Watch.plays).join(Episode, Episode.id == Watch.ref_id)
+        .where(Watch.kind == EPISODE, Episode.show_id == show_id)).all())
+    known = [ep.runtime for ep in episodes if ep.runtime]
+    average = sum(known) / len(known) if known else DEFAULT_RUNTIMES[EPISODE]
+    spent = remaining = 0.0
+    result = {"remaining_episodes": 0, "upcoming_episodes": 0, "estimated": 0}
+    for ep in episodes:
+        runtime = ep.runtime or average
+        if ep.id in plays:
+            spent += runtime * (plays[ep.id] or 1)
+        elif ep.is_special:
+            continue
+        else:
+            day = local_date(ep.airstamp, ep.airdate)
+            if day is None or day > today:  # à venir ou sans date : pas encore regardable
+                result["upcoming_episodes"] += 1
+                continue
+            remaining += runtime
+            result["remaining_episodes"] += 1
+        if not ep.runtime:
+            result["estimated"] += 1
+    result["spent_minutes"], result["remaining_minutes"] = round(spent), round(remaining)
+    return result
+
+
 def watch_pace(frame: pd.DataFrame, days: int, bulk=(), today: date | None = None) -> dict:
     """Rythme de visionnage des `days` derniers jours (aujourd'hui compris), en minutes par jour.
 
