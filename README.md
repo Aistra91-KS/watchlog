@@ -71,8 +71,8 @@ mémorisé par le navigateur.
 | Statistiques | chiffres clés (temps total, note moyenne…), **temps pour finir ta liste** (épisodes et films sortis, pas vus : au rythme de la semaine, du mois ou de l'année passés, avec la date de fin estimée ; « Plus tard » en option) puis 4 onglets. **Activité** : records (jour, jours d'affilée, mois), calendrier des 12 derniers mois jour par jour, vus et heures par mois, par jour de la semaine, par année — les jours d'import massif (tout l'historique daté du jour de l'import) peuvent être ignorés. **Séries** : temps passé par série, genres, avancement des séries en cours, séries terminées. **Films** : durées, genres, décennies, liste des films vus (recherche, tri). **Notes** : répartition et meilleures notes. Clic sur une ligne d'un tableau : la fiche |
 | Paramètres | connexion TMDB, correspondances à vérifier, import Bingers, synchronisation, export (Excel, CSV, format Bingers), sauvegardes |
 
-En cliquant sur un titre, on ouvre la **fiche** de la série (saisons, épisodes à cocher, statut,
-note) ou du film. Chaque fiche indique **où regarder** en France : abonnement (Netflix, Prime
+En cliquant sur un titre, on ouvre la **fiche** de la série (saisons, épisodes à cocher avec
+leur durée, statut, note) ou du film. Chaque fiche indique **où regarder** en France : abonnement (Netflix, Prime
 Video, Canal+…), location, achat (données JustWatch via TMDB, mises à jour chaque semaine).
 La fiche d'une série montre aussi le **temps passé** à la regarder (revisionnages et
 spéciaux compris) et le **temps restant** pour la finir (épisodes diffusés pas vus, hors

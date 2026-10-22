@@ -21,6 +21,9 @@ from watchlog.ui import common
 COL_SEEN = "Vu"
 COL_UNTIL = "Vu jusqu'ici"
 COL_DATE = "Vu le"
+COL_RUNTIME = "Durée"
+# Colonnes d'information (non modifiables), grisées pour les épisodes à venir
+INFO_COLUMNS = ["Code", "Date", "Titre", COL_RUNTIME]
 # Épisodes pas encore diffusés : texte grisé, contraste ≥ 4,5:1 dans chaque thème.
 UPCOMING_STYLE = {"dark": "color: #9aa5b1", "light": "color: #5f6b7a"}
 RATING_OPTIONS = [0, 1, 2, 3, 4, 5]  # 0 = pas de note
@@ -137,9 +140,11 @@ def season_table(episodes: list[Episode], watched: dict[int, date | None],
         if day is not None and day > today:
             upcoming.append(i)
         rows.append({"Code": episode_code(ep.season, ep.number), "Date": fmt_date(day),
-                     "Titre": ep.title or "", COL_SEEN: ep.id in watched,
+                     "Titre": ep.title or "",
+                     COL_RUNTIME: f"{ep.runtime} min" if ep.runtime else "",
+                     COL_SEEN: ep.id in watched,
                      COL_DATE: watched.get(ep.id), COL_UNTIL: False})
-    df = pd.DataFrame(rows, columns=["Code", "Date", "Titre", COL_SEEN, COL_DATE, COL_UNTIL])
+    df = pd.DataFrame(rows, columns=[*INFO_COLUMNS, COL_SEEN, COL_DATE, COL_UNTIL])
     df[COL_DATE] = pd.to_datetime(df[COL_DATE])   # type date : case vide (et non « None ») si pas vu
     return df, upcoming
 
@@ -150,7 +155,7 @@ def grey_upcoming(df: pd.DataFrame, upcoming: list[int]):
 
     def style_row(row):
         color = style if row.name in upcoming else ""
-        return [color if col in ("Code", "Date", "Titre") else "" for col in row.index]
+        return [color if col in INFO_COLUMNS else "" for col in row.index]
     return df.style.apply(style_row, axis=1)
 
 
@@ -305,11 +310,13 @@ for season, season_episodes in seasons.items():
         editor_key = f"serie_table_{show.id}_{season}_{version}"
         st.data_editor(
             grey_upcoming(df, upcoming), key=editor_key, hide_index=True,
-            disabled=["Code", "Date", "Titre"],
+            disabled=INFO_COLUMNS,
             height=min(36 * (len(df) + 1) + 3, 900),
             column_config={
                 "Code": st.column_config.TextColumn(width="small"),
                 "Date": st.column_config.TextColumn(width="small"),
+                COL_RUNTIME: st.column_config.TextColumn(
+                    width="small", help="Durée de l'épisode (vide : inconnue)"),
                 COL_SEEN: st.column_config.CheckboxColumn(width="small"),
                 COL_DATE: st.column_config.DateColumn(
                     width="small", format="DD/MM/YYYY", min_value=date(1900, 1, 1),
