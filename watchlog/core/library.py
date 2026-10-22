@@ -344,6 +344,18 @@ def set_rating(session: Session, kind: str, ref_id: int, rating: int | None,
     return existing
 
 
+def set_rating_value(session: Session, kind: str, ref_id: int,
+                     rating: int | None) -> Rating | None:
+    """Change seulement la note (1 à 5, None = pas de note) : le reste de l'avis est gardé.
+
+    Pour la colonne « Note » des tableaux d'épisodes. Pas de commit.
+    """
+    existing = get_rating(session, kind, ref_id)
+    return set_rating(session, kind, ref_id, rating,
+                      note=existing.note if existing else None,
+                      emotions=existing.emotions if existing else None)
+
+
 def _clean_text(text: str | None) -> str | None:
     """Texte saisi sans espaces autour ; vide -> None."""
     return text.strip() if text and text.strip() else None

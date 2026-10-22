@@ -8,14 +8,9 @@ from watchlog.core import library
 from watchlog.core.dates import fmt_date
 from watchlog.core.models import COMPLETED, MOVIE, TO_WATCH, Movie
 from watchlog.core.queue import LOCAL_TZ, local_date
-from watchlog.ui import common
+from watchlog.ui import avis, common
 
-RATING_OPTIONS = [0, 1, 2, 3, 4, 5]  # 0 = pas de note
 MIN_DATE = date(1900, 1, 1)
-
-
-def rating_label(value: int) -> str:
-    return "Pas de note" if not value else f"{value} / 5"
 
 
 def fmt_runtime(minutes: int | None) -> str:
@@ -26,10 +21,6 @@ def fmt_runtime(minutes: int | None) -> str:
     if hours == 0:
         return f"{rest} min"
     return f"{hours} h {rest:02d}" if rest else f"{hours} h"
-
-
-def emotion_label(code: str) -> str:
-    return library.EMOTION_LABELS.get(code, code)
 
 
 # --- Enregistrement (fonctions appelées quand l'utilisateur agit) ---------------------
@@ -127,7 +118,6 @@ with common.db() as session:
     movie = session.get(Movie, movie_id) if movie_id is not None else None
     if movie is not None:
         item = library.get_library_item(session, MOVIE, movie.id)
-        rating = library.get_rating(session, MOVIE, movie.id)
         watch = library.get_watch(session, MOVIE, movie.id)
 
 if movie is None:
@@ -250,26 +240,8 @@ else:
         st.checkbox("Favori", key=favorite_key, on_change=save_favorite,
                     args=(movie.id, favorite_key))
 
-# Note, commentaire, émotions
-st.subheader("Mon avis")
-current_emotions = library.split_emotions(rating.emotions if rating else None)
-emotion_options = list(library.EMOTION_LABELS) + [
-    e for e in current_emotions if e not in library.EMOTION_LABELS]
-with st.form(f"film_avis_{movie.id}"):
-    value = st.selectbox("Note", RATING_OPTIONS, format_func=rating_label,
-                         index=RATING_OPTIONS.index((rating.rating or 0) if rating else 0))
-    note = st.text_area("Commentaire", value=(rating.note or "") if rating else "")
-    emotions = st.multiselect("Émotions", emotion_options, default=current_emotions,
-                              format_func=emotion_label)
-    character = st.text_input("Personnage préféré",
-                              value=(rating.favorite_character or "") if rating else "")
-    if st.form_submit_button("Enregistrer"):
-        with common.db() as session:
-            library.set_rating(session, MOVIE, movie.id, value or None, note=note,
-                               emotions=emotions, favorite_character=character)
-            session.commit()
-        st.session_state["film_message"] = "Avis enregistré."
-        st.rerun()
+# Note, commentaire, émotions, personnage préféré (même formulaire que la fiche série)
+avis.review_form(MOVIE, movie.id, "film_message")
 
 # Retrait de la bibliothèque (avec confirmation)
 if item is not None:

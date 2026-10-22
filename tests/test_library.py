@@ -291,6 +291,20 @@ def test_set_rating_changes_or_clears_favorite_character(session):
     assert library.set_rating(session, MOVIE, 2, None, favorite_character=None) is None
 
 
+def test_set_rating_value_keeps_the_rest_of_the_review(session):
+    library.set_rating(session, EPISODE, 5, 2, note="Lent", emotions=["bored"],
+                       favorite_character="Gus")
+    rating = library.set_rating_value(session, EPISODE, 5, 4)
+    assert (rating.rating, rating.note, rating.emotions, rating.favorite_character) == (
+        4, "Lent", "bored", "Gus")
+    assert library.set_rating_value(session, EPISODE, 5, None).note == "Lent"
+    # Seulement une note : l'enlever supprime la ligne.
+    library.set_rating_value(session, EPISODE, 6, 3)
+    assert library.set_rating_value(session, EPISODE, 6, None) is None
+    with pytest.raises(ValueError):
+        library.set_rating_value(session, EPISODE, 6, 9)
+
+
 def test_set_rating_rejects_invalid_value(session):
     with pytest.raises(ValueError):
         library.set_rating(session, SHOW, 1, 6)

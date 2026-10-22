@@ -1,4 +1,4 @@
-"""Fiche d'une série : informations, statut, note, et liste des épisodes (cases « Vu »).
+"""Fiche d'une série : informations, statut, épisodes (cases « Vu », notes) et avis.
 
 Performance : une série comme NCIS a environ 500 épisodes. Les épisodes ne sont affichés
 (un tableau par saison) que pour les saisons dépliées.
@@ -13,10 +13,10 @@ from sqlmodel import select
 from watchlog.core import library, providers, queue, stats
 from watchlog.core.adding import tvmaze_status_label
 from watchlog.core.dates import fmt_date, parse_date
-from watchlog.core.models import (EPISODE, MATCH_OK, MATCH_REMAPPED, SHOW, Episode, Show,
-                                  Watch)
+from watchlog.core.models import (EPISODE, MATCH_OK, MATCH_REMAPPED, SHOW, Episode, Rating,
+                                  Show, Watch)
 from watchlog.core.queue import LOCAL_TZ, UPCOMING, episode_code, local_date
-from watchlog.ui import common
+from watchlog.ui import avis, common
 
 COL_SEEN = "Vu"
 COL_UNTIL = "Vu jusqu'ici"
@@ -27,13 +27,10 @@ COL_PLAYS = "Visionnages"   # affichée seulement pour une saison dont un épiso
 INFO_COLUMNS = ["Code", "Date", "Titre", COL_RUNTIME]
 # Épisodes pas encore diffusés : texte grisé, contraste ≥ 4,5:1 dans chaque thème.
 UPCOMING_STYLE = {"dark": "color: #9aa5b1", "light": "color: #5f6b7a"}
-RATING_OPTIONS = [0, 1, 2, 3, 4, 5]  # 0 = pas de note
+COL_RATING = "Note"
+EPISODE_RATINGS = [1, 2, 3, 4, 5]   # colonne « Note » : vide = pas de note
 DATE_UNKNOWN, DATE_CHOSEN = "Date inconnue", "Choisir une date"
 MIN_WATCH_DATE = date(1900, 1, 1)
-
-
-def rating_label(value: int) -> str:
-    return "Pas de note" if not value else f"{value} / 5"
 
 
 # --- Enregistrement (fonctions appelées quand l'utilisateur change une valeur) ----------
@@ -52,16 +49,6 @@ def save_status(show_id: int, key: str) -> None:
 def save_favorite(show_id: int, key: str) -> None:
     with common.db() as session:
         library.set_favorite(session, SHOW, show_id, st.session_state[key])
-        session.commit()
-
-
-def save_rating(show_id: int, key: str) -> None:
-    with common.db() as session:
-        old = library.get_rating(session, SHOW, show_id)
-        # On ne touche qu'à la note : commentaire et émotions éventuels sont gardés.
-        library.set_rating(session, SHOW, show_id, st.session_state[key] or None,
-                           note=old.note if old else None,
-                           emotions=old.emotions if old else None)
         session.commit()
 
 
@@ -132,6 +119,10 @@ def apply_episode_changes(editor_key: str, episode_ids: list[int], include_speci
     with common.db() as session:
         for row, values in changes.items():
             episode_id = episode_ids[int(row)]
+            if COL_RATING in values:   # note de l'épisode : indépendante du visionnage
+                value = values[COL_RATING]
+                library.set_rating_value(session, EPISODE, episode_id,
+                                         int(value) if value is not None else None)
             if values.get(COL_UNTIL):
                 library.mark_watched_until(session, episode_id, include_specials)
             elif COL_SEEN in values:
@@ -194,12 +185,14 @@ def current_season(seasons: dict[int, list[Episode]], watched: dict[int, date | 
 
 
 def season_table(episodes: list[Episode], watched: dict[int, date | None], today,
-                 plays: dict[int, int] | None = None) -> tuple[pd.DataFrame, list]:
+                 plays: dict[int, int] | None = None,
+                 ratings: dict[int, int] | None = None) -> tuple[pd.DataFrame, list]:
     """Tableau d'une saison + liste des épisodes « à venir » (lignes grisées).
 
     Colonne « Visionnages » seulement si un épisode de la saison a été revu.
+    ratings : épisode -> note (1 à 5).
     """
-    plays = plays or {}
+    plays, ratings = plays or {}, ratings or {}
     with_plays = any(plays.get(ep.id, 1) > 1 for ep in episodes)
     rows, upcoming = [], []
     for i, ep in enumerate(episodes):
@@ -210,13 +203,16 @@ def season_table(episodes: list[Episode], watched: dict[int, date | None], today
                "Titre": ep.title or "",
                COL_RUNTIME: f"{ep.runtime} min" if ep.runtime else "",
                COL_SEEN: ep.id in watched,
-               COL_DATE: watched.get(ep.id), COL_UNTIL: False}
+               COL_DATE: watched.get(ep.id), COL_RATING: ratings.get(ep.id),
+               COL_UNTIL: False}
         if with_plays:
             row[COL_PLAYS] = plays.get(ep.id) if ep.id in watched else None
         rows.append(row)
-    columns = [*INFO_COLUMNS, COL_SEEN, COL_DATE] + ([COL_PLAYS] if with_plays else [])
+    columns = [*INFO_COLUMNS, COL_SEEN, COL_DATE, COL_RATING]
+    columns += [COL_PLAYS] if with_plays else []
     df = pd.DataFrame(rows, columns=[*columns, COL_UNTIL])
     df[COL_DATE] = pd.to_datetime(df[COL_DATE])   # type date : case vide (et non « None ») si pas vu
+    df[COL_RATING] = df[COL_RATING].astype("Int64")   # entier, case vide si pas de note
     if with_plays:
         df[COL_PLAYS] = df[COL_PLAYS].astype("Int64")   # entier, case vide si pas vu
     return df, upcoming
@@ -271,8 +267,11 @@ with common.db() as session:
     show = session.get(Show, show_id) if show_id is not None else None
     if show is not None:
         item = library.get_library_item(session, SHOW, show.id)
-        rating = library.get_rating(session, SHOW, show.id)
         episodes = session.exec(select(Episode).where(Episode.show_id == show.id)).all()
+        episode_ratings = dict(session.exec(
+            select(Rating.ref_id, Rating.rating).join(Episode, Episode.id == Rating.ref_id)
+            .where(Rating.kind == EPISODE, Episode.show_id == show.id,
+                   Rating.rating.is_not(None))).all())
         # épisode vu -> date du premier visionnage (heure française), None si inconnue
         watched, plays = {}, {}   # plays : nombre de visionnages (revisionnages compris)
         for ref_id, when, count in session.exec(
@@ -363,7 +362,7 @@ if show.match_status not in (MATCH_OK, MATCH_REMAPPED):
             + (f"\n\nDétail : {common.md_escape(show.match_note)}" if show.match_note else ""))
     st.page_link(common.PAGE_SETTINGS, label="Résoudre dans Paramètres")
 
-# Bibliothèque : statut, favori, note
+# Bibliothèque : statut, favori (la note est dans « Mon avis », en bas de la fiche)
 status_key = f"serie_status_{show.id}"
 if item is None:
     st.info("Cette série n'est pas dans ta bibliothèque.")
@@ -376,17 +375,13 @@ if item is None:
                   args=(show.id, status_key))
 else:
     # Les widgets reprennent toujours la valeur enregistrée en base.
-    favorite_key, rating_key = f"serie_favorite_{show.id}", f"serie_rating_{show.id}"
+    favorite_key = f"serie_favorite_{show.id}"
     st.session_state[status_key] = item.status
     st.session_state[favorite_key] = item.favorite
-    st.session_state[rating_key] = (rating.rating or 0) if rating else 0
-    col_status, col_rating, col_favorite = st.columns([2, 2, 1], vertical_alignment="bottom")
+    col_status, col_favorite = st.columns([2, 1], vertical_alignment="bottom")
     with col_status:
         st.selectbox("Statut", common.status_options(), format_func=common.status_label,
                      key=status_key, on_change=save_status, args=(show.id, status_key))
-    with col_rating:
-        st.selectbox("Note de la série", RATING_OPTIONS, format_func=rating_label,
-                     key=rating_key, on_change=save_rating, args=(show.id, rating_key))
     with col_favorite:
         st.checkbox("Favori", key=favorite_key, on_change=save_favorite,
                     args=(show.id, favorite_key))
@@ -466,7 +461,7 @@ for season, season_episodes in seasons.items():
     if not expander.open:
         continue  # saison repliée : on ne construit pas le tableau
     with expander:
-        df, upcoming = season_table(season_episodes, watched, today, plays)
+        df, upcoming = season_table(season_episodes, watched, today, plays, episode_ratings)
         editor_key = f"serie_table_{show.id}_{season}_{version}"
         st.data_editor(
             grey_upcoming(df, upcoming), key=editor_key, hide_index=True,
@@ -482,6 +477,9 @@ for season, season_episodes in seasons.items():
                     width="small", format="DD/MM/YYYY", min_value=MIN_WATCH_DATE,
                     max_value=today,
                     help="Date de visionnage, modifiable (vide : date inconnue)"),
+                COL_RATING: st.column_config.SelectboxColumn(
+                    width="small", options=EPISODE_RATINGS,
+                    help="Ta note de l'épisode, de 1 à 5 (vide : pas de note)"),
                 COL_PLAYS: st.column_config.NumberColumn(
                     width="small", help="Nombre de visionnages (revisionnages compris)"),
                 COL_UNTIL: st.column_config.CheckboxColumn(
@@ -495,6 +493,9 @@ for season, season_episodes in seasons.items():
         if seen < len(season_episodes):
             st.button("Marquer la saison vue", key=f"serie_mark_{show.id}_{season}",
                       on_click=mark_season, args=(show.id, season, show_specials))
+
+# Note, commentaire, émotions, personnage préféré (même formulaire que la fiche film)
+avis.review_form(SHOW, show.id, "serie_message")
 
 # Retrait de la bibliothèque (avec confirmation)
 if item is not None:
