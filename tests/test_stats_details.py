@@ -149,6 +149,15 @@ def test_bulk_days(session, data):
     assert stats.records(stats.without_days(frame, bulk))["best_day"] == (date(2026, 10, 6), 2)
 
 
+def test_count_bulk_days_seuil_partage():
+    """Une seule définition du seuil : les suggestions utilisent celle des statistiques."""
+    from watchlog.core import suggestions
+    days = [date(2026, 8, 13)] * stats.BULK_THRESHOLD + [date(2026, 8, 14)] * 3
+    assert stats.count_bulk_days(days) == {date(2026, 8, 13): stats.BULK_THRESHOLD}
+    assert stats.count_bulk_days(days[1:]) == {}
+    assert not hasattr(suggestions, "BULK_THRESHOLD")
+
+
 # --- Genres en base -------------------------------------------------------------------------
 
 def test_genre_texts():

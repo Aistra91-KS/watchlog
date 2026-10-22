@@ -27,10 +27,9 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import date, datetime
 
-from sqlalchemy import func
 from sqlmodel import Session, select
 
-from watchlog.core import adding, catalog, providers, taste
+from watchlog.core import adding, catalog, providers, stats, taste
 from watchlog.core.dates import utcnow
 from watchlog.core.http import ApiError
 from watchlog.core.models import (COMPLETED, EPISODE, FOR_LATER, MOVIE, SHOW, STOPPED, TO_WATCH,
@@ -53,7 +52,6 @@ DISMISSED_WEIGHT = -1.0
 
 FULL_ENGAGEMENT = 50    # épisodes vus à partir desquels une série compte à plein
 REWATCH_FACTOR = 1.4    # film revu
-BULK_THRESHOLD = 50     # visionnages le même jour : date d'import, pas une vraie date
 
 MAX_SOURCES = 200   # sources par type (séries / films) : limite le nombre d'appels TMDB
 MIN_VOTES = {SHOW: 30, MOVIE: 100}  # titres trop confidentiels ou pas encore sortis : ignorés
@@ -184,11 +182,14 @@ def resolve_show_tmdb_ids(session: Session, tmdb) -> int:
 
 
 def _bulk_days(session: Session) -> set[date]:
-    """Jours d'import (beaucoup de visionnages le même jour) : leurs dates ne disent rien."""
-    day = func.date(Watch.last_watched_at)
-    rows = session.exec(select(day).where(Watch.last_watched_at.is_not(None))
-                        .group_by(day).having(func.count() >= BULK_THRESHOLD)).all()
-    return {date.fromisoformat(d) for d in rows if d}
+    """Jours d'import (beaucoup de visionnages le même jour) : leurs dates ne disent rien.
+
+    Même détection que les statistiques (stats.count_bulk_days), sur le jour UTC du
+    dernier visionnage.
+    """
+    rows = session.exec(select(Watch.last_watched_at)
+                        .where(Watch.last_watched_at.is_not(None))).all()
+    return set(stats.count_bulk_days(value.date() for value in rows))
 
 
 def _activity(session: Session) -> dict[tuple[str, int], tuple[int, int, datetime | None]]:
