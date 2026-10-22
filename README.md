@@ -81,7 +81,8 @@ spéciaux ; une durée inconnue vaut la moyenne de la série).
 **Date de visionnage** : modifiable dans la fiche du film (champ « Vu le », ou « Date de
 visionnage » avant de cliquer « Vu ») et dans la colonne « Vu le » des tableaux d'épisodes.
 Pratique pour un titre vu il y a longtemps : il compte alors dans le bon mois des statistiques.
-Champ vide : vu, date inconnue.
+Si tu ne sais plus quand : bouton **Date inconnue** de la fiche du film (ou case « Date inconnue »
+avant de cliquer « Vu ») ; le titre reste vu, mais ne compte dans aucun mois.
 Pour une série vue il y a longtemps et cochée d'un coup (tout tombe à la date du jour),
 le bloc **Changer la date de visionnage de plusieurs épisodes** de la fiche donne une même
 date, ou « Date inconnue », à tous les épisodes vus des saisons choisies.

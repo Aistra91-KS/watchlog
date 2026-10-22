@@ -51,15 +51,19 @@ def add_to_library(movie_id: int, key: str) -> None:
     st.session_state["film_message"] = "Film ajouté à la bibliothèque."
 
 
-def set_watched(movie_id: int, watched: bool, day_key: str | None = None) -> None:
+def set_watched(movie_id: int, watched: bool, day_key: str | None = None,
+                unknown_key: str | None = None) -> None:
     """Marque vu / non vu. Un film vu passe en « Terminé » ; non vu, il revient en « À voir ».
 
-    day_key : clé du champ « Date de visionnage » (aujourd'hui par défaut).
+    day_key : clé du champ « Date de visionnage » (aujourd'hui par défaut) ; unknown_key : clé
+    de la case « Date inconnue », qui l'emporte sur le champ.
     """
     with common.db() as session:
         item = library.get_library_item(session, MOVIE, movie_id)
         if watched:
             day = st.session_state.get(day_key) if day_key else datetime.now(LOCAL_TZ).date()
+            if unknown_key and st.session_state.get(unknown_key):
+                day = None
             if day == datetime.now(LOCAL_TZ).date():
                 library.mark_watched(session, MOVIE, movie_id)  # heure exacte
             else:
@@ -79,6 +83,14 @@ def save_watch_date(movie_id: int, key: str) -> None:
         library.set_watch_date(session, MOVIE, movie_id, st.session_state[key])
         session.commit()
     st.session_state["film_message"] = "Date de visionnage enregistrée."
+
+
+def forget_watch_date(movie_id: int) -> None:
+    """Vu, mais on ne sait plus quand : le film ne compte plus dans aucun mois des stats."""
+    with common.db() as session:
+        library.set_watch_date(session, MOVIE, movie_id, None)
+        session.commit()
+    st.session_state["film_message"] = "Date de visionnage : inconnue."
 
 
 def remove_movie(movie_id: int) -> None:
@@ -153,22 +165,36 @@ with col_info:
     if watch is not None:
         date_key = f"film_watch_date_{movie.id}"
         st.session_state[date_key] = local_date(watch.watched_at, None)
-        col_date, col_button = st.columns([2, 1], vertical_alignment="bottom")
+        col_date, col_unknown, col_button = st.columns([2, 1, 1], vertical_alignment="bottom")
         col_date.date_input("Vu le", key=date_key, min_value=MIN_DATE, max_value=today,
                             format="DD/MM/YYYY", on_change=save_watch_date,
                             args=(movie.id, date_key),
                             help="Date du premier visionnage (vide : date inconnue).")
+        col_unknown.button("Date inconnue", key=f"film_forget_date_{movie.id}",
+                           on_click=forget_watch_date, args=(movie.id,),
+                           disabled=watch.watched_at is None,
+                           help="Vu, mais tu ne sais plus quand : il ne compte dans aucun mois "
+                                "des statistiques.")
         col_button.button("Marquer non vu", on_click=set_watched, args=(movie.id, False))
+        notes = []
+        if watch.watched_at is None:
+            notes.append("Date de visionnage inconnue : choisis une date pour la renseigner.")
         if watch.plays > 1:
-            st.caption(f"Vu {watch.plays} fois")
+            notes.append(f"Vu {watch.plays} fois")
+        if notes:
+            st.caption(" · ".join(notes))
     else:
         day_key = f"film_new_watch_date_{movie.id}"
-        col_date, col_button = st.columns([2, 1], vertical_alignment="bottom")
+        unknown_key = f"film_new_watch_unknown_{movie.id}"
+        col_date, col_unknown, col_button = st.columns([2, 1, 1], vertical_alignment="bottom")
         col_date.date_input("Date de visionnage", value=today, key=day_key, min_value=MIN_DATE,
                             max_value=today, format="DD/MM/YYYY",
-                            help="Pour un film vu il y a longtemps, choisis la date (vide : date inconnue).")
+                            disabled=st.session_state.get(unknown_key, False),
+                            help="Pour un film vu il y a longtemps, choisis la date.")
+        col_unknown.checkbox("Date inconnue", key=unknown_key,
+                             help="Vu, mais tu ne sais plus quand.")
         col_button.button("Vu", type="primary", on_click=set_watched,
-                          args=(movie.id, True, day_key))
+                          args=(movie.id, True, day_key, unknown_key))
 
 # Bibliothèque : statut et favori
 status_key = f"film_status_{movie.id}"
