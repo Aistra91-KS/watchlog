@@ -124,6 +124,44 @@ def test_search_api_error_propagates(session):
         adding.search_shows(session, FakeTVMaze(fail=True), "The Hidden One")
 
 
+class FailingSearchTMDB(SearchTMDB):
+    """Faux TMDB connecté dont la recherche tombe en panne."""
+
+    def search_movies(self, query):
+        raise ApiError("TMDB indisponible (simulé)")
+
+
+def test_search_all_mixes_shows_and_movies(session):
+    tvmaze = FakeTVMaze(searches={"fight": "tvmaze_search_hidden.json"})
+    outcome = adding.search_all(session, tvmaze, SearchTMDB(), "fight")
+    assert outcome.errors == {}
+    # Alternance série / film, puis le reste des films
+    assert [(r["kind"], r["id"]) for r in outcome.results] == [
+        (SHOW, 303), (MOVIE, 550), (MOVIE, 999)]
+    assert outcome.results[0]["network"] == "HBO"
+    empty = adding.search_all(session, tvmaze, SearchTMDB(), "  ")
+    assert empty.results == [] and empty.errors == {}
+
+
+def test_search_all_tmdb_unavailable(session, caplog):
+    tvmaze = FakeTVMaze()
+    for tmdb in (None, SearchTMDB(available=False)):
+        outcome = adding.search_all(session, tvmaze, tmdb, "The Hidden One")
+        assert [r["kind"] for r in outcome.results] == [SHOW]
+        assert outcome.errors == {MOVIE: adding.MOVIES_UNAVAILABLE}
+    outcome = adding.search_all(session, tvmaze, FailingSearchTMDB(), "The Hidden One")
+    assert [r["kind"] for r in outcome.results] == [SHOW]
+    assert "TMDB indisponible" in outcome.errors[MOVIE]
+    assert "Recherche TMDB impossible" in caplog.text
+
+
+def test_search_all_tvmaze_down(session, caplog):
+    outcome = adding.search_all(session, FakeTVMaze(fail=True), SearchTMDB(), "fight")
+    assert [r["kind"] for r in outcome.results] == [MOVIE, MOVIE]
+    assert "TVMaze indisponible" in outcome.errors[SHOW] and MOVIE not in outcome.errors
+    assert "Recherche TVMaze impossible" in caplog.text
+
+
 # --- Ajout depuis les API ------------------------------------------------------------------
 
 def test_add_show_uses_french_title(session):

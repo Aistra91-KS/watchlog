@@ -1,4 +1,4 @@
-"""Ajouter une série (TVMaze), un film (TMDB) ou un titre saisi à la main."""
+"""Ajouter une série ou un film : recherche unique TVMaze + TMDB, ou saisie à la main."""
 
 from datetime import date
 
@@ -9,8 +9,11 @@ from watchlog.core.http import ApiError
 from watchlog.core.models import COMPLETED, MOVIE, SHOW, TO_WATCH
 from watchlog.ui import common
 
+SEARCH = "search"
 MANUAL = "manual"
 MIN_DATE, MAX_DATE = date(1880, 1, 1), date(2100, 12, 31)
+# Badge de chaque résultat : séries en bleu, films en orange (couleurs de CLAUDE.md).
+KIND_BADGES = {SHOW: ":blue-badge[Série]", MOVIE: ":orange-badge[Film]"}
 
 
 def remember_success(tab: str, kind: str, obj_id: int, title: str) -> None:
@@ -49,9 +52,10 @@ def watched_on_input(status_key: str, label: str = "Vu le (facultatif)") -> None
                       help="Vide : date inconnue (modifiable ensuite dans la fiche).")
 
 
-def add_result(kind: str, index: int, status_key: str) -> None:
-    """Appelée par le bouton « Ajouter » d'un résultat de recherche."""
-    result = st.session_state[f"add_results_{kind}"][index]
+def add_result(index: int, status_key: str) -> None:
+    """Appelée par le bouton « Ajouter » d'un résultat de recherche (série ou film)."""
+    result = st.session_state["add_results"][index]
+    kind = result["kind"]
     status = st.session_state[status_key]
     watched_on = st.session_state.get(watched_on_key(status_key))
     try:
@@ -67,73 +71,82 @@ def add_result(kind: str, index: int, status_key: str) -> None:
             obj_id, title = obj.id, obj.title
             common.download_poster(session, obj, client)
     except (ApiError, ValueError) as exc:
-        st.session_state[f"add_error_{kind}"] = f"Ajout impossible : {exc}"
+        st.session_state[f"add_error_{SEARCH}"] = f"Ajout impossible : {exc}"
         return
     result["in_library"], result["local_id"] = True, obj_id
-    remember_success(kind, kind, obj_id, title)
+    remember_success(SEARCH, kind, obj_id, title)
 
 
-def search_form(kind: str, label: str) -> None:
-    """Formulaire de recherche ; les résultats sont gardés dans st.session_state."""
-    with st.form(f"add_search_{kind}"):
-        query = st.text_input(label)
+def search_form() -> None:
+    """Recherche unique (séries TVMaze + films TMDB) ; résultats gardés dans session_state."""
+    with st.form("add_search"):
+        query = st.text_input("Titre d'une série ou d'un film")
         submitted = st.form_submit_button("Rechercher")
     if submitted:
-        try:
-            with common.db() as session:
-                if kind == SHOW:
-                    results = adding.search_shows(session, common.tvmaze_client(), query)
-                else:
-                    results = adding.search_movies(session, common.tmdb_client(), query)
-        except ApiError as exc:
-            st.error(f"Recherche impossible : {exc}")
-            return
-        st.session_state[f"add_results_{kind}"] = results
-        st.session_state[f"add_query_{kind}"] = query.strip()
+        connected, tmdb_message = common.tmdb_status()
+        with common.db() as session:
+            outcome = adding.search_all(session, common.tvmaze_client(),
+                                        common.tmdb_client() if connected else None, query)
+        errors = dict(outcome.errors)
+        if not connected and MOVIE in errors:
+            errors[MOVIE] += f" ({tmdb_message})"
+        st.session_state["add_results"] = outcome.results
+        st.session_state["add_search_errors"] = errors
+        st.session_state["add_query"] = query.strip()
 
 
-def show_results(kind: str) -> None:
-    results = st.session_state.get(f"add_results_{kind}")
+def show_result(index: int, result: dict) -> None:
+    """Un résultat : affiche, badge Série / Film, détails, statut et bouton « Ajouter »."""
+    kind = result["kind"]
+    with st.container(border=True):
+        col_image, col_text = st.columns([1, 7])
+        with col_image:
+            if result["poster_url"]:
+                st.image(result["poster_url"], width=80)
+        with col_text:
+            title = common.md_escape(result["title"])
+            if result["year"]:
+                title += f" ({result['year']})"
+            st.markdown(f"{KIND_BADGES[kind]} **{title}**")
+            details = []
+            if result["original_title"] and result["original_title"] != result["title"]:
+                details.append(f"Titre original : {result['original_title']}")
+            details += [d for d in (result["network"], result["status"]) if d]
+            if details:
+                st.caption(common.md_escape(" · ".join(details)))
+            if result["summary"]:
+                st.write(common.md_escape(result["summary"]))
+            if result["in_library"]:
+                st.write("Déjà dans la bibliothèque")
+                page = common.PAGE_SHOW if kind == SHOW else common.PAGE_MOVIE
+                st.page_link(page, label="Ouvrir la fiche",
+                             query_params={"id": result["local_id"]})
+            else:
+                status_key = f"add_status_{kind}_{result['id']}"
+                col_status, col_button = st.columns([2, 1], vertical_alignment="bottom")
+                col_status.selectbox("Statut", common.status_options(),
+                                     index=default_status_index(),
+                                     format_func=common.status_label, key=status_key)
+                col_button.button("Ajouter", key=f"add_button_{kind}_{result['id']}",
+                                  on_click=add_result, args=(index, status_key))
+                if kind == MOVIE:
+                    watched_on_input(status_key)
+
+
+def show_results() -> None:
+    results = st.session_state.get("add_results")
     if results is None:
         return
+    for message in st.session_state.get("add_search_errors", {}).values():
+        st.warning(message)
     if not results:
-        query = common.md_escape(st.session_state.get(f"add_query_{kind}", ""))
+        query = common.md_escape(st.session_state.get("add_query", ""))
         st.write(f"Aucun résultat pour « {query} ».")
         return
+    shows = sum(1 for r in results if r["kind"] == SHOW)
+    st.caption(f"{shows} série(s) et {len(results) - shows} film(s)")
     for index, result in enumerate(results):
-        with st.container(border=True):
-            col_image, col_text = st.columns([1, 7])
-            with col_image:
-                if result["poster_url"]:
-                    st.image(result["poster_url"], width=80)
-            with col_text:
-                title = common.md_escape(result["title"])
-                if result["year"]:
-                    title += f" ({result['year']})"
-                st.markdown(f"**{title}**")
-                details = []
-                if result["original_title"] and result["original_title"] != result["title"]:
-                    details.append(f"Titre original : {result['original_title']}")
-                details += [d for d in (result["network"], result["status"]) if d]
-                if details:
-                    st.caption(common.md_escape(" · ".join(details)))
-                if result["summary"]:
-                    st.write(common.md_escape(result["summary"]))
-                if result["in_library"]:
-                    st.write("Déjà dans la bibliothèque")
-                    page = common.PAGE_SHOW if kind == SHOW else common.PAGE_MOVIE
-                    st.page_link(page, label="Ouvrir la fiche",
-                                 query_params={"id": result["local_id"]})
-                else:
-                    status_key = f"add_status_{kind}_{result['id']}"
-                    col_status, col_button = st.columns([2, 1], vertical_alignment="bottom")
-                    col_status.selectbox("Statut", common.status_options(),
-                                         index=default_status_index(),
-                                         format_func=common.status_label, key=status_key)
-                    col_button.button("Ajouter", key=f"add_button_{kind}_{result['id']}",
-                                      on_click=add_result, args=(kind, index, status_key))
-                    if kind == MOVIE:
-                        watched_on_input(status_key)
+        show_result(index, result)
 
 
 # --- Saisie manuelle ----------------------------------------------------------------------
@@ -199,23 +212,14 @@ def manual_movie_form() -> None:
 
 st.title("Ajouter")
 # key + on_change : l'onglet choisi est gardé quand la page se recharge (après un ajout).
-tab_show, tab_movie, tab_manual = st.tabs(["Série", "Film", "Saisie manuelle"],
-                                          key="add_tab", on_change="rerun")
+tab_search, tab_manual = st.tabs(["Rechercher", "Saisie manuelle"],
+                                 key="add_tab", on_change="rerun")
 
-with tab_show:
-    show_messages(SHOW)
-    search_form(SHOW, "Titre de la série")
-    show_results(SHOW)
-
-with tab_movie:
-    show_messages(MOVIE)
-    connected, tmdb_message = common.tmdb_status()
-    if not connected:
-        st.info(f"{tmdb_message} La recherche de films est indisponible ; "
-                "tu peux ajouter un film dans l'onglet « Saisie manuelle ».")
-    else:
-        search_form(MOVIE, "Titre du film")
-        show_results(MOVIE)
+with tab_search:
+    show_messages(SEARCH)
+    st.caption("Séries cherchées sur TVMaze, films sur TMDB.")
+    search_form()
+    show_results()
 
 with tab_manual:
     show_messages(MANUAL)

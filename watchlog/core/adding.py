@@ -1,10 +1,14 @@
 """Ajout de séries et de films à la bibliothèque (recherche TVMaze / TMDB ou saisie manuelle).
 
 Ces fonctions ne font pas de commit : l'appelant (l'interface) enregistre.
-Une ApiError (API injoignable) remonte à l'appelant, qui affiche un message.
+Une ApiError (API injoignable) remonte à l'appelant, qui affiche un message ; seule
+search_all la rattrape, pour montrer les séries même si TMDB est en panne (et inversement).
 """
 
+import logging
+from dataclasses import dataclass, field
 from datetime import date
+from itertools import zip_longest
 
 from sqlmodel import Session, select
 
@@ -22,6 +26,12 @@ TVMAZE_STATUS_LABELS = {
 }
 
 SUMMARY_LENGTH = 220  # longueur maximale du résumé dans les résultats de recherche
+
+# Recherche unique quand TMDB n'est pas utilisable (les séries sont quand même cherchées).
+MOVIES_UNAVAILABLE = ("Films non cherchés : TMDB n'est pas connecté. "
+                      "Tu peux ajouter un film dans « Saisie manuelle ».")
+
+log = logging.getLogger(__name__)
 
 
 def tvmaze_status_label(status: str | None) -> str:
@@ -133,6 +143,47 @@ def search_movies(session: Session, tmdb, query: str) -> list[dict]:
             "in_library": bool(local and library.get_library_item(session, MOVIE, local.id)),
         })
     return results
+
+
+@dataclass
+class SearchOutcome:
+    """Résultat de la recherche unique : séries et films mêlés, et les sources en panne.
+
+    results : dicts de search_shows / search_movies, avec en plus « kind » (SHOW ou MOVIE).
+    errors : type (SHOW / MOVIE) -> message lisible, pour la source qui n'a pas répondu.
+    """
+    results: list[dict] = field(default_factory=list)
+    errors: dict[str, str] = field(default_factory=dict)
+
+
+def search_all(session: Session, tvmaze, tmdb, query: str) -> SearchOutcome:
+    """Cherche à la fois les séries (TVMaze) et les films (TMDB).
+
+    Une source en panne n'empêche pas l'autre : son erreur est journalisée et rendue dans
+    `errors`. `tmdb` None ou non connecté : films non cherchés (dit dans `errors`).
+    Les deux listes sont alternées, pour garder l'ordre de pertinence propre à chaque API.
+    """
+    outcome = SearchOutcome()
+    if not (query or "").strip():
+        return outcome
+    shows: list[dict] = []
+    movies: list[dict] = []
+    try:
+        shows = search_shows(session, tvmaze, query)
+    except ApiError as exc:
+        log.warning("Recherche TVMaze impossible pour « %s » : %s", query, exc)
+        outcome.errors[SHOW] = f"Séries non cherchées : {exc}"
+    if tmdb is None or not tmdb.available:
+        outcome.errors[MOVIE] = MOVIES_UNAVAILABLE
+    else:
+        try:
+            movies = search_movies(session, tmdb, query)
+        except ApiError as exc:
+            log.warning("Recherche TMDB impossible pour « %s » : %s", query, exc)
+            outcome.errors[MOVIE] = f"Films non cherchés : {exc}"
+    for show, movie in zip_longest(shows, movies):
+        outcome.results += [dict(r, kind=k) for r, k in ((show, SHOW), (movie, MOVIE)) if r]
+    return outcome
 
 
 # --- Ajout depuis TVMaze / TMDB ------------------------------------------------
