@@ -6,7 +6,7 @@ import streamlit as st
 
 from watchlog.core import adding
 from watchlog.core.http import ApiError
-from watchlog.core.models import COMPLETED, MOVIE, SHOW, TO_WATCH
+from watchlog.core.models import COMPLETED, MOVIE, SHOW, TO_WATCH, WATCHING
 from watchlog.ui import common
 
 SEARCH = "search"
@@ -14,6 +14,9 @@ MANUAL = "manual"
 MIN_DATE, MAX_DATE = date(1880, 1, 1), date(2100, 12, 31)
 # Badge de chaque résultat : séries en bleu, films en orange (couleurs de CLAUDE.md).
 KIND_BADGES = {SHOW: ":blue-badge[Série]", MOVIE: ":orange-badge[Film]"}
+# « J'en suis à S2E5 » : date des visionnages passés (inconnue par défaut, pour ne pas
+# fausser les statistiques avec la date du jour).
+UNKNOWN_DATE, CHOSEN_DATE = "Date inconnue", "Je choisis une date"
 
 
 def remember_success(tab: str, kind: str, obj_id: int, title: str) -> None:
@@ -35,6 +38,87 @@ def show_messages(tab: str) -> None:
 
 def default_status_index() -> int:
     return common.status_options().index(TO_WATCH)
+
+
+# --- « J'en suis à S2E5 » (série déjà commencée) -----------------------------------------
+
+def start_progress(tab: str, show_id: int, title: str, status: str) -> None:
+    """Après l'ajout d'une série : propose d'indiquer le dernier épisode vu."""
+    st.session_state[f"add_progress_{tab}"] = (show_id, title, status == WATCHING)
+
+
+def close_progress(tab: str) -> None:
+    st.session_state.pop(f"add_progress_{tab}", None)
+
+
+def save_progress(tab: str, show_id: int, title: str) -> None:
+    """Bouton « Marquer vus » : tous les épisodes jusqu'au choix, à la date indiquée."""
+    state = st.session_state
+    season = state[f"progress_season_{show_id}"]
+    number = state[f"progress_episode_{show_id}_{season}"]
+    day = None
+    if state[f"progress_date_mode_{show_id}"] == CHOSEN_DATE:
+        day = state.get(f"progress_day_{show_id}")
+        if day is None:
+            state[f"add_error_{tab}"] = "Choisis la date, ou garde « Date inconnue »."
+            return
+    try:
+        with common.db() as session:
+            count = adding.mark_progress(session, show_id, season, number, day=day,
+                                         status=state[f"progress_status_{show_id}"])
+            session.commit()
+    except ValueError as exc:
+        state[f"add_error_{tab}"] = f"Progression non enregistrée : {exc}"
+        return
+    close_progress(tab)
+    state[f"add_progress_done_{tab}"] = (
+        f"« {common.md_escape(title)} » : {count} épisode(s) marqué(s) vu(s), "
+        f"jusqu'à S{season}E{number}.")
+
+
+def episode_label(number: int, title: str | None) -> str:
+    return f"Épisode {number}" + (f" · {title}" if title else "")
+
+
+def progress_panel(tab: str) -> None:
+    """Choix du dernier épisode vu d'une série qu'on vient d'ajouter (« j'en suis à S2E5 »)."""
+    done = st.session_state.pop(f"add_progress_done_{tab}", None)
+    if done:
+        st.success(done)
+    progress = st.session_state.get(f"add_progress_{tab}")
+    if not progress:
+        return
+    show_id, title, watching = progress
+    with common.db() as session:
+        choices = adding.episode_choices(session, show_id)
+    if not choices:
+        return  # aucun épisode diffusé connu : rien à proposer
+    label = f"Tu as déjà commencé « {common.md_escape(title)} » ? Indique où tu en es"
+    with st.expander(label, expanded=watching):
+        st.caption("Tous les épisodes jusqu'à celui-ci inclus (hors spéciaux) seront "
+                   "marqués vus.")
+        col_season, col_episode = st.columns([1, 2])
+        season = col_season.selectbox("Saison", list(choices),
+                                      format_func=lambda s: f"Saison {s}",
+                                      key=f"progress_season_{show_id}")
+        episodes = dict(choices[season])
+        col_episode.selectbox("Dernier épisode vu", list(episodes),
+                              format_func=lambda n: episode_label(n, episodes[n]),
+                              key=f"progress_episode_{show_id}_{season}")
+        mode = st.radio("Date de ces visionnages", [UNKNOWN_DATE, CHOSEN_DATE],
+                        horizontal=True, key=f"progress_date_mode_{show_id}",
+                        help="Vus dans le passé : la date du jour fausserait les statistiques.")
+        if mode == CHOSEN_DATE:
+            st.date_input("Vus le", value=None, min_value=MIN_DATE, max_value=date.today(),
+                          format="DD/MM/YYYY", key=f"progress_day_{show_id}")
+        st.selectbox("Statut", common.status_options(),
+                     index=common.status_options().index(WATCHING),
+                     format_func=common.status_label, key=f"progress_status_{show_id}")
+        col_save, col_close = st.columns(2)
+        col_save.button("Marquer vus", type="primary", key=f"progress_save_{show_id}",
+                        on_click=save_progress, args=(tab, show_id, title))
+        col_close.button("Non merci", key=f"progress_close_{show_id}",
+                         on_click=close_progress, args=(tab,))
 
 
 # --- Ajout d'un résultat de recherche ----------------------------------------------------
@@ -75,6 +159,8 @@ def add_result(index: int, status_key: str) -> None:
         return
     result["in_library"], result["local_id"] = True, obj_id
     remember_success(SEARCH, kind, obj_id, title)
+    if kind == SHOW:
+        start_progress(SEARCH, obj_id, title, status)
 
 
 def search_form() -> None:
@@ -172,6 +258,7 @@ def manual_show_form() -> None:
                                               premiered=premiered)
                 session.commit()
                 remember_success(MANUAL, SHOW, show.id, show.title)
+                start_progress(MANUAL, show.id, show.title, status)
         except ValueError as exc:
             st.session_state[f"add_error_{MANUAL}"] = str(exc)
         st.rerun()
@@ -217,12 +304,14 @@ tab_search, tab_manual = st.tabs(["Rechercher", "Saisie manuelle"],
 
 with tab_search:
     show_messages(SEARCH)
+    progress_panel(SEARCH)
     st.caption("Séries cherchées sur TVMaze, films sur TMDB.")
     search_form()
     show_results()
 
 with tab_manual:
     show_messages(MANUAL)
+    progress_panel(MANUAL)
     st.caption("Pour un titre absent de TVMaze ou de TMDB.")
     choice = st.radio("Type", ["Série", "Film"], horizontal=True, key="add_manual_kind")
     if choice == "Série":

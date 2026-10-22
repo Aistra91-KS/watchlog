@@ -1,4 +1,4 @@
-"""Tests de l'ajout de séries / films (recherche, ajout API, saisie manuelle)."""
+"""Tests de l'ajout de séries / films (recherche, ajout API, saisie manuelle, progression)."""
 
 from datetime import date
 
@@ -8,8 +8,8 @@ from sqlmodel import Session, select
 from conftest import FakeTMDB, FakeTVMaze
 from watchlog.core import adding, library
 from watchlog.core.http import ApiError
-from watchlog.core.models import (MATCH_NOT_FOUND, MATCH_OK, MOVIE, SHOW, TO_WATCH, WATCHING,
-                                  Episode, Movie, Show)
+from watchlog.core.models import (EPISODE, MATCH_NOT_FOUND, MATCH_OK, MOVIE, SHOW, TO_WATCH,
+                                  WATCHING, Episode, Movie, Show)
 
 
 class AkasTVMaze(FakeTVMaze):
@@ -271,3 +271,60 @@ def test_add_manual_movie(session):
     assert other.year == 1950 and other.release_date_fr is None and other.overview is None
     with pytest.raises(ValueError):
         adding.add_manual_movie(session, "", TO_WATCH)
+
+
+# --- « J'en suis à S2E5 » -------------------------------------------------------------------
+
+def _watched(session, show_id):
+    """(saison, numéro ou None) -> date du premier visionnage, pour les épisodes vus."""
+    episodes = session.exec(select(Episode).where(Episode.show_id == show_id)).all()
+    return {(ep.season, ep.number): watch.watched_at for ep in episodes
+            if (watch := library.get_watch(session, EPISODE, ep.id)) is not None}
+
+
+def test_episode_choices(session):
+    show = adding.add_show(session, AkasTVMaze(), 101, TO_WATCH)
+    choices = adding.episode_choices(session, show.id, today=date(2021, 1, 5))
+    # Spécial exclu ; S2E2 (diffusé le 10/01/2021) pas encore sorti ; S2E3 sans date gardé
+    assert {s: [n for n, _t in eps] for s, eps in choices.items()} == {1: [1, 2, 3], 2: [1, 3]}
+    manual = adding.add_manual_show(session, "Ma série", [2, 1], TO_WATCH)
+    assert adding.episode_choices(session, manual.id) == {1: [(1, None), (2, None)],
+                                                          2: [(1, None)]}
+    assert adding.episode_choices(session, 9999) == {}
+
+
+def test_mark_progress_unknown_date(session):
+    show = adding.add_show(session, AkasTVMaze(), 101, TO_WATCH)
+    assert adding.mark_progress(session, show.id, 2, 1) == 4
+    session.commit()
+    watched = _watched(session, show.id)
+    # S1E1-3 + S2E1, sans le spécial ni la suite ; date inconnue (pas la date du jour)
+    assert set(watched) == {(1, 1), (1, 2), (1, 3), (2, 1)}
+    assert all(when is None for when in watched.values())
+    assert library.get_library_item(session, SHOW, show.id).status == WATCHING
+
+
+def test_mark_progress_with_date_keeps_existing(session):
+    show = adding.add_manual_show(session, "Ma série", [3, 3], TO_WATCH)
+    first = session.exec(select(Episode).where(Episode.show_id == show.id,
+                                               Episode.season == 1, Episode.number == 1)).one()
+    library.set_watch_date(session, EPISODE, first.id, date(2019, 5, 1))
+    assert adding.mark_progress(session, show.id, 2, 2, day=date(2024, 3, 10),
+                                status=None) == 4
+    watched = _watched(session, show.id)
+    assert set(watched) == {(1, 1), (1, 2), (1, 3), (2, 1), (2, 2)}
+    assert watched[(1, 1)].year == 2019                     # déjà vu : date gardée
+    # Date choisie (stockée en UTC naïf : la veille au soir possible selon le fuseau)
+    assert {watched[k].date() for k in watched if k != (1, 1)} <= {date(2024, 3, 9),
+                                                                   date(2024, 3, 10)}
+    assert library.get_library_item(session, SHOW, show.id).status == TO_WATCH
+    assert adding.mark_progress(session, show.id, 2, 2) == 0   # relancer : rien de plus
+
+
+def test_mark_progress_errors(session):
+    show = adding.add_manual_show(session, "Ma série", [2], TO_WATCH)
+    with pytest.raises(ValueError):
+        adding.mark_progress(session, show.id, 3, 1)           # saison inexistante
+    with pytest.raises(ValueError):
+        adding.mark_progress(session, show.id, 1, 1, status="inconnu")
+    assert _watched(session, show.id) == {}

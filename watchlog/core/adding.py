@@ -14,7 +14,8 @@ from sqlmodel import Session, select
 
 from watchlog.core import catalog, library
 from watchlog.core.http import ApiError
-from watchlog.core.models import COMPLETED, MATCH_OK, MOVIE, SHOW, STATUSES, Episode, Movie, Show
+from watchlog.core.models import (COMPLETED, EPISODE, MATCH_OK, MOVIE, SHOW, STATUSES, WATCHING,
+                                  Episode, Movie, Show)
 from watchlog.core.tmdb import TMDBClient
 
 # Statuts de diffusion TVMaze, traduits pour l'affichage.
@@ -241,6 +242,59 @@ def add_movie(session: Session, tmdb, tmdb_id: int, status: str,
     _record_movie_watch(session, movie, status, watched_on)
     session.flush()
     return movie
+
+
+# --- « J'en suis à S2E5 » (série déjà commencée) --------------------------------
+
+def _regular_episodes(session: Session, show_id: int) -> list[Episode]:
+    """Épisodes numérotés (hors spéciaux) de la série, dans l'ordre (saison, numéro)."""
+    return list(session.exec(
+        select(Episode).where(Episode.show_id == show_id,
+                              Episode.is_special == False,  # noqa: E712 (syntaxe SQLAlchemy)
+                              Episode.number.is_not(None))
+        .order_by(Episode.season, Episode.number)))
+
+
+def episode_choices(session: Session, show_id: int,
+                    today: date | None = None) -> dict[int, list[tuple[int, str | None]]]:
+    """Saison -> [(numéro, titre)] des épisodes qu'on peut avoir vus : pour « j'en suis à ».
+
+    Hors spéciaux et hors épisodes pas encore diffusés (date inconnue : gardé).
+    """
+    today = today or date.today()
+    choices: dict[int, list[tuple[int, str | None]]] = {}
+    for ep in _regular_episodes(session, show_id):
+        if ep.airdate is None or ep.airdate <= today:
+            choices.setdefault(ep.season, []).append((ep.number, ep.title))
+    return choices
+
+
+def mark_progress(session: Session, show_id: int, season: int, number: int,
+                  day: date | None = None, status: str | None = WATCHING) -> int:
+    """« J'en suis à S2E5 » : marque vus tous les épisodes jusqu'à celui-ci inclus.
+
+    Hors spéciaux (leur place dans l'ordre est incertaine). Date `day` pour tous ; None =
+    date inconnue, car ils ont été vus dans le passé et la date du jour fausserait les
+    statistiques. Un épisode déjà vu garde sa date. `status` (« En cours » par défaut,
+    None : inchangé) est aussi appliqué. Renvoie le nombre d'épisodes nouvellement vus.
+    ValueError si l'épisode n'existe pas. Pas de commit.
+    """
+    if status is not None:
+        _check_status(status)
+    episodes = _regular_episodes(session, show_id)
+    if not any((ep.season, ep.number) == (season, number) for ep in episodes):
+        raise ValueError(f"Épisode S{season}E{number} introuvable pour cette série.")
+    count = 0
+    for ep in episodes:
+        if (ep.season, ep.number) > (season, number):
+            break
+        if library.get_watch(session, EPISODE, ep.id) is None:
+            library.set_watch_date(session, EPISODE, ep.id, day)
+            count += 1
+    if status is not None:
+        library.set_status(session, SHOW, show_id, status)
+    session.flush()
+    return count
 
 
 # --- Saisie manuelle -------------------------------------------------------------
