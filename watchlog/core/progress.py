@@ -16,7 +16,7 @@ from watchlog.core.dates import fmt_date
 from watchlog.core.models import (EPISODE, MATCH_NOT_FOUND, MATCH_NUMBERING, MATCH_UNCERTAIN, MOVIE,
                                   SHOW, WATCHING, Episode, LibraryItem, Movie, PendingWatch, Show,
                                   Watch)
-from watchlog.core.queue import LOCAL_TZ, episode_code, local_date
+from watchlog.core.queue import LOCAL_TZ, episode_code, local_date, show_activity
 
 # Correspondances TVMaze à vérifier par l'utilisateur (page Paramètres)
 MATCH_TO_CHECK = (MATCH_UNCERTAIN, MATCH_NOT_FOUND, MATCH_NUMBERING)
@@ -106,21 +106,13 @@ def _show_counters(session: Session, today: date) -> dict[int, dict]:
 WATCH_DATE = func.coalesce(Watch.last_watched_at, Watch.watched_at)
 
 
-def _show_last_watched(session: Session) -> dict[int, datetime]:
-    """Dernier visionnage daté de chaque série (spéciaux compris), en une requête groupée."""
-    query = (select(Episode.show_id, func.max(WATCH_DATE))
-             .join(Watch, and_(Watch.kind == EPISODE, Watch.ref_id == Episode.id))
-             .group_by(Episode.show_id))
-    return {show_id: last for show_id, last in session.exec(query) if last is not None}
-
-
 def _show_entries(session: Session, statuses, today: date) -> list[LibraryEntry]:
     query = select(LibraryItem, Show).join(
         Show, (LibraryItem.kind == SHOW) & (LibraryItem.ref_id == Show.id))
     if statuses:
         query = query.where(LibraryItem.status.in_(statuses))
     counters = _show_counters(session, today)
-    last_watched = _show_last_watched(session)
+    last_watched = show_activity(session)  # même calcul que le tri de « À regarder »
     entries = []
     for lib, show in session.exec(query):
         entries.append(LibraryEntry(
