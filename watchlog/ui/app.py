@@ -60,10 +60,13 @@ st.set_page_config(page_title="Watchlog", page_icon=str(ROOT / "assets" / "watch
 
 
 @st.cache_resource
-def startup_backup() -> None:
-    """Sauvegarde automatique de la base, une fois par lancement de l'application."""
+def startup_backup() -> bool:
+    """Sauvegarde automatique de la base, une fois par lancement. False si elle a échoué."""
     from watchlog.core.backup import make_backup
-    make_backup()
+    from watchlog.core.config import DB_PATH
+    if not DB_PATH.is_file():   # tout premier lancement : rien à sauvegarder
+        return True
+    return make_backup() is not None
 
 
 # Recharge la page quand le nouveau serveur répond (après la coupure de l'ancien).
@@ -93,7 +96,10 @@ if code_changed_since_start():
     st.button("Redémarrer Watchlog", type="primary", on_click=restart_server)
     st.stop()
 
-startup_backup()
+if not startup_backup():
+    st.warning("La sauvegarde automatique du démarrage a échoué (détail dans "
+               "data/watchlog.log) : aucune copie récente de ta base. Essaie « Sauvegarder "
+               "maintenant » dans Paramètres.")
 
 
 @st.cache_resource

@@ -313,7 +313,10 @@ def genre_counts(frame: pd.DataFrame, kind: str, limit: int = 10) -> pd.DataFram
         rows = rows.drop_duplicates("show_id")
     counts: dict[str, int] = {}
     for genres in rows["genres"]:
-        for genre in [g.strip() for g in (genres or "").split(",") if g.strip()]:
+        # Genres inconnus : pandas met NaN (un float « vrai ») là où la base a None.
+        if not isinstance(genres, str):
+            continue
+        for genre in [g.strip() for g in genres.split(",") if g.strip()]:
             counts[genre] = counts.get(genre, 0) + 1
     ordered = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:limit]
     return pd.DataFrame(ordered, columns=["genre", "titres"])
@@ -477,8 +480,10 @@ def watch_pace(frame: pd.DataFrame, days: int, bulk=(), today: date | None = Non
         start = max(start, min(bulk))
     counted = sum(1 for n in range((today - start).days + 1)
                   if start + timedelta(days=n) not in bulk)
+    # astype(bool) : sur un frame vide, le masque serait de type object et pandas le lirait
+    # comme une liste de colonnes (frame sans colonne, KeyError plus bas).
     window = frame[frame["day"].map(
-        lambda d: isinstance(d, date) and start <= d <= today and d not in bulk)]
+        lambda d: isinstance(d, date) and start <= d <= today and d not in bulk).astype(bool)]
     minutes = estimated = 0
     for kind in (EPISODE, MOVIE):
         kind_minutes, kind_estimated = _estimated_minutes(

@@ -47,7 +47,13 @@ Durée des épisodes : TVMaze donne pour les séries des chaînes américaines l
 de diffusion (60 min, pub comprise, pour un épisode de 42 min). La synchro la remplace par la
 durée réelle donnée par TMDB, épisode par épisode, si la date de diffusion concorde (sinon la
 durée TVMaze reste, et le rapport le compte). La première synchro lit toutes les saisons
-(quelques minutes) ; ensuite, seulement les séries nouvelles ou mises à jour.
+(quelques minutes) ; ensuite, seulement les séries nouvelles ou mises à jour. Une série ajoutée
+depuis TVMaze n'a pas d'id TMDB : la synchro le cherche d'abord (via TVDB) ; celles introuvables
+sont comptées dans le rapport.
+
+Accès : l'outil n'est joignable que depuis ce PC (`address = "localhost"` dans
+`.streamlit/config.toml`). Le serveur n'a pas de mot de passe : ne l'ouvrir au réseau
+(`0.0.0.0`) que sur un réseau de confiance.
 
 Mode sombre : menu **⋮** en haut à droite > **Settings** > choisir *Light*, *Dark* ou
 *Use system setting* (par défaut, l'outil suit le thème du système). Le choix est
@@ -124,8 +130,9 @@ d'abord une sauvegarde de la base. `import`, `sync` et `check` affichent d'abord
 ### Renvoyer ses données dans Bingers
 
 L'export « base complète » est illisible pour Bingers (« Impossible de lire cette archive ») :
-Bingers ne lit que des formats connus. Le bouton **Télécharger pour Bingers (.zip)** écrit le
-format d'export de Bingers lui-même (`library.csv`, `watches.csv`, `ratings.csv`, `lists.csv`).
+Bingers ne lit que des formats connus. Le bouton **Préparer l'export pour Bingers** écrit le
+format d'export de Bingers lui-même (`library.csv`, `watches.csv`, `ratings.csv`, `lists.csv`)
+et affiche un rapport (titres omis, dates complétées) ; puis **Télécharger pour Bingers (.zip)**.
 Dans Bingers : Importer l'historique > Choisir le fichier .zip.
 
 Repris : séries et films, statuts, favoris, épisodes et films vus avec leurs dates et nombre
@@ -187,7 +194,8 @@ Tout est dans le dossier `data/` (ignoré par git) :
 Une copie de la base est faite automatiquement à chaque lancement de l'interface, avant chaque
 import et avant chaque synchronisation (`data/backups/watchlog-AAAAMMJJ-HHMMSS.db`).
 Les 5 plus récentes sont gardées. La page Paramètres liste les sauvegardes et propose
-« Sauvegarder maintenant ».
+« Sauvegarder maintenant ». Si la sauvegarde du lancement échoue, un avertissement reste affiché
+en haut de l'interface jusqu'au prochain démarrage.
 
 Pour revenir à une sauvegarde : fermer l'outil, puis remplacer `data/watchlog.db` par la copie
 choisie (renommée en `watchlog.db`) et supprimer `data/watchlog.db-wal` et `data/watchlog.db-shm`

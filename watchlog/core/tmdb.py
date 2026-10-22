@@ -82,7 +82,14 @@ class TMDBClient:
         except ApiError:
             self._connected = False
             return False, "TMDB non connecté : API injoignable (films sans métadonnées pour l'instant)."
-        if response.status_code == 200 and response.json().get("success"):
+        try:
+            success = response.status_code == 200 and response.json().get("success")
+        except ValueError:  # page HTML (portail Wi-Fi, proxy) au lieu du JSON de TMDB
+            self._connected = False
+            log.warning("TMDB : réponse illisible au test de connexion (HTTP %s)",
+                        response.status_code)
+            return False, "TMDB non connecté : réponse illisible (réseau filtré ?)."
+        if success:
             self._connected = True
             return True, "TMDB connecté."
         self._connected = False

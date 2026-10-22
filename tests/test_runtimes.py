@@ -15,8 +15,9 @@ from watchlog.core.tmdb import season_ttl
 class SeasonTMDB:
     """Faux TMDB : saisons {(tmdb_id, saison): [épisodes TMDB]}, None = saison inconnue."""
 
-    def __init__(self, seasons, available=True):
+    def __init__(self, seasons, available=True, tvdb=None):
         self.seasons = seasons
+        self.tvdb = tvdb or {}   # id TVDB -> id TMDB
         self.available = available
         self.fetched: list[tuple[int, int]] = []
 
@@ -24,6 +25,9 @@ class SeasonTMDB:
         self.fetched.append((tmdb_id, season))
         episodes = self.seasons.get((tmdb_id, season))
         return None if episodes is None else {"episodes": episodes}
+
+    def find_tv_by_tvdb(self, tvdb_id):
+        return self.tvdb.get(tvdb_id)
 
     def download(self, url, dest):
         return False
@@ -142,6 +146,33 @@ def test_sync_applies_tmdb_runtimes_once(engine):
     tmdb.fetched.clear()
     sync(engine, QuietTVMaze(), tmdb, download_posters=False)
     assert tmdb.fetched == []
+
+
+def test_sync_resolves_missing_tmdb_id_before_runtimes(engine):
+    """Série ajoutée depuis TVMaze (sans id TMDB) : id trouvé via TVDB, puis durées corrigées.
+
+    Celle qu'on ne trouve pas est comptée dans le rapport.
+    """
+    with Session(engine) as s:
+        found = add_show(s, 500)
+        found.tmdb_id, found.tvdb_id = None, 9500
+        lost = add_show(s, 600)
+        lost.tmdb_id, lost.tvdb_id = None, 9600
+        add_episode(s, found, 1, 1, date(2020, 1, 1))
+        s.commit()
+
+    class QuietTVMaze:
+        def updated_since(self, since="week"):
+            return {}
+
+    tmdb = SeasonTMDB({(500, 1): [tmdb_ep(1, "2020-01-01", 41)]}, tvdb={9500: 500})
+    report = sync(engine, QuietTVMaze(), tmdb, download_posters=False)
+
+    assert report.runtimes_updated == 1
+    assert report.runtimes_no_tmdb == 1
+    assert any("1 séries introuvables sur TMDB" in line for line in report.lines())
+    with Session(engine) as s:
+        assert s.exec(select(Episode)).one().runtime == 41
 
 
 def test_sync_runtimes_skipped_when_tmdb_down(engine):

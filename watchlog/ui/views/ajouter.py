@@ -4,22 +4,13 @@ from datetime import date
 
 import streamlit as st
 
-from watchlog.core import adding, catalog
+from watchlog.core import adding
 from watchlog.core.http import ApiError
 from watchlog.core.models import COMPLETED, MOVIE, SHOW, TO_WATCH
 from watchlog.ui import common
 
 MANUAL = "manual"
 MIN_DATE, MAX_DATE = date(1880, 1, 1), date(2100, 12, 31)
-
-
-def download_poster(session, obj, client) -> None:
-    """Télécharge l'affiche ; un échec n'empêche pas l'ajout."""
-    try:
-        catalog.ensure_poster(session, obj, client)
-        session.commit()
-    except Exception:  # noqa: BLE001  (une affiche ratée n'est pas grave)
-        session.rollback()
 
 
 def remember_success(tab: str, kind: str, obj_id: int, title: str) -> None:
@@ -74,7 +65,7 @@ def add_result(kind: str, index: int, status_key: str) -> None:
                                        watched_on=watched_on)
             session.commit()
             obj_id, title = obj.id, obj.title
-            download_poster(session, obj, client)
+            common.download_poster(session, obj, client)
     except (ApiError, ValueError) as exc:
         st.session_state[f"add_error_{kind}"] = f"Ajout impossible : {exc}"
         return

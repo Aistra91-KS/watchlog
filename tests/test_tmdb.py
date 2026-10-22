@@ -96,6 +96,18 @@ def test_check_connection_refused_401(engine, token, api_key):
     assert FAKE_TOKEN not in message and FAKE_KEY not in message
 
 
+def test_check_connection_not_json(engine):
+    """Portail Wi-Fi : page HTML en 200. Message clair, pas de ValueError."""
+    api = FakeApi(lambda r: httpx.Response(200, text="<html>Connexion au Wi-Fi</html>"))
+    client = make_tmdb(engine, api)
+
+    connected, message = client.check_connection()
+
+    assert connected is False
+    assert "réponse illisible" in message
+    assert client.available is False
+
+
 def test_check_connection_unreachable(engine):
     def handler(request):
         raise httpx.ConnectError("réseau coupé")

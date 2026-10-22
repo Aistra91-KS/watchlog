@@ -10,6 +10,9 @@ headless = false
 # Pas de question « Email: » dans le terminal au premier lancement
 # (sinon la tâche VS Code resterait bloquée en attente d'une réponse).
 showEmailPrompt = false
+# Accessible depuis ce PC seulement (sinon tout le réseau local, sans mot de passe).
+# Pour l'ouvrir au téléphone : « 0.0.0.0 », sur un réseau de confiance uniquement.
+address = "localhost"
 
 # Deux thèmes, clair et sombre. Choix dans le menu ⋮ > Settings (Light / Dark /
 # Use system setting) ; par défaut, celui du système. Ne pas remettre

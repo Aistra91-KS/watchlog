@@ -21,7 +21,8 @@ from watchlog.ui import common
 COL_SEEN = "Vu"
 COL_UNTIL = "Vu jusqu'ici"
 COL_DATE = "Vu le"
-UPCOMING_STYLE = "color: #9aa5b1"   # épisodes pas encore diffusés : texte grisé
+# Épisodes pas encore diffusés : texte grisé, contraste ≥ 4,5:1 dans chaque thème.
+UPCOMING_STYLE = {"dark": "color: #9aa5b1", "light": "color: #5f6b7a"}
 RATING_OPTIONS = [0, 1, 2, 3, 4, 5]  # 0 = pas de note
 
 
@@ -145,8 +146,10 @@ def season_table(episodes: list[Episode], watched: dict[int, date | None],
 
 def grey_upcoming(df: pd.DataFrame, upcoming: list[int]):
     """Grise le texte des épisodes à venir (colonnes non modifiables seulement)."""
+    style = UPCOMING_STYLE["dark" if common.is_dark_theme() else "light"]
+
     def style_row(row):
-        color = UPCOMING_STYLE if row.name in upcoming else ""
+        color = style if row.name in upcoming else ""
         return [color if col in ("Code", "Date", "Titre") else "" for col in row.index]
     return df.style.apply(style_row, axis=1)
 

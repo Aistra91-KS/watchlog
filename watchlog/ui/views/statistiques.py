@@ -240,6 +240,9 @@ if tab_activity.open:
         hours = hours.assign(libelle=hours["mois"].map(month_label))
         st.altair_chart(two_series(hours[["libelle", "episodes", "films"]], "libelle", None, "Heures",
                                    stacked=True), width="stretch")
+        no_runtime = int(dated["runtime"].isna().sum())
+        if no_runtime:
+            st.caption(f"Durée inconnue pour {no_runtime} visionnage(s) : non comptés en heures.")
 
         left, right = st.columns(2)
         with left:
@@ -275,6 +278,10 @@ if tab_shows.open:
                                               alt.Tooltip("heures:Q", title="Heures"),
                                               alt.Tooltip("episodes:Q", title="Épisodes vus")]),
                                 width="stretch")
+                no_runtime = int(((frame["kind"] == EPISODE) & frame["runtime"].isna()).sum())
+                if no_runtime:
+                    st.caption(f"Durée inconnue pour {no_runtime} épisode(s) vu(s) : "
+                               "non comptés en heures.")
         with right:
             st.subheader("Genres des séries regardées")
             genres = stats.genre_counts(frame, EPISODE, 10)

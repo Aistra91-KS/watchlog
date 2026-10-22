@@ -162,6 +162,14 @@ def test_watch_pace_without_bulk_days():
     assert pace["minutes"] == (60 + 50 + 60 + 30) + 120
 
 
+def test_watch_pace_empty_frame():
+    """Aucun visionnage (base neuve) : rythme nul, pas de KeyError."""
+    pace = stats.watch_pace(pd.DataFrame([], columns=["kind", "day", "runtime"]), 7,
+                            today=FINISH_TODAY)
+
+    assert (pace["watches"], pace["minutes"], pace["per_day"]) == (0, 0, 0.0)
+
+
 def test_watch_pace_starts_at_first_bulk_day():
     """Avant le jour d'import, l'historique n'est pas daté : la période ne remonte pas plus loin."""
     pace = stats.watch_pace(pace_frame(), 365, bulk={date(2026, 10, 12)}, today=FINISH_TODAY)

@@ -34,7 +34,7 @@ CSS = """
 .wl-head {font-size:.8rem;opacity:.65;text-align:center;padding:2px 0;font-weight:600}
 .wl-day {border:1px solid rgba(128,128,128,.25);border-radius:10px;padding:6px;
          background:rgba(128,128,128,.04);min-height:118px}
-.wl-day.out {opacity:.35}
+.wl-day.out .wl-num, .wl-day.out img {opacity:.5}
 .wl-day.today {border:2px solid var(--wl-primary);background:rgba(128,128,128,.08)}
 .wl-num {font-size:.8rem;font-weight:700;margin-bottom:4px;display:flex;justify-content:space-between}
 .wl-num .tag {font-weight:600;color:var(--wl-primary)}
@@ -46,7 +46,8 @@ CSS = """
 .wl-item .t {font-size:.74rem;line-height:1.15;font-weight:600;overflow:hidden;display:-webkit-box;
           -webkit-line-clamp:2;-webkit-box-orient:vertical}
 .wl-item .c {font-size:.7rem;opacity:.7}
-.wl-item.vu {opacity:.45}
+.wl-item.vu img {opacity:.45}
+.wl-item.vu .t {opacity:.8}
 .wl-item.film {border-left:3px solid %(movie)s;padding-left:4px}
 .wl-more {font-size:.7rem;opacity:.7}
 .wl-week .wl-day {min-height:260px}
@@ -139,12 +140,16 @@ def day_cell(day: date, items: list[queue.QueueItem], today: date, in_period: bo
     body = "".join(entry_html(e) for e in shown)
     if limit is not None and len(entries) > limit:
         body += f"<div class='wl-more'>+{len(entries) - limit} autre(s)</div>"
-    return (f"<div class='{' '.join(classes)}'><div class='wl-num'><span>{day.day}</span>{tag}</div>"
+    # Date complète pour les lecteurs d'écran : la case seule ne montre que le numéro du jour.
+    label = f"{DAY_NAMES[day.weekday()]} {day.day} {MONTH_NAMES[day.month - 1]} {day.year}"
+    return (f"<div class='{' '.join(classes)}' role='group' aria-label='{esc(label)}'>"
+            f"<div class='wl-num'><span aria-hidden='true'>{day.day}</span>{tag}</div>"
             f"{body}</div>")
 
 
 def grid(days: list[date], by_day: dict, today: date, in_period, limit, extra_class="") -> None:
-    head = "".join(f"<div class='wl-head'>{name[:3]}.</div>" for name in DAY_NAMES)
+    head = "".join(f"<div class='wl-head' aria-hidden='true'>{name[:3]}.</div>"
+                   for name in DAY_NAMES)
     cells = "".join(day_cell(d, by_day.get(d, []), today, in_period(d), limit) for d in days)
     st.markdown(f"<div class='wl-scroll {extra_class}'><div class='wl-grid'>{head}{cells}</div></div>",
                 unsafe_allow_html=True)
@@ -249,13 +254,16 @@ else:
 
     col_prev, col_title, col_now, col_next_btn = st.columns([1, 4, 1, 1],
                                                             vertical_alignment="center")
-    col_prev.button("◀", key="cal_prev", on_click=shift, args=(view, start, -1),
-                    help="Période précédente", width="stretch")
+    # Libellés en toutes lettres : un glyphe seul est mal lu par les lecteurs d'écran.
+    col_prev.button("Précédent", icon=":material/chevron_left:", key="cal_prev",
+                    on_click=shift, args=(view, start, -1), help="Période précédente",
+                    width="stretch")
     col_title.markdown(f"### {title}")
     col_now.button("Aujourd'hui", key="cal_today", on_click=shift, args=(view, start, 0),
                    width="stretch")
-    col_next_btn.button("▶", key="cal_next", on_click=shift, args=(view, start, 1),
-                        help="Période suivante", width="stretch")
+    col_next_btn.button("Suivant", icon=":material/chevron_right:", key="cal_next",
+                        on_click=shift, args=(view, start, 1), help="Période suivante",
+                        width="stretch")
 
     with common.db() as session:
         items = queue.releases_between(session, first_shown, last_shown,

@@ -46,6 +46,7 @@ class SyncReport:
     runtimes_updated: int = 0    # épisodes dont la durée a été corrigée par TMDB
     runtimes_unmatched: int = 0  # épisodes gardant la durée TVMaze (numérotation différente)
     runtimes_missing: int = 0    # saisons absentes de TMDB (durées TVMaze gardées)
+    runtimes_no_tmdb: int = 0    # séries sans id TMDB : durées TVMaze gardées
     completed: int = 0           # séries passées en « Terminé »
     posters: int = 0             # affiches téléchargées
     tvmaze_down: bool = False    # TVMaze injoignable : séries non mises à jour
@@ -69,6 +70,9 @@ class SyncReport:
             lines.append(f"Durées TVMaze gardées : {self.runtimes_unmatched} épisodes à la "
                          f"numérotation différente sur TMDB, {self.runtimes_missing} saisons "
                          "absentes de TMDB.")
+        if self.runtimes_no_tmdb:
+            lines.append(f"Durées TVMaze gardées : {self.runtimes_no_tmdb} séries introuvables "
+                         "sur TMDB.")
         if self.completed:
             lines.append(f"Séries passées en « Terminé » : {self.completed}.")
         if self.posters:
@@ -119,21 +123,30 @@ def shows_to_refresh(session: Session, updates: dict[int, int],
             if show_needs_refresh(show.last_synced_at, updates.get(show.tvmaze_id), now)]
 
 
+def _runtime_candidates(session: Session):
+    """Séries de la bibliothèque à la numérotation fiable (requête, sans filtre sur l'id TMDB)."""
+    return (
+        select(Show)
+        .join(LibraryItem, (LibraryItem.kind == SHOW) & (LibraryItem.ref_id == Show.id))
+        .where(Show.match_status.in_([MATCH_OK, MATCH_REMAPPED]))
+        .order_by(Show.title)
+    )
+
+
 def shows_for_runtimes(session: Session, refreshed_tvmaze_ids=()) -> list[Show]:
     """Séries dont il faut lire les durées TMDB : jamais vérifiées, ou rechargées à l'instant.
 
     Toute la bibliothèque, arrêtées comprises (leurs épisodes vus comptent dans les stats).
     """
     refreshed = set(refreshed_tvmaze_ids)
-    query = (
-        select(Show)
-        .join(LibraryItem, (LibraryItem.kind == SHOW) & (LibraryItem.ref_id == Show.id))
-        .where(Show.tmdb_id.is_not(None))
-        .where(Show.match_status.in_([MATCH_OK, MATCH_REMAPPED]))
-        .order_by(Show.title)
-    )
+    query = _runtime_candidates(session).where(Show.tmdb_id.is_not(None))
     return [show for show in session.exec(query)
             if show.runtimes_checked_at is None or show.tvmaze_id in refreshed]
+
+
+def shows_without_tmdb(session: Session) -> list[Show]:
+    """Séries dont on ne peut pas lire les durées TMDB, faute d'id : à signaler au rapport."""
+    return list(session.exec(_runtime_candidates(session).where(Show.tmdb_id.is_(None))))
 
 
 def is_released(movie: Movie, today: date) -> bool:
@@ -161,7 +174,7 @@ def sync(engine: Engine, tvmaze, tmdb, progress: Progress | None = None,
          download_posters: bool = True) -> SyncReport:
     """Met à jour la bibliothèque et renvoie un rapport."""
     # Imports ici : ces modules dépendent de beaucoup d'autres.
-    from watchlog.core import catalog, library
+    from watchlog.core import catalog, library, suggestions
 
     report = SyncReport()
     progress = progress or (lambda done, total, label: None)
@@ -189,6 +202,10 @@ def sync(engine: Engine, tvmaze, tmdb, progress: Progress | None = None,
         # 3. Choix des séries dont on lit les durées réelles (TMDB).
         runtime_jobs = []  # (id, titre)
         if not report.tmdb_down:
+            # Séries ajoutées depuis TVMaze : leur id TMDB n'est connu qu'une fois cherché.
+            suggestions.resolve_show_tmdb_ids(session, tmdb)
+            session.commit()
+            report.runtimes_no_tmdb = len(shows_without_tmdb(session))
             refreshed = [tvmaze_id for tvmaze_id, _ in show_jobs]
             runtime_jobs = [(s.id, s.title) for s in shows_for_runtimes(session, refreshed)]
 
