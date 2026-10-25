@@ -8,13 +8,16 @@ import { platformChoices } from "../core/providers.js";
 import { clearAll, storageEstimate } from "../storage/idb.js";
 import { maskSecret, readSecret, saveSecret } from "../storage/secret.js";
 import { externalLink, html, raw } from "./dom.js";
+import { loadPrefs, savePrefs } from "./prefs.js";
+import { alert, segmented } from "./ui.js";
 
 const REPO_URL = "https://github.com/Aistra91-KS/watchlog";
 const TMDB_KEY_HELP = "https://www.themoviedb.org/settings/api";
 
 async function platformsSection(app) {
   if (!app.tmdb.configured) {
-    return html`<p class="muted">Ajoute d'abord ta clé TMDB : la liste vient de TMDB / JustWatch.</p>`;
+    return alert("info", "TMDB n'est pas connecté : la liste des plateformes ne peut pas être chargée "
+      + "(ajoute d'abord ta clé TMDB).");
   }
   const saved = app.store.setting("my_platforms", []);
   let names;
@@ -23,7 +26,7 @@ async function platformsSection(app) {
     names = platformChoices(lists, saved);
   } catch (error) {
     console.warn("Liste des plateformes", error);
-    return html`<p class="error">Liste des plateformes indisponible : ${error.message}</p>`;
+    return alert("warning", `Liste des plateformes indisponible : ${error.message}`);
   }
   const chosen = new Set(saved);
   return html`<form data-submit="save-platforms">
@@ -45,32 +48,43 @@ export async function render(app) {
   const lastSync = app.store.setting("last_sync_at", null);
   const estimate = await storageEstimate();
   const confirmClear = app.ui.confirmClear;
+  const connected = app.tmdb.configured && app.tmdb.connected === true;
+  const theme = loadPrefs("theme", { mode: "system" }).mode;
   return html`
   <h1>Paramètres</h1>
 
-  <section aria-labelledby="tmdb-h"><h2 id="tmdb-h">Connexion TMDB</h2>
+  <section aria-labelledby="theme-h"><h2 class="header" id="theme-h">Apparence</h2>
+    <p class="caption">Thème de l'app, comme le menu ⋮ > Settings de l'app Python : clair, sombre ou
+      celui de ton appareil.</p>
+    ${segmented("Thème", "theme", [["system", "Système"], ["light", "Clair"], ["dark", "Sombre"]],
+      theme, "theme")}
+  </section>
+
+  <section aria-labelledby="tmdb-h"><h2 class="header" id="tmdb-h">Connexion TMDB</h2>
     <p>TMDB fournit les films, les textes français, les suggestions et les plateformes.
       Crée une clé gratuite sur ${externalLink(TMDB_KEY_HELP, "themoviedb.org")}
       (« Clé d'API » ou « Jeton d'accès en lecture »), puis colle-la ici.
       <strong>Elle reste dans ce navigateur</strong> : jamais envoyée ailleurs qu'à TMDB, jamais
       dans le fichier d'export.</p>
-    <p>${secret ? html`Clé enregistrée : <code>${maskSecret(secret)}</code>` : "Aucune clé enregistrée."}
-      ${status ? html` <span class="${status.ok ? "ok" : "error"}" data-announce>${status.message}</span>` : ""}</p>
+    ${connected ? alert("success", "Connecté") : alert("warning", "Non connecté")}
+    <p class="caption" data-announce>${status ? status.message : app.tmdb.lastMessage
+      || (secret ? "Clé enregistrée, pas encore testée." : "Aucune clé enregistrée.")}</p>
+    ${secret ? html`<p class="caption">Clé enregistrée : <code>${maskSecret(secret)}</code></p>` : ""}
     <form class="inline-form" data-submit="save-secret">
       <label class="field field-wide"><span>Clé d'API ou jeton TMDB</span>
         <input type="password" name="secret" autocomplete="off" spellcheck="false"></label>
       <button class="btn">Enregistrer et tester</button>
     </form>
-    ${secret ? html`<p><button type="button" class="btn btn-ghost" data-action="test-secret">Tester la connexion</button>
+    ${secret ? html`<p><button type="button" class="btn btn-ghost" data-action="test-secret">Retester</button>
       <button type="button" class="btn btn-ghost btn-danger" data-action="forget-secret">Oublier la clé</button></p>` : ""}
   </section>
 
-  <section aria-labelledby="platforms-h"><h2 id="platforms-h">Mes plateformes</h2>
+  <section aria-labelledby="platforms-h"><h2 class="header" id="platforms-h">Mes plateformes</h2>
     <p class="muted">Pour mettre en avant les titres disponibles sur tes abonnements.</p>
     ${await platformsSection(app)}
   </section>
 
-  <section aria-labelledby="exchange-h"><h2 id="exchange-h">Échange avec l'app Python</h2>
+  <section aria-labelledby="exchange-h"><h2 class="header" id="exchange-h">Échange avec l'app Python</h2>
     <p>Les données de cette page restent dans ce navigateur. Pour retrouver ta bibliothèque du PC,
       exporte-la depuis l'app Python (Paramètres, section « App web ») puis importe le fichier ici ;
       dans l'autre sens, exporte ici puis importe sur le PC. Les visionnages s'ajoutent (jamais
@@ -85,7 +99,7 @@ export async function render(app) {
     ${app.ui.importReport ? html`<pre class="report" data-announce>${app.ui.importReport.join("\n")}</pre>` : ""}
   </section>
 
-  <section aria-labelledby="sync-h"><h2 id="sync-h">Mise à jour des séries et films</h2>
+  <section aria-labelledby="sync-h"><h2 class="header" id="sync-h">Mise à jour des séries et films</h2>
     <p>Nouveaux épisodes (TVMaze), dates de sortie des films (TMDB). Automatique à l'ouverture
       si la dernière date de plus de 24 h.
       ${lastSync ? `Dernière : ${fmtDate(lastSync)}.` : "Jamais faite."}</p>
@@ -96,7 +110,7 @@ export async function render(app) {
       <pre class="report">${report.lines.join("\n")}</pre></details>` : ""}
   </section>
 
-  <section aria-labelledby="storage-h"><h2 id="storage-h">Stockage</h2>
+  <section aria-labelledby="storage-h"><h2 class="header" id="storage-h">Stockage</h2>
     <p>${count(app.store.library, "show")} séries et ${count(app.store.library, "movie")} films
       dans la bibliothèque, ${app.store.watches.size} visionnages.
       ${estimate ? ` Espace utilisé : ${(estimate.usage / 1_048_576).toFixed(1)} Mo.` : ""}</p>
@@ -114,7 +128,7 @@ export async function render(app) {
     </div>
   </section>
 
-  <section aria-labelledby="about-h"><h2 id="about-h">À propos</h2>
+  <section aria-labelledby="about-h"><h2 class="header" id="about-h">À propos</h2>
     <p>Watchlog, suivi de séries et de films. Code source et version à installer sur PC :
       ${externalLink(REPO_URL, "GitHub")}.</p>
     <p class="credit">Données séries : ${externalLink("https://www.tvmaze.com", "TVMaze")}
@@ -133,6 +147,10 @@ function download(name, text) {
 }
 
 export const actions = {
+  theme(app, el) {
+    savePrefs("theme", { mode: el.value });
+    app.applyTheme();
+  },
   async "save-secret"(app, form) {
     const value = new FormData(form).get("secret");
     if (!String(value || "").trim()) throw new Error("Colle ta clé TMDB dans le champ.");

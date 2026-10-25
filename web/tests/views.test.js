@@ -85,3 +85,42 @@ test("« À regarder », « Sur mes plateformes » : recherche, puis liste filtr
   assert.match(out, /Le Royaume/);
   assert.ok(!out.includes("Pas vu"), "film seulement en location : masqué");
 });
+
+test("calendrier : vues Mois, Semaine et Liste ; statistiques : chaque onglet", async (t) => {
+  const saved = new Map();
+  globalThis.localStorage = { getItem: (k) => saved.get(k) ?? null, setItem: (k, v) => saved.set(k, v) };
+  t.after(() => { delete globalThis.localStorage; });
+  const app = fakeApp();
+  for (const view of ["mois", "semaine", "liste"]) {
+    saved.set("watchlog.prefs.calendar", JSON.stringify({ view }));
+    const out = String(calendrier.render(app));
+    assert.equal(out.match(/<h1[\s>]/g)?.length, 1);
+    assert.ok(!out.includes(EVIL));
+    assert.ok(view === "liste" ? out.includes("prochains jours") : out.includes("cal-grid"), view);
+  }
+  for (const tab of ["Activité", "Séries", "Films", "Notes"]) {
+    app.ui.tabs = { stats: tab };
+    const out = String(statistiques.render(app));
+    assert.match(out, new RegExp(`aria-selected="true"[^>]*>${tab}<`));
+    assert.ok(!out.includes(EVIL), tab);
+  }
+});
+
+test("ajouter : onglets, résultats séries + films, saisie manuelle", async () => {
+  const app = fakeApp();
+  app.tvmaze = { search: async () => [{ show: { id: 9, name: EVIL, premiered: "2021-01-01",
+    summary: `<p>${EVIL}</p>`, status: "Ended" } }] };
+  const form = { querySelector: () => null };
+  globalThis.FormData = class { get() { return "rives"; } };
+  try {
+    String(ajouter.render(app, []));
+    await ajouter.actions["add-search"](app, form);
+  } finally {
+    delete globalThis.FormData;
+  }
+  const out = String(ajouter.render(app, []));
+  assert.ok(out.includes("1 série(s) et") && out.includes("Films non cherchés"));
+  assert.ok(out.includes("Terminée") && !out.includes(EVIL));
+  app.ui.tabs = { add: "Saisie manuelle" };
+  assert.ok(String(ajouter.render(app, [])).includes("Ajouter la série"));
+});

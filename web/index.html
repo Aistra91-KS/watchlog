@@ -46,6 +46,14 @@
     "sameAs": "https://github.com/Aistra91-KS/watchlog"
   }
   </script>
+  <script>
+    // Thème choisi dans Paramètres, posé avant l'affichage (pas d'éclair clair en sombre).
+    try {
+      const mode = JSON.parse(localStorage.getItem("watchlog.prefs.theme") || "{}").mode;
+      if (mode === "light" || mode === "dark") document.documentElement.dataset.theme = mode;
+    } catch { /* stockage bloqué : thème du système */ }
+  </script>
+  <link rel="preload" href="assets/fonts/watchlog-sans.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="css/style.css">
   <script type="module" src="js/main.js"></script>
   <link rel="modulepreload" href="js/core/store.js">
@@ -60,11 +68,20 @@
 </head>
 <body>
   <a class="skip-link" href="#main">Aller au contenu</a>
-  <header class="topbar">
-    <a class="brand" href="#/a-regarder"><img src="assets/icon.png" alt="" width="28" height="28"> Watchlog</a>
-    <nav id="nav" aria-label="Navigation principale"></nav>
+  <!-- Mise en page de l'app Python (Streamlit) : menu à gauche, contenu sur toute la largeur.
+       Sur petit écran, le menu se replie derrière le bouton « Menu ». -->
+  <header class="mobile-bar">
+    <button type="button" id="menu-toggle" class="menu-toggle" aria-expanded="false"
+      aria-controls="sidebar">Menu</button>
+    <a class="mobile-brand" href="#/a-regarder">Watchlog</a>
   </header>
-  <p id="sync-status" class="sync-status" aria-live="off" hidden></p>
+  <div id="sidebar-backdrop" class="sidebar-backdrop" hidden></div>
+  <aside id="sidebar" class="sidebar" aria-label="Menu">
+    <p class="sidebar-title"><a href="#/a-regarder">Watchlog</a></p>
+    <nav id="nav" aria-label="Navigation principale"></nav>
+    <div id="sidebar-status" class="sidebar-status"></div>
+  </aside>
+  <div class="content">
   <p id="save-error" class="banner-error" role="alert" hidden></p>
   <main id="main" tabindex="-1">
     <!-- Contenu de présentation, remplacé par l'application dès que le JavaScript démarre. -->
@@ -88,6 +105,13 @@
     <h3>D'où viennent les données ?</h3>
     <p>Séries : TVMaze. Films, suggestions et plateformes : TMDB (avec ta propre clé gratuite).</p>
   </main>
+  <!-- Mentions obligatoires, en bas de chaque page (comme common.footer() côté Python). -->
+  <footer class="footer">
+    <p>Données séries : <a href="https://www.tvmaze.com" rel="noopener">TVMaze.com</a> (CC BY-SA)</p>
+    <p>This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
+    <p>Disponibilités en France : JustWatch (via TMDB).</p>
+  </footer>
+  </div>
   <div class="toasts">
     <div id="toast" role="status"></div>
     <div id="toast-alert" role="alert"></div>
