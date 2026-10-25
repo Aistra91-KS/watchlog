@@ -3,9 +3,10 @@
 
 import { enrichShowFromTmdb, tvmazeStatusLabel } from "../core/adding.js";
 import { upsertShowFromTvmaze } from "../core/catalog.js";
-import { fmtDate, fmtRuntime, localDate, today } from "../core/dates.js";
+import { fmtDate, fmtRuntime, localDate, parisDay, today } from "../core/dates.js";
 import {
-  getLibraryItem, getWatch, isAired, markSeasonWatched, markWatched, markWatchedUntil,
+  addSeasonRewatch, getLibraryItem, getRating, getWatch, isAired, markSeasonWatched, markWatched,
+  markWatchedUntil, removeSeasonRewatch, setRatingValue, setShowWatchDates, setWatchDate,
   unmarkSeason, unmarkWatched,
 } from "../core/library.js";
 import {
@@ -13,20 +14,26 @@ import {
 } from "../core/model.js";
 import { UPCOMING, nextEpisode } from "../core/queue.js";
 import { formatDuration, showTime } from "../core/stats.js";
-import { externalLink, html, poster, raw } from "./dom.js";
+import { externalLink, html, options, poster, raw } from "./dom.js";
 import { icon } from "./icons.js";
 import { loadPrefs, savePrefs } from "./prefs.js";
 import { providersBlock } from "./providers.js";
 import { favoriteCheck, ratingForm, removeButton, statusSelect } from "./shared.js";
-import { alert, expander, metric, metrics } from "./ui.js";
+import { alert, expander, metric, metrics, segmented } from "./ui.js";
 
 const PREFS = "serie";
 const DEFAULTS = { specials: false };
 
-function episodeRow(store, show, ep, day) {
+const MIN_DATE = "1900-01-01";
+const NOTES = [["", "—"], ...[1, 2, 3, 4, 5].map((n) => [String(n), String(n)])];
+
+/** Une ligne du tableau d'une saison (comme le tableau modifiable de serie.py) : « Vu »,
+ *  « Vu le » et « Note » se changent directement ; « Vu jusqu'ici » coche les précédents. */
+function episodeRow(store, show, ep, day, withPlays) {
   const date = localDate(ep.airstamp, ep.airdate);
   const aired = isAired(ep, day);
   const w = getWatch(store, EPISODE, ep.key);
+  const rating = getRating(store, EPISODE, ep.key)?.rating;
   const code = episodeCode(ep.season, ep.number);
   const label = `${show.title} ${code}`;
   return html`<tr class="${aired ? "" : "is-upcoming"}">
@@ -35,7 +42,13 @@ function episodeRow(store, show, ep, day) {
     <td><label class="check"><input type="checkbox" data-change="ep-toggle" data-ref="${ep.key}"
       data-focus="${`ep-${ep.key}`}" aria-label="${`Vu : ${label}`}" ${w ? raw("checked") : ""}
       ${aired || w ? "" : raw("disabled")}></label></td>
-    <td>${w?.watched_at ? fmtDate(w.watched_at) : w ? "date inconnue" : ""}</td>
+    <td><input type="date" class="cell" data-change="ep-date" data-ref="${ep.key}"
+      data-focus="${`epd-${ep.key}`}" value="${w?.watched_at ? parisDay(w.watched_at) : ""}"
+      min="${MIN_DATE}" max="${day}" aria-label="${`Vu le : ${label} (vide : date inconnue)`}"
+      ${aired || w ? "" : raw("disabled")}></td>
+    <td><select class="cell" data-change="ep-rating" data-ref="${ep.key}" data-focus="${`epn-${ep.key}`}"
+      aria-label="${`Note de ${label}`}">${options(NOTES, rating ? String(rating) : "")}</select></td>
+    ${withPlays ? html`<td class="num">${w ? w.plays || 1 : ""}</td>` : ""}
     <td>${aired && !w ? html`<button type="button" class="btn" data-action="watch-until"
       data-ref="${ep.key}" title="Marque vus tous les épisodes jusqu'à celui-ci inclus"
       aria-label="${`Vu jusqu'ici : tout vu jusqu'à ${label}`}">${icon("done_all")}<span
@@ -48,12 +61,15 @@ function seasonBlock(store, show, season, episodes, day) {
   const open = seen < episodes.length && seen > 0;
   const name = season === 0 ? "Spéciaux" : `Saison ${season}`;
   const upcoming = episodes.some((ep) => !isAired(ep, day));
+  // Colonne « Visionnages » seulement pour une saison dont un épisode a été revu
+  const withPlays = episodes.some((ep) => (getWatch(store, EPISODE, ep.key)?.plays || 1) > 1);
   return expander(`${name} · ${seen}/${episodes.length} vus`, html`
     <div class="tbl-wrap"><table class="tbl" aria-label="${`Épisodes : ${name}`}">
       <thead><tr><th scope="col">Code</th><th scope="col">Date</th><th scope="col">Titre</th>
         <th scope="col">Durée</th><th scope="col">Vu</th><th scope="col">Vu le</th>
+        <th scope="col">Note</th>${withPlays ? html`<th scope="col" class="num">Visionnages</th>` : ""}
         <th scope="col">Vu jusqu'ici</th></tr></thead>
-      <tbody>${episodes.map((ep) => episodeRow(store, show, ep, day))}</tbody>
+      <tbody>${episodes.map((ep) => episodeRow(store, show, ep, day, withPlays))}</tbody>
     </table></div>
     ${upcoming ? html`<p class="caption">Les épisodes en gris ne sont pas encore diffusés.</p>` : ""}
     <div class="season-actions">
@@ -62,6 +78,50 @@ function seasonBlock(store, show, season, episodes, day) {
       ${seen ? html`<button type="button" class="btn" data-action="season-unwatch"
         data-show="${show.key}" data-season="${season}">Tout décocher</button>` : ""}
     </div>`, { open, keep: `saison-${show.key}-${season}` });
+}
+
+const seasonName = (season) => (season === 0 ? "Spéciaux" : `Saison ${season}`);
+
+function seasonChips(name, seasons, checked) {
+  return html`<fieldset class="chips"><legend>Saisons</legend>${seasons.map((season) => html`
+    <label class="chip"><input type="checkbox" name="${name}" value="${season}"
+      ${checked ? raw("checked") : ""}> ${seasonName(season)}</label>`)}</fieldset>`;
+}
+
+/** « Changer la date de visionnage de plusieurs épisodes » et « Revisionnage » (serie.py). */
+function bulkBlocks(app, show, all, day) {
+  const watched = all.filter((ep) => getWatch(app.store, EPISODE, ep.key));
+  if (!watched.length) return "";
+  const seasons = [...new Set(watched.map((ep) => ep.season))].sort((a, b) => a - b);
+  const chosen = app.ui.serieBulkMode === "chosen";
+  const rewatched = watched.filter((ep) => (getWatch(app.store, EPISODE, ep.key).plays || 1) > 1).length;
+  return html`
+    ${expander("Changer la date de visionnage de plusieurs épisodes", html`
+      <form class="stack" data-submit="serie-bulk-date" data-show="${show.key}">
+        <p class="caption">S'applique aux épisodes déjà vus des saisons choisies (spéciaux compris).
+          « Date inconnue » : ils restent vus, mais sans date, et ne comptent dans aucun mois des
+          statistiques.</p>
+        ${seasonChips("seasons", seasons, true)}
+        ${segmented("Date", "mode", [["unknown", "Date inconnue"], ["chosen", "Choisir une date"]],
+          chosen ? "chosen" : "unknown", "serie-bulk-mode")}
+        ${chosen ? html`<label class="field"><span>Vu le</span><input type="date" name="day"
+          min="${MIN_DATE}" max="${day}" required></label>` : ""}
+        <button class="btn">Appliquer</button>
+      </form>`, { keep: `bulk-date-${show.key}` })}
+    ${expander("Revisionnage", html`
+      <form class="stack" data-show="${show.key}" data-submit="serie-rewatch-add">
+        <p class="caption">Ajoute un visionnage aux épisodes déjà vus des saisons choisies (les
+          statistiques comptent chaque visionnage). ${rewatched ? `${rewatched} épisode(s) revu(s)
+          pour l'instant.` : "Aucun épisode revu pour l'instant."}</p>
+        ${seasonChips("seasons", seasons, false)}
+        <label class="field"><span>Revu le</span><input type="date" name="day" value="${day}"
+          min="${MIN_DATE}" max="${day}"></label>
+        <div class="season-actions">
+          <button class="btn">Ajouter un revisionnage</button>
+          <button type="button" class="btn" data-action="serie-rewatch-remove"
+            ${rewatched ? "" : raw("disabled")}>Retirer un revisionnage</button>
+        </div>
+      </form>`, { keep: `rewatch-${show.key}` })}`;
 }
 
 /** Bloc « Prochain épisode » : le marquer vu sans chercher dans les saisons. */
@@ -150,6 +210,7 @@ export async function render(app, [key]) {
     <h2>Épisodes</h2>
     <p><label class="check"><input type="checkbox" data-change="serie-specials" ${prefs.specials
       ? raw("checked") : ""}> Afficher les épisodes spéciaux</label></p>
+    ${bulkBlocks(app, show, all, day)}
     ${seasons.size ? [...seasons].sort((a, b) => (a[0] || 999) - (b[0] || 999))
       .map(([season, list]) => seasonBlock(app.store, show, season, list, day))
       : html`<p>Aucun épisode connu pour cette série.</p>`}
@@ -160,7 +221,46 @@ export async function render(app, [key]) {
   </article>`;
 }
 
+const chosenSeasons = (form) => [...form.querySelectorAll('input[name="seasons"]:checked')]
+  .map((box) => Number(box.value));
+
 export const actions = {
+  "ep-date"(app, el) {
+    // Date changée (vide : date inconnue) ; un épisode pas vu devient vu à cette date.
+    if (!el.value && !getWatch(app.store, EPISODE, el.dataset.ref)) return false;
+    setWatchDate(app.store, EPISODE, el.dataset.ref, el.value || null);
+    return true;
+  },
+  "ep-rating"(app, el) {
+    setRatingValue(app.store, EPISODE, el.dataset.ref, el.value ? Number(el.value) : null);
+  },
+  "serie-bulk-mode"(app, el) { app.ui.serieBulkMode = el.value; },
+  "serie-bulk-date"(app, form) {
+    const seasons = chosenSeasons(form);
+    if (!seasons.length) throw new Error("Choisis au moins une saison.");
+    const day = form.querySelector('input[name="day"]')?.value || null;
+    if (app.ui.serieBulkMode === "chosen" && !day) throw new Error("Choisis une date (ou « Date inconnue »).");
+    const n = setShowWatchDates(app.store, form.dataset.show, app.ui.serieBulkMode === "chosen" ? day : null,
+      seasons);
+    app.toast(`Date de visionnage de ${n} épisode(s) : ${day && app.ui.serieBulkMode === "chosen"
+      ? fmtDate(day) : "date inconnue"}.`);
+  },
+  "serie-rewatch-add"(app, form) {
+    const seasons = chosenSeasons(form);
+    if (!seasons.length) throw new Error("Choisis au moins une saison.");
+    const { specials } = loadPrefs(PREFS, DEFAULTS);
+    const n = addSeasonRewatch(app.store, form.dataset.show, seasons,
+      form.querySelector('input[name="day"]').value || null, specials);
+    app.toast(`Revisionnage ajouté à ${n} épisode(s).`);
+  },
+  "serie-rewatch-remove"(app, el) {
+    const form = el.closest("form");
+    const seasons = chosenSeasons(form);
+    if (!seasons.length) throw new Error("Choisis au moins une saison.");
+    const { specials } = loadPrefs(PREFS, DEFAULTS);
+    const n = removeSeasonRewatch(app.store, form.dataset.show, seasons, specials);
+    app.toast(`Revisionnage retiré de ${n} épisode(s).`);
+  },
   "ep-toggle"(app, el) {
     if (el.checked) markWatched(app.store, EPISODE, el.dataset.ref);
     else unmarkWatched(app.store, EPISODE, el.dataset.ref);

@@ -8,8 +8,9 @@ import {
   addDays, fmtAgo, fmtDate, fmtRuntime, localDate, localDayToUtc, weekStart,
 } from "../js/core/dates.js";
 import {
-  addRewatch, markSeasonWatched, markWatched, markWatchedUntil, refreshCompleted, removeRewatch,
-  setRating, setStatus, unmarkWatched, upsertWatch,
+  addRewatch, addSeasonRewatch, getRating, getWatch, markSeasonWatched, markWatched,
+  markWatchedUntil, refreshCompleted, removeRewatch, removeSeasonRewatch, setRating,
+  setRatingValue, setShowWatchDates, setStatus, unmarkWatched, upsertWatch,
 } from "../js/core/library.js";
 import { COMPLETED, EPISODE, MOVIE, SHOW, STOPPED, TO_WATCH, refKey } from "../js/core/model.js";
 import { lastWatchedLabel, libraryOverview, progressLabel, SORT_PAUSED } from "../js/core/progress.js";
@@ -261,4 +262,54 @@ test("revisionnage daté (comme library.add_rewatch / remove_rewatch)", () => {
   const other = addMovie(store, "Brume", { id: 6 });
   w = addRewatch(store, MOVIE, other, "2025-12-24");
   assert.deepEqual([w.plays, w.watched_at], [1, "2025-12-24T11:00:00Z"]);
+});
+
+test("dates de plusieurs épisodes d'un coup (comme library.set_show_watch_dates)", () => {
+  const store = makeStore();
+  const show = addShow(store, "Lost", { id: 1 });
+  const other = addShow(store, "Autre", { id: 2 });
+  const [s1e1, s1e2] = [addEpisode(store, show, 1, 1, { id: 1 }), addEpisode(store, show, 1, 2, { id: 2 })];
+  const [s2e1, special] = [addEpisode(store, show, 2, 1, { id: 3 }), addEpisode(store, show, 2, null, { id: 4 })];
+  const unseen = addEpisode(store, show, 2, 2, { id: 5 });
+  const elsewhere = addEpisode(store, other, 1, 1, { id: 6 });
+  for (const ep of [s1e1, s1e2, s2e1, special, elsewhere]) markWatched(store, EPISODE, ep);
+  assert.equal(setShowWatchDates(store, show, "2015-03-01", [2]), 2);
+  assert.equal(getWatch(store, EPISODE, special).watched_at, "2015-03-01T11:00:00Z");
+  assert.notEqual(getWatch(store, EPISODE, s1e1).watched_at, null);
+  assert.equal(getWatch(store, EPISODE, unseen), null);                       // pas marqué vu
+  assert.equal(setShowWatchDates(store, show, null), 4);                     // date inconnue
+  for (const ep of [s1e1, s1e2, s2e1, special]) assert.equal(getWatch(store, EPISODE, ep).watched_at, null);
+  assert.notEqual(getWatch(store, EPISODE, elsewhere).watched_at, null);
+});
+
+test("revisionnage par saison (comme library.add_season_rewatch / remove_season_rewatch)", () => {
+  const store = makeStore();
+  const show = addShow(store, "Le Royaume", { id: 1 });
+  const e11 = addEpisode(store, show, 1, 1, { id: 11 });
+  const e12 = addEpisode(store, show, 1, 2, { id: 12 });
+  const e13 = addEpisode(store, show, 1, 3, { id: 13 });
+  const special = addEpisode(store, show, 1, null, { id: 19 });
+  const e21 = addEpisode(store, show, 2, 1, { id: 21 });
+  for (const ep of [e11, e12, special, e21]) markWatched(store, EPISODE, ep);
+  assert.equal(addSeasonRewatch(store, show, [1], "2025-01-01"), 2);
+  const plays = (ep) => getWatch(store, EPISODE, ep).plays;
+  assert.deepEqual([e11, e12, special, e21].map(plays), [2, 2, 1, 1]);
+  assert.equal(getWatch(store, EPISODE, e13), null);                         // pas vu
+  assert.equal(addSeasonRewatch(store, show, [1, 2], null, true), 4);
+  assert.equal(removeSeasonRewatch(store, show, [1, 2], true), 4);
+  assert.equal(removeSeasonRewatch(store, show, [1, 2], true), 2);
+  assert.equal(removeSeasonRewatch(store, show, [1, 2], true), 0);
+});
+
+test("note seule d'un épisode : le reste de l'avis est gardé (comme set_rating_value)", () => {
+  const store = makeStore();
+  setRating(store, EPISODE, "ep:5", { rating: 2, note: "Lent", emotions: ["bored"],
+    favoriteCharacter: "Gus" });
+  const r = setRatingValue(store, EPISODE, "ep:5", 4);
+  assert.deepEqual([r.rating, r.note, r.emotions, r.favorite_character], [4, "Lent", "bored", "Gus"]);
+  assert.equal(setRatingValue(store, EPISODE, "ep:5", null).note, "Lent");
+  setRatingValue(store, EPISODE, "ep:6", 3);
+  assert.equal(setRatingValue(store, EPISODE, "ep:6", null), null);
+  assert.equal(getRating(store, EPISODE, "ep:6"), null);
+  assert.throws(() => setRatingValue(store, EPISODE, "ep:6", 9));
 });

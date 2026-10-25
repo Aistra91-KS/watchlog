@@ -510,6 +510,7 @@ details:not(.expander) > summary { cursor: pointer; color: var(--primary); font-
 .tbl .is-upcoming td { color: var(--muted); }
 .tbl .btn { min-height: 28px; padding: 0 8px; font-size: 0.875rem; }
 .tbl input[type="checkbox"] { width: 1.1rem; height: 1.1rem; }
+.tbl .cell { min-height: 32px; padding: 2px 8px; width: auto; font-size: 0.875rem; }
 .tbl label.check { min-height: 32px; }
 
 /* --- Bibliothèque : grille d'affiches (6 par ligne sur grand écran) ---------------------- */

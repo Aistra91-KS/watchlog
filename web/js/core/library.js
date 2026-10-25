@@ -136,6 +136,43 @@ export function markWatchedUntil(store, episodeKey, includeSpecials = false) {
   return markEpisodes(store, episodes);
 }
 
+/** Change d'un coup la date des épisodes déjà vus d'une série, toutes saisons ou celles
+ *  données (library.set_show_watch_dates). Pour une série vue il y a longtemps, cochée d'un
+ *  bloc : sans ça, tout tombe à la date du jour et fausse les statistiques. day = null : date
+ *  inconnue. Les épisodes pas vus ne sont pas touchés. Renvoie le nombre d'épisodes changés. */
+export function setShowWatchDates(store, showKey, day, seasons = null) {
+  const episodes = store.episodesOf(showKey).filter((ep) => getWatch(store, EPISODE, ep.key)
+    && (!seasons || seasons.includes(ep.season)));
+  for (const ep of episodes) setWatchDate(store, EPISODE, ep.key, day);
+  return episodes.length;
+}
+
+function watchedEpisodes(store, showKey, seasons, includeSpecials) {
+  return store.episodesOf(showKey).filter((ep) => seasons.includes(ep.season)
+    && (includeSpecials || !ep.is_special) && getWatch(store, EPISODE, ep.key));
+}
+
+/** Revisionnage des épisodes déjà vus des saisons données (library.add_season_rewatch) ;
+ *  les non vus sont ignorés. Renvoie le nombre d'épisodes concernés. */
+export function addSeasonRewatch(store, showKey, seasons, day = null, includeSpecials = false) {
+  const episodes = watchedEpisodes(store, showKey, seasons, includeSpecials);
+  for (const ep of episodes) addRewatch(store, EPISODE, ep.key, day);
+  return episodes.length;
+}
+
+/** Retire un revisionnage aux épisodes revus des saisons données
+ *  (library.remove_season_rewatch). Renvoie le nombre d'épisodes qui en avaient un. */
+export function removeSeasonRewatch(store, showKey, seasons, includeSpecials = false) {
+  let count = 0;
+  for (const ep of watchedEpisodes(store, showKey, seasons, includeSpecials)) {
+    if ((getWatch(store, EPISODE, ep.key).plays || 1) > 1) {
+      removeRewatch(store, EPISODE, ep.key);
+      count += 1;
+    }
+  }
+  return count;
+}
+
 /** Retire les visionnages d'une saison. */
 export function unmarkSeason(store, showKey, season) {
   let count = 0;
@@ -226,6 +263,14 @@ export function setRating(store, kind, ref, { rating = null, note = null, emotio
     key: refKey(kind, ref), kind, ref, rating, note: text, emotions: emotionsText,
     favorite_character: character,
   });
+}
+
+/** Change seulement la note (1 à 5, null = pas de note) : le reste de l'avis est gardé
+ *  (library.set_rating_value, colonne « Note » des tableaux d'épisodes). */
+export function setRatingValue(store, kind, ref, rating) {
+  const existing = getRating(store, kind, ref);
+  return setRating(store, kind, ref, { rating, note: existing?.note ?? null,
+    emotions: splitEmotions(existing?.emotions) });
 }
 
 export function splitEmotions(emotions) {
