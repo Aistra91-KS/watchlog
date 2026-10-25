@@ -50,18 +50,20 @@ export async function persist(db, store) {
   const dirty = store.takeDirty();
   const names = Object.keys(dirty);
   if (!names.length) return 0;
-  const tx = db.transaction(names, "readwrite");
   let count = 0;
-  for (const name of names) {
-    const table = tx.objectStore(name);
-    for (const key of dirty[name]) {
-      const record = store.get(name, key);
-      if (record) table.put(record);
-      else table.delete(key);
-      count += 1;
-    }
-  }
   try {
+    // Tout dans le try : une erreur immédiate (base fermée, donnée non clonable) doit aussi
+    // remettre les clés à écrire.
+    const tx = db.transaction(names, "readwrite");
+    for (const name of names) {
+      const table = tx.objectStore(name);
+      for (const key of dirty[name]) {
+        const record = store.get(name, key);
+        if (record) table.put(record);
+        else table.delete(key);
+        count += 1;
+      }
+    }
     await done(tx);
   } catch (error) {
     // Rien n'est perdu en mémoire : on remet les clés à écrire pour le prochain essai.

@@ -21,10 +21,13 @@ function showResult(app, { show }) {
     </div>
     ${inLibrary ? html`<a class="btn btn-ghost" href="${showHref(key)}">Dans ma bibliothèque</a>`
       : html`<form class="add-form" data-submit="add-show" data-id="${show.id}">
-        <label class="field"><span>Statut</span><select name="status">${options(STATUS_PAIRS, TO_WATCH)}</select></label>
+        <label class="field"><span>Statut</span><select name="status"
+          aria-label="${`Statut pour ${show.name}`}">${options(STATUS_PAIRS, TO_WATCH)}</select></label>
         <details class="until"><summary>J'en suis à…</summary>
-          <label class="field"><span>Saison</span><input name="season" type="number" min="1" inputmode="numeric"></label>
-          <label class="field"><span>Épisode</span><input name="episode" type="number" min="1" inputmode="numeric"></label>
+          <label class="field"><span>Saison</span><input name="season" type="number" min="1"
+            inputmode="numeric" aria-label="${`Saison en cours de ${show.name}`}"></label>
+          <label class="field"><span>Épisode</span><input name="episode" type="number" min="1"
+            inputmode="numeric" aria-label="${`Dernier épisode vu de ${show.name}`}"></label>
         </details>
         <button class="btn" aria-label="${`Ajouter la série ${show.name}`}">Ajouter</button>
       </form>`}
@@ -43,7 +46,8 @@ function movieResult(app, movie) {
     </div>
     ${inLibrary ? html`<a class="btn btn-ghost" href="${movieHref(key)}">Dans ma bibliothèque</a>`
       : html`<form class="add-form" data-submit="add-movie" data-id="${movie.id}">
-        <label class="field"><span>Statut</span><select name="status">${options(STATUS_PAIRS, TO_WATCH)}</select></label>
+        <label class="field"><span>Statut</span><select name="status"
+          aria-label="${`Statut pour ${movie.title}`}">${options(STATUS_PAIRS, TO_WATCH)}</select></label>
         <button class="btn" aria-label="${`Ajouter le film ${movie.title}`}">Ajouter</button>
       </form>`}
   </li>`;
@@ -60,15 +64,15 @@ export function render(app) {
       <label><input type="radio" name="kind" value="${MOVIE}" ${ui.kind === MOVIE ? html`checked` : ""}> Film</label>
     </fieldset>
     <label class="field field-wide"><span>Titre</span>
-      <input type="search" name="query" value="${ui.query}" required autocomplete="off"></label>
+      <input type="search" name="query" id="add-query" value="${ui.query}" required autocomplete="off"></label>
     <button class="btn">Rechercher</button>
   </form>
   ${tmdbMissing ? html`<p class="warning">La recherche de films passe par TMDB :
     <a href="#/parametres">ajoute ta clé TMDB dans Paramètres</a>, ou saisis le film à la main
     plus bas.</p>` : ""}
   ${ui.error ? html`<p class="error" role="alert">${ui.error}</p>` : ""}
-  ${ui.results ? html`<section aria-live="polite"><h2>Résultats</h2>
-    ${ui.results.length ? html`<ul class="rows">${ui.results.map((r) => (ui.resultKind === SHOW
+  ${ui.results ? html`<section><h2 data-announce>${ui.results.length} résultat${ui.results.length > 1 ? "s" : ""}</h2>
+    ${ui.results.length ? html`<ul class="rows" role="list">${ui.results.map((r) => (ui.resultKind === SHOW
       ? showResult(app, r) : movieResult(app, r)))}</ul>`
       : html`<p class="muted">Aucun résultat. Essaie le titre original, ou saisis-le à la main.</p>`}
   </section>` : ""}

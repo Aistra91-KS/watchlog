@@ -36,7 +36,7 @@ export function render(app) {
     <h2>Semaine du ${fmtDate(week)}</h2>
     ${[...days].map(([date, list]) => html`<div class="day ${date === day ? "is-today" : ""}">
       <h3>${date === day ? "Aujourd'hui" : fmtLongDay(date)}</h3>
-      <ul class="rows">${groupDay(list).map((entry) => {
+      <ul class="rows" role="list">${groupDay(list).map((entry) => {
         const first = entry.items[0];
         const link = first.kind === EPISODE ? showHref(first.show) : movieHref(first.ref);
         return html`<li class="row ${first.kind === EPISODE ? "is-show" : "is-movie"}">

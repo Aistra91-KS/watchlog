@@ -131,10 +131,18 @@ class Failures:
         self.counts[step][1] += total
 
     def messages(self) -> list[str]:
-        return [f"TMDB n'a pas répondu pour {failed} sur {total} {step} : suggestions incomplètes, "
-                "« Recalculer » plus tard."
-                for step, (failed, total) in self.counts.items()
-                if total and failed / total > MAX_FAILURE_SHARE]
+        """Au-delà de MAX_FAILURE_SHARE : résultat incomplet ; en dessous : signalé quand même."""
+        result = []
+        for step, (failed, total) in self.counts.items():
+            if not failed:
+                continue
+            if failed / total > MAX_FAILURE_SHARE:
+                result.append(f"TMDB n'a pas répondu pour {failed} sur {total} {step} : "
+                              "suggestions incomplètes, « Recalculer » plus tard.")
+            else:
+                result.append(f"TMDB n'a pas répondu pour {failed} sur {total} {step} "
+                              "(effet faible sur le résultat).")
+        return result
 
 
 Progress = Callable[[int, int, str], None]

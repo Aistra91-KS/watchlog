@@ -3,7 +3,7 @@
 // Bearer, commence par « eyJ ») ou clé d'API v3 (paramètre api_key). Jamais dans le cache.
 
 import { extractReleaseDates } from "../core/catalog.js";
-import { CachedClient, DAY_MS, RateLimiter } from "./http.js";
+import { ApiError, CachedClient, DAY_MS, RateLimiter } from "./http.js";
 
 export const BASE_URL = "https://api.themoviedb.org/3";
 export const ATTRIBUTION = "This product uses the TMDB API but is not endorsed or certified by TMDB.";
@@ -30,7 +30,8 @@ export class TMDBClient {
     const limiter = new RateLimiter(20, 1000, { now, sleep });
     this.http = new CachedClient("TMDB", BASE_URL, { cache, limiter, headers, authParams,
       fetchFn, now, sleep });
-    this.connected = null;
+    this.connected = null;     // true / false (clé refusée) ; null : pas encore testé ou réseau
+    this.lastMessage = "";
   }
 
   /** Test GET /authentication : {ok, message}. Jamais les identifiants dans le message. */
@@ -43,8 +44,10 @@ export class TMDBClient {
     try {
       response = await this.http.request("/authentication", null);
     } catch {
-      this.connected = false;
-      return { ok: false, message: "TMDB injoignable pour l'instant (réseau ?)." };
+      // Panne réseau : on ne conclut rien (nouvel essai au prochain appel).
+      this.connected = null;
+      this.lastMessage = "TMDB injoignable pour l'instant (réseau ?).";
+      return { ok: false, message: this.lastMessage };
     }
     let success = false;
     try {
@@ -53,12 +56,16 @@ export class TMDBClient {
       console.warn(`TMDB : réponse illisible au test de connexion (HTTP ${response.status})`);
     }
     this.connected = Boolean(success);
-    return success ? { ok: true, message: "TMDB connecté." }
-      : { ok: false, message: "TMDB : clé refusée, vérifie-la dans Paramètres." };
+    this.lastMessage = success ? "TMDB connecté." : "TMDB : clé refusée, vérifie-la dans Paramètres.";
+    return { ok: Boolean(success), message: this.lastMessage };
   }
 
+  /** true si TMDB est utilisable ; false si pas de clé ou clé refusée. ApiError si TMDB est
+   *  injoignable : l'appelant compte la panne au lieu de croire qu'il n'y a pas de donnée. */
   async available() {
+    if (!this.configured) return false;
     if (this.connected === null) await this.checkConnection();
+    if (this.connected === null) throw new ApiError(this.lastMessage);
     return this.connected;
   }
 

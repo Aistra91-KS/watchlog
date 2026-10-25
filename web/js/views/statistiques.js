@@ -95,7 +95,7 @@ export function render(app) {
     ${hbars(genreCounts(frame, EPISODE).map((g) => ({ label: g.genre, value: g.count })),
       { title: "Genres des séries regardées" })}
     <h3>Séries en cours (${progress.length})</h3>
-    ${progress.length ? html`<ul class="hbars">${progress.map((p) => html`<li class="hbar">
+    ${progress.length ? html`<ul class="hbars" role="list">${progress.map((p) => html`<li class="hbar">
       <a href="${showHref(p.show)}">${p.title}</a>
       <span class="track" aria-hidden="true"><span class="fill" style="width:${p.percent}%"></span></span>
       <span class="value">${p.seen}/${p.aired}</span></li>`)}</ul>` : html`<p class="muted">Aucune.</p>`}
@@ -119,7 +119,8 @@ export function render(app) {
 
   <section><h2>Notes</h2>
     ${notes.some((n) => n.count) ? html`
-      ${hbars(notes.map((n) => ({ label: html`<span aria-label="${`${n.rating} sur 5`}">${n.label}</span>`,
+      ${hbars(notes.map((n) => ({ label: html`<span aria-hidden="true">${n.label}</span><span
+        class="sr-only">${n.rating} sur 5</span>`,
         value: n.count })), { title: "Répartition des notes" })}
       <h3>Meilleures notes</h3>
       <ol>${best.map((b) => html`<li>${b.title} <span class="muted">(${b.kind}, ${b.rating}/5)</span></li>`)}</ol>`

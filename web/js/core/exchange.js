@@ -186,15 +186,15 @@ function importLibrary(store, kind, ref, value, report) {
   if (item && item.status === value.status && Boolean(item.favorite) === favorite) return;
   store.put("library", item ? { ...item, status: value.status, favorite } : {
     key: refKey(kind, ref), kind, ref, status: value.status, favorite,
-    added_at: value.added_at || null,
+    added_at: normInstant(value.added_at),
   });
   report.libraryChanges += 1;
 }
 
 function importWatch(store, kind, ref, value, report) {
   if (!value) return;
-  const { changed } = upsertWatch(store, kind, ref, value.watched_at || null,
-    value.last_watched_at || null, Number(value.plays) || 1);
+  const { changed } = upsertWatch(store, kind, ref, normInstant(value.watched_at),
+    normInstant(value.last_watched_at), Number(value.plays) || 1);
   if (changed) report.watches += 1;
 }
 
@@ -213,8 +213,85 @@ function importRating(store, kind, ref, value, report) {
   report.ratings += 1;
 }
 
+const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+// Champs typés : une valeur d'un autre type ferait planter l'affichage à chaque ouverture.
+const TEXT_FIELDS = ["title", "original_title", "status", "network", "poster_url", "summary",
+  "summary_fr", "genres", "overview", "imdb_id", "match_status"];
+const INT_FIELDS = ["tvmaze_id", "tvdb_id", "tmdb_id", "year", "runtime"];
+const DAY_FIELDS = ["premiered", "release_date_fr", "release_date_original"];
+
+function checkTypes(obj, where, { text = [], ints = [], days = [], instants = [] }) {
+  for (const f of text) {
+    if (obj[f] != null && typeof obj[f] !== "string") throw new Error(`${f} invalide (${where})`);
+  }
+  for (const f of ints) {
+    if (obj[f] != null && !Number.isInteger(obj[f])) throw new Error(`${f} invalide (${where})`);
+  }
+  for (const f of days) {
+    if (obj[f] != null && !(typeof obj[f] === "string" && DAY_RE.test(obj[f])
+      && Number.isFinite(Date.parse(obj[f])))) throw new Error(`date ${f} invalide (${where})`);
+  }
+  for (const f of instants) {
+    if (obj[f] != null && !(typeof obj[f] === "string" && Number.isFinite(Date.parse(obj[f])))) {
+      throw new Error(`date ${f} invalide (${where})`);
+    }
+  }
+}
+
+/** Instant ISO normalisé (« …:00Z », sans millisecondes) : les dates se comparent comme des
+ *  chaînes, il faut donc un seul format. */
+const normInstant = (v) => (v ? isoUtc(Date.parse(v)) : null);
+
+function checkRating(value, where) {
+  if (value == null) return;
+  if (!isObject(value)) throw new Error(`avis illisible (${where})`);
+  if (value.rating != null && !(Number.isInteger(value.rating) && value.rating >= 1 && value.rating <= 5)) {
+    throw new Error(`note invalide (${where}) : ${JSON.stringify(value.rating)}`);
+  }
+}
+
+function checkWatch(value, where) {
+  if (value == null) return;
+  if (!isObject(value)) throw new Error(`visionnage illisible (${where})`);
+  if (value.plays != null && !(Number.isInteger(value.plays) && value.plays >= 1)) {
+    throw new Error(`nombre de visionnages invalide (${where})`);
+  }
+  checkTypes(value, where, { instants: ["watched_at", "last_watched_at"] });
+}
+
+/** Vérifie une série ou un film AVANT toute écriture : une entrée invalide est ignorée en
+ *  entier, jamais importée à moitié. */
+export function validateEntry(entry, kind) {
+  if (!isObject(entry)) throw new Error("entrée illisible");
+  if (typeof entry.title !== "string" || !entry.title.trim()) throw new Error("titre manquant");
+  checkTypes(entry, "titre", { text: TEXT_FIELDS, ints: INT_FIELDS, days: DAY_FIELDS,
+    instants: ["synced_at"] });
+  if (entry.library != null) {
+    if (!isObject(entry.library) || !STATUSES.includes(entry.library.status)) {
+      throw new Error(`statut inconnu : ${JSON.stringify(entry.library?.status)}`);
+    }
+    checkTypes(entry.library, "bibliothèque", { instants: ["added_at"] });
+  }
+  checkRating(entry.rating, "titre");
+  if (kind === MOVIE) {
+    checkWatch(entry.watch, "film");
+    return;
+  }
+  if (entry.episodes != null && !Array.isArray(entry.episodes)) throw new Error("épisodes illisibles");
+  for (const item of entry.episodes || []) {
+    if (!isObject(item) || !Number.isInteger(item.season)) throw new Error("épisode sans saison");
+    if (item.number != null && !Number.isInteger(item.number)) throw new Error("numéro d'épisode invalide");
+    const where = `S${item.season}E${item.number ?? "?"}`;
+    checkTypes(item, where, { text: ["title", "title_fr"], ints: ["runtime", "tvmaze_episode_id"],
+      days: ["airdate"], instants: ["airstamp"] });
+    checkWatch(item.watch, where);
+    checkRating(item.rating, where);
+  }
+}
+
 function importShow(store, entry, report) {
-  if (!entry.title) throw new Error("titre manquant");
+  validateEntry(entry, SHOW);
   let show = findShow(store, entry);
   if (!show) {
     const base = Object.fromEntries(SHOW_FIELDS.filter((n) => !empty(entry[n]))
@@ -236,15 +313,20 @@ function importShow(store, entry, report) {
     .map((e) => [e.tvmaze_episode_id, e]));
   const byNumber = new Map(existing.filter((e) => e.number != null)
     .map((e) => [`${e.season}|${e.number}`, e]));
+  // Spécial sans id TVMaze (série saisie à la main) : retrouvé par saison + titre.
+  const bySpecial = new Map(existing.filter((e) => e.number == null)
+    .map((e) => [`${e.season}|${e.title || ""}`, e]));
   for (const item of entry.episodes || []) {
     let ep = item.tvmaze_episode_id ? byTvmaze.get(item.tvmaze_episode_id) : null;
     if (!ep && item.number != null) ep = byNumber.get(`${item.season}|${item.number}`);
+    if (!ep && item.number == null && !item.tvmaze_episode_id) {
+      ep = bySpecial.get(`${item.season}|${item.title || ""}`);
+    }
     if (!ep) {
-      if (!Number.isInteger(item.season)) throw new Error("épisode sans saison");
       ep = {
         ...Object.fromEntries(EPISODE_FIELDS.map((n) => [n, item[n] ?? null])),
         is_special: Boolean(item.is_special), airdate: item.airdate || null,
-        airstamp: item.airstamp || null, show: show.key,
+        airstamp: normInstant(item.airstamp), show: show.key,
       };
       ep.key = episodeKey(show.key, ep);
       store.put("episodes", ep);
@@ -257,7 +339,7 @@ function importShow(store, entry, report) {
 }
 
 function importMovie(store, entry, report) {
-  if (!entry.title) throw new Error("titre manquant");
+  validateEntry(entry, MOVIE);
   let movie = findMovie(store, entry);
   if (!movie) {
     const base = Object.fromEntries(MOVIE_FIELDS.filter((n) => !empty(entry[n]))
@@ -283,7 +365,9 @@ function keysOf(entry, kind) {
   if (kind === SHOW && entry.tvmaze_id) keys.push(`tvmaze:${entry.tvmaze_id}`);
   if (kind === SHOW && entry.tvdb_id) keys.push(`tvdb:${entry.tvdb_id}`);
   if (kind === MOVIE && entry.tmdb_id) keys.push(`tmdb:${entry.tmdb_id}`);
-  if (entry.title) keys.push(`title:${entry.title.trim().toLowerCase()}|${entry.year ?? ""}`);
+  if (typeof entry.title === "string" && entry.title) {
+    keys.push(`title:${entry.title.trim().toLowerCase()}|${entry.year ?? ""}`);
+  }
   return keys;
 }
 
@@ -291,6 +375,11 @@ function skip(report, label, entry, error) {
   const title = entry && typeof entry === "object" ? entry.title : null;
   console.warn(`Import JSON : ${label} ignoré (${title})`, error);
   report.skipped.push(`${label} « ${title || "?"} » : donnée invalide (${error.message})`);
+}
+
+function ignored(report, label, row) {
+  console.warn(`Import JSON : ${label}`, row);
+  report.skipped.push(label);
 }
 
 /** Fusionne un fichier d'échange dans le Store (voir l'en-tête du module). */
@@ -309,8 +398,11 @@ export function importData(store, data) {
     }
   }
   for (const entry of data.lists || []) {
-    const name = (entry.name || "").trim();
-    if (!name) continue;
+    const name = isObject(entry) && typeof entry.name === "string" ? entry.name.trim() : "";
+    if (!name) {
+      ignored(report, "Liste sans nom ignorée", entry);
+      continue;
+    }
     let list = store.get("lists", name);
     if (!list) {
       list = { key: name, name, description: entry.description ?? null, items: [] };
@@ -318,11 +410,12 @@ export function importData(store, data) {
     }
     const items = [...list.items];
     const present = new Set(items.map((i) => refKey(i.kind, i.ref)));
-    for (const item of entry.items || []) {
-      const ref = keysOf(item, item.kind).map((k) => ids[item.kind]?.get(k)).find(Boolean);
+    for (const item of Array.isArray(entry.items) ? entry.items : []) {
+      const ref = isObject(item) && Object.hasOwn(ids, item.kind)
+        ? keysOf(item, item.kind).map((k) => ids[item.kind].get(k)).find(Boolean) : null;
       if (!ref) {
         console.warn(`Import JSON : élément de la liste ${name} introuvable`, item);
-        report.skipped.push(`Liste « ${name} » : « ${item.title || "?"} » introuvable`);
+        report.skipped.push(`Liste « ${name} » : « ${item?.title || "?"} » introuvable`);
       } else if (!present.has(refKey(item.kind, ref))) {
         items.push({ kind: item.kind, ref });
         present.add(refKey(item.kind, ref));
@@ -331,7 +424,10 @@ export function importData(store, data) {
     store.put("lists", { ...list, items });
   }
   for (const row of data.dismissed || []) {
-    if (!row.tmdb_id || ![SHOW, MOVIE].includes(row.kind)) continue;
+    if (!isObject(row) || !row.tmdb_id || ![SHOW, MOVIE].includes(row.kind)) {
+      ignored(report, "Titre écarté illisible ignoré", row);
+      continue;
+    }
     const key = `${row.kind}:${row.tmdb_id}`;
     if (!store.get("dismissed", key)) {
       store.put("dismissed", { key, kind: row.kind, tmdb_id: row.tmdb_id, title: row.title ?? null,
@@ -339,14 +435,17 @@ export function importData(store, data) {
     }
   }
   for (const row of data.theme_preferences || []) {
-    if (!row.feature || ![1, -1].includes(row.weight)) continue;
+    if (!isObject(row) || !row.feature || ![1, -1].includes(row.weight)) {
+      ignored(report, "Préférence de thème illisible ignorée", row);
+      continue;
+    }
     const pref = store.get("themes", row.feature);
     if (pref?.updated_at && row.updated_at && pref.updated_at >= row.updated_at) continue;
     store.put("themes", { key: row.feature, feature: row.feature, label: row.label || row.feature,
       weight: row.weight, updated_at: row.updated_at || isoUtc() });
   }
   const platforms = data.settings?.my_platforms;
-  if (platforms?.length && !store.setting("my_platforms", []).length) {
+  if (Array.isArray(platforms) && platforms.length && !store.setting("my_platforms", []).length) {
     store.setSetting("my_platforms", platforms);
   }
   return report;

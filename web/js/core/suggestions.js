@@ -55,10 +55,13 @@ class Failures {
     this.counts.set(step, [c[0] + failed, c[1] + total]);
   }
 
+  /** Au-delà de MAX_FAILURE_SHARE : résultat incomplet ; en dessous : signalé quand même. */
   messages() {
-    return [...this.counts].filter(([, [failed, total]]) => total && failed / total > MAX_FAILURE_SHARE)
-      .map(([step, [failed, total]]) => `TMDB n'a pas répondu pour ${failed} sur ${total} ${step} : `
-        + "suggestions incomplètes, « Recalculer » plus tard.");
+    return [...this.counts].filter(([, [failed]]) => failed > 0)
+      .map(([step, [failed, total]]) => (failed / total > MAX_FAILURE_SHARE
+        ? `TMDB n'a pas répondu pour ${failed} sur ${total} ${step} : suggestions incomplètes, `
+          + "« Recalculer » plus tard."
+        : `TMDB n'a pas répondu pour ${failed} sur ${total} ${step} (effet faible sur le résultat).`));
   }
 }
 
@@ -336,12 +339,16 @@ async function explore(tmdb, kind, profile, candidates, excluded, genreNames, fa
   return added;
 }
 
-/** Complète l'id TMDB des séries qui n'en ont pas (via TVDB). Renvoie le nombre trouvé. */
-export async function resolveShowTmdbIds(store, tmdb) {
+/** Complète l'id TMDB des séries qui n'en ont pas (via TVDB). Une série sans id n'entre ni
+ *  dans le profil ni dans les recommandations : les échecs sont comptés dans `failures`. */
+export async function resolveShowTmdbIds(store, tmdb, failures = null) {
   let found = 0;
+  let failed = 0;
+  let total = 0;
   for (const lib of store.library.values()) {
     const show = lib.kind === SHOW ? store.get("shows", lib.ref) : null;
     if (!show || show.tmdb_id || !show.tvdb_id) continue;
+    total += 1;
     try {
       const id = await tmdb.findTvByTvdb(show.tvdb_id);
       if (id) {
@@ -350,15 +357,17 @@ export async function resolveShowTmdbIds(store, tmdb) {
       }
     } catch (error) {
       console.warn(`Id TMDB introuvable pour ${show.title} (TVDB ${show.tvdb_id})`, error);
+      failed += 1;
     }
   }
+  failures?.add("séries de ta bibliothèque (id TMDB)", failed, total);
   return found;
 }
 
 /** Suggestions de séries et de films + profil utilisé. progress(fait, total, libellé). */
 export async function computeAll(store, tmdb, { limit = 60, progress = () => {} } = {}) {
   const failures = new Failures();
-  await resolveShowTmdbIds(store, tmdb);
+  await resolveShowTmdbIds(store, tmdb, failures);
   const signals = [...librarySignals(store), ...[...store.dismissed.values()].map((d) => ({
     kind: d.kind, tmdbId: d.tmdb_id, title: d.title || "", weight: DISMISSED_WEIGHT, genres: [],
   }))];

@@ -10,7 +10,7 @@ import {
   EPISODE, MATCH_TO_CHECK, SHOW, episodeCode, episodeTitle, showSummary, splitGenres,
 } from "../core/model.js";
 import { nextEpisode } from "../core/queue.js";
-import { html, poster } from "./dom.js";
+import { externalLink, html, poster } from "./dom.js";
 import {
   favoriteButton, ratingForm, removeButton, statusSelect, watchButton,
 } from "./shared.js";
@@ -20,7 +20,7 @@ function seasonBlock(store, show, season, episodes, day) {
   const seen = regular.filter((e) => getWatch(store, EPISODE, e.key)).length;
   const open = seen < regular.length && seen > 0;
   const name = season === 0 ? "Spéciaux" : `Saison ${season}`;
-  return html`<details class="season" ${open ? html`open` : ""}>
+  return html`<details class="season" data-keep="${`saison-${show.key}-${season}`}" ${open ? html`open` : ""}>
     <summary><span class="season-name">${name}</span>
       <span class="season-count">${seen}/${regular.length} vus</span></summary>
     <div class="season-actions">
@@ -101,8 +101,7 @@ export function render(app, [key]) {
     <section><h2>Mon avis</h2>${ratingForm(app.store, SHOW, key)}</section>
     ${app.store.get("library", `${SHOW}:${key}`) ? removeButton(SHOW, key) : ""}
     ${show.tvmaze_id ? html`<p class="credit">Données de la série :
-      <a href="https://www.tvmaze.com/shows/${show.tvmaze_id}" rel="noopener" target="_blank">TVMaze</a>
-      (CC BY-SA).</p>` : ""}
+      ${externalLink(`https://www.tvmaze.com/shows/${show.tvmaze_id}`, "TVMaze")} (CC BY-SA).</p>` : ""}
   </article>`;
 }
 

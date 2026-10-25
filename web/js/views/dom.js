@@ -36,6 +36,21 @@ export function safeUrl(url) {
   return typeof url === "string" && /^https:\/\/[^\s"'<>]+$/i.test(url) ? url : null;
 }
 
+// Images chargées automatiquement : seulement depuis TVMaze et TMDB (un fichier importé ne
+// doit pas pouvoir faire charger une image d'un autre site, qui verrait l'adresse IP).
+const IMAGE_HOSTS = /^https:\/\/(static\.tvmaze\.com|image\.tmdb\.org)\//i;
+
+export function safeImageUrl(url) {
+  return safeUrl(url) && IMAGE_HOSTS.test(url) ? url : null;
+}
+
+/** Lien externe qui s'ouvre dans un nouvel onglet (et le dit aux lecteurs d'écran). */
+export function externalLink(url, text) {
+  if (!safeUrl(url)) return text;
+  return html`<a href="${url}" rel="noopener" target="_blank">${text}<span class="sr-only">
+    (nouvel onglet)</span></a>`;
+}
+
 export const href =(...parts) => `#/${parts.map((p) => encodeURIComponent(p)).join("/")}`;
 
 export function showHref(key) { return href("serie", key); }
@@ -45,7 +60,7 @@ export function movieHref(key) { return href("film", key); }
 /** Affiche (ou un cadre avec l'initiale si elle manque). Texte alternatif vide : le titre
  *  est toujours écrit à côté, l'image est décorative. */
 export function poster(url, title, size = "md") {
-  if (safeUrl(url)) {
+  if (safeImageUrl(url)) {
     return html`<img class="poster poster-${size}" src="${url}" alt="" loading="lazy"
       decoding="async" referrerpolicy="no-referrer">`;
   }

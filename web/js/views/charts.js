@@ -28,7 +28,8 @@ export function legend() {
 }
 
 function dataTable(caption, headers, rows) {
-  return html`<details class="data-table"><summary>Voir les données</summary>
+  return html`<details class="data-table" data-keep="${`table-${caption}`}"><summary>Voir les données
+    <span class="sr-only">: ${caption}</span></summary>
     <div class="chart-wrap"><table><caption>${caption}</caption>
       <thead><tr>${headers.map((h) => html`<th scope="col">${h}</th>`)}</tr></thead>
       <tbody>${rows.map((r) => html`<tr>${r.map((c, i) => (i === 0 ? html`<th scope="row">${c}</th>`
@@ -61,7 +62,7 @@ export function stackedBars(rows, { title, unit = "" }) {
   });
   return html`<figure class="chart-block">
     ${legend()}
-    <div class="chart-wrap" data-scroll-end><svg class="chart" viewBox="0 0 ${width} ${height}" role="img"
+    <div class="chart-wrap" data-scroll-end tabindex="0" role="region" aria-label="${title}"><svg class="chart" viewBox="0 0 ${width} ${height}" role="img"
       aria-label="${title}" preserveAspectRatio="xMinYMin meet">
       ${ticks.map((t) => raw(`<line class="grid" x1="${pad.left}" x2="${width - pad.right}"
         y1="${y(t)}" y2="${y(t)}"/><text x="${pad.left - 6}" y="${y(t) + 4}" text-anchor="end">${fmt(t)}</text>`))}
@@ -75,7 +76,7 @@ export function stackedBars(rows, { title, unit = "" }) {
 export function hbars(items, { title, kind = "show" }) {
   const max = Math.max(1, ...items.map((i) => i.value));
   return html`<figure class="chart-block">
-    <ul class="hbars" aria-label="${title}">${items.map((i) => html`<li class="hbar">
+    <ul class="hbars" role="list" aria-label="${title}">${items.map((i) => html`<li class="hbar">
       <span>${i.label}</span>
       <span class="track" aria-hidden="true"><span class="fill ${kind === "movie" ? "is-movie" : ""}"
         style="width:${((i.value / max) * 100).toFixed(1)}%"></span></span>
@@ -105,10 +106,13 @@ export function heatmap(days, { title }) {
     .map(([row, t]) => `<text x="0" y="${row * (cell + gapPx) + 9}">${t}</text>`).join("");
   const active = days.filter((d) => d.count);
   return html`<figure class="chart-block">
-    <div class="chart-wrap" data-scroll-end><svg class="chart heatmap" viewBox="0 0 ${width} ${height}" width="${width}"
+    <div class="chart-wrap" data-scroll-end tabindex="0" role="region" aria-label="${title}"><svg class="chart heatmap" viewBox="0 0 ${width} ${height}" width="${width}"
       height="${height}" role="img" aria-label="${`${title} : ${active.length} jours avec au moins un visionnage`}">
       ${raw(labels + cells)}</svg></div>
     <p class="legend" aria-hidden="true">Moins ${[0, 1, 2, 3, 4, 5].map((n) => html`<span
       class="swatch heat-bg-${n}"></span>`)} Plus</p>
+    ${dataTable(`${title} : les jours les plus chargés`, ["Jour", "Visionnages"],
+      [...active].sort((a, b) => b.count - a.count || b.day.localeCompare(a.day)).slice(0, 15)
+        .map((d) => [fmtDate(d.day), d.count]))}
   </figure>`;
 }

@@ -175,6 +175,42 @@ def test_theme_preferences_most_recent_wins(source):
         assert s.get(ThemePreference, "g:Animation").weight == -1
 
 
+def test_invalid_entry_is_never_half_imported(engine):
+    """Note à 7 au 50e épisode : rien de la série n'est écrit (validation avant écriture)."""
+    episodes = [{"season": 1, "number": n, "watch": {"watched_at": "2024-01-01T00:00:00Z"},
+                 "rating": {"rating": 7} if n == 50 else None} for n in range(1, 51)]
+    data = {"format": FORMAT, "version": 1,
+            "shows": [{"title": "Note à 7", "tvmaze_id": 9, "library": {"status": WATCHING},
+                       "episodes": episodes}],
+            "lists": [None, {"name": ""}], "dismissed": [None],
+            "theme_preferences": [{"feature": "k:1", "weight": 3}]}
+    with Session(engine) as s:
+        report = import_data(s, data)
+        s.commit()
+        assert s.exec(select(Show)).all() == [] and s.exec(select(Watch)).all() == []
+    assert report.shows_added == 0
+    assert "note invalide (S1E50)" in report.skipped[0]
+    assert len(report.skipped) == 5
+
+
+def test_types_checked_and_manual_specials_idempotent(engine):
+    special = {"season": 1, "number": None, "title": "Spécial Noël", "is_special": True,
+               "watch": {"watched_at": "2024-12-25T20:00:00Z", "plays": 1}}
+    data = {"format": FORMAT, "version": 1, "shows": [
+        {"title": "Perso", "is_manual": True, "episodes": [special]},
+        {"title": "Genres en nombre", "tvmaze_id": 3, "genres": 42, "episodes": []},
+        {"title": "Mauvaise date", "tvmaze_id": 4,
+         "episodes": [{"season": 1, "number": 1, "watch": {"watched_at": "hier soir"}}]},
+        {"title": 12}],
+        "lists": [{"name": "L", "items": [{"kind": "constructor", "title": "x"}, "pas un objet"]}]}
+    with Session(engine) as s:
+        first = import_data(s, data)
+        second = import_data(s, data)
+        s.commit()
+    assert (first.episodes_added, second.episodes_added) == (1, 0)
+    assert len(first.skipped) == 5          # genres, date, titre, 2 éléments de liste
+
+
 @pytest.mark.parametrize("raw, message", [
     (b"pas du json", "illisible"),
     (b'{"format": "autre"}', "format inconnu"),

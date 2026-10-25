@@ -16,7 +16,8 @@ function card(entry) {
   return html`<li class="card ${entry.kind === MOVIE ? "is-movie" : "is-show"}">
     <a href="${link}">
       ${poster(entry.posterUrl, entry.title)}
-      <span class="card-title">${entry.favorite ? html`<span aria-label="Favori">★ </span>` : ""}${entry.title}</span>
+      <span class="card-title">${entry.favorite ? html`<span aria-hidden="true">★ </span><span class="sr-only">Favori :
+        </span>` : ""}${entry.title}</span>
     </a>
     <p class="card-meta">${kindBadge(entry.kind)} ${STATUS_LABELS[entry.status]}${entry.year ? ` · ${entry.year}` : ""}</p>
     <p class="card-meta">${progressLabel(entry)}</p>
@@ -49,9 +50,9 @@ export function render(app) {
     <label class="check"><input type="checkbox" data-change="library-fav" ${prefs.favoriteOnly
       ? raw("checked") : ""}> Favoris seulement</label>
   </form>
-  <p class="summary" role="status">${shows} série${shows > 1 ? "s" : ""},
+  <p class="summary" data-announce>${shows} série${shows > 1 ? "s" : ""},
     ${entries.length - shows} film${entries.length - shows > 1 ? "s" : ""}</p>
-  ${entries.length ? html`<ul class="cards">${entries.slice(0, limit).map(card)}</ul>`
+  ${entries.length ? html`<ul class="cards" role="list">${entries.slice(0, limit).map(card)}</ul>`
     : html`<p class="empty">Rien ne correspond. <a href="#/ajouter">Ajouter un titre</a></p>`}
   ${entries.length > limit ? html`<button type="button" class="btn btn-ghost"
     data-action="library-more">Afficher plus (${entries.length - limit} restants)</button>` : ""}`;

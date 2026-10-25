@@ -64,13 +64,13 @@ export function render(app) {
         ${STATUS_LABELS[s]}</label>`)}
     </fieldset>
   </form>
-  <p class="summary" role="status">${items.length} élément${items.length > 1 ? "s" : ""}</p>
+  <p class="summary" data-announce>${items.length} élément${items.length > 1 ? "s" : ""}</p>
   ${sections.filter((s) => s.list.length).map(({ availability, list }) => {
     const visible = list.slice(0, Math.max(0, limit - shown));
     shown += visible.length;
     return html`<section class="queue-section">
       <h2>${AVAILABILITY_LABELS[availability]} <span class="count">(${list.length})</span></h2>
-      <ul class="rows">${visible.map((item) => itemRow(app.store, item))}</ul>
+      <ul class="rows" role="list">${visible.map((item) => itemRow(app.store, item))}</ul>
       ${visible.length < list.length ? html`<p class="more">${list.length - visible.length} de plus…</p>` : ""}
     </section>`;
   })}

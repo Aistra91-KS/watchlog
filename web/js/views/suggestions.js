@@ -25,14 +25,12 @@ function saved(app) {
 
 /** Résultat gardé : sans les traits (volumineux), avec les thèmes du profil pour les réglages. */
 function toSaved(result) {
-  const labels = new Map();
-  for (const s of result.items) for (const [f, label] of Object.entries(s.features)) labels.set(f, label);
   return {
     computedAt: result.computedAt, errors: result.errors,
     items: result.items.map(({ features, ...rest }) => rest),
     top: result.profile.top(15, true).map(([f, label]) => [f, label]),
-    themes: [...new Map([...result.profile.top(80, true).map(([f, l]) => [f, l]), ...labels])]
-      .filter(([f]) => f.startsWith("k:")).sort((a, b) => a[1].localeCompare(b[1], "fr")),
+    themes: result.profile.top(40, true).map(([f, l]) => [f, l])
+      .sort((a, b) => a[1].localeCompare(b[1], "fr")),
   };
 }
 
@@ -41,7 +39,7 @@ function card(app, s) {
   return html`<li class="row ${s.kind === MOVIE ? "is-movie" : "is-show"} suggestion">
     ${poster(s.posterUrl, s.title, "sm")}
     <div class="row-main">
-      <p class="row-title">${s.title} <span class="muted">${s.year || ""}</span></p>
+      <h2 class="row-title">${s.title} <span class="muted">${s.year || ""}</span></h2>
       <p class="row-sub"><span class="badge ${s.kind === MOVIE ? "badge-movie" : "badge-show"}">${s.kind === MOVIE
         ? "Film" : "Série"}</span> <span class="match">${s.match} % pour toi</span>
         ${s.trending ? html`<span class="tag">Tendance de la semaine</span>` : ""}
@@ -50,7 +48,8 @@ function card(app, s) {
       ${s.matchedThemes.length ? html`<p class="reasons">Thèmes en commun : ${s.matchedThemes.join(", ")}</p>` : ""}
       ${s.streaming?.length ? html`<p class="reasons">Sur ${s.streaming.map((p) => (mine.has(p)
         ? html`<strong>${p}</strong>` : p)).reduce((a, b) => html`${a}, ${b}`)}</p>` : ""}
-      ${s.overview ? html`<details><summary>Résumé</summary><p>${s.overview}</p></details>` : ""}
+      ${s.overview ? html`<details data-keep="${`resume-${s.kind}-${s.tmdbId}`}"><summary>Résumé
+        <span class="sr-only">de ${s.title}</span></summary><p>${s.overview}</p></details>` : ""}
       <div class="row-actions">
         <button type="button" class="btn" data-action="sugg-add" data-kind="${s.kind}" data-id="${s.tmdbId}"
           data-title="${s.title}">Ajouter à « À voir »</button>
@@ -71,18 +70,21 @@ function preferencesForm(app, result) {
     choices.set(`g:${g}`, `${g} (genre)`);
   }
   const list = [...choices].sort((a, b) => a[1].localeCompare(b[1], "fr"));
-  const select = (name, chosen) => html`<select name="${name}" multiple size="6">${list.map(([f, label]) =>
-    html`<option value="${f}" ${chosen.has(f) ? raw("selected") : ""}>${label}</option>`)}</select>`;
-  return html`<details class="prefs"><summary>Ton profil de goûts et tes réglages</summary>
+  // Cases à cocher (pas de liste à sélection multiple : difficile au tactile et au clavier).
+  const group = (name, legend, chosen) => html`<fieldset class="chips chips-wrap"><legend>${legend}</legend>
+    ${list.map(([f, label]) => html`<label class="chip"><input type="checkbox" name="${name}" value="${f}"
+      data-label="${label.replace(" (genre)", "")}" ${chosen.has(f) ? raw("checked") : ""}> ${label}</label>`)}
+  </fieldset>`;
+  return html`<details class="prefs" data-keep="sugg-prefs"><summary>Ton profil de goûts et tes réglages</summary>
     <p>Thèmes les plus marquants de ta bibliothèque : ${result.top.map(([, label]) =>
       html`<span class="tag">${label}</span>`)}</p>
     <form class="inline-form" data-submit="sugg-prefs">
-      <label class="field"><span>Plus de…</span>${select("more", more)}</label>
-      <label class="field"><span>Moins de…</span>${select("less", less)}</label>
+      ${group("more", "Plus de…", more)}
+      ${group("less", "Moins de…", less)}
       <button class="btn">Enregistrer et recalculer</button>
     </form>
-    <p class="muted small">Ctrl / Cmd + clic pour en choisir plusieurs. « Plus de » explore
-      aussi ce thème ; « Moins de » divise le score des titres concernés.</p>
+    <p class="muted small">« Plus de » explore aussi ce thème ; « Moins de » divise le score des
+      titres concernés.</p>
     ${app.store.dismissed.size ? html`<p>${app.store.dismissed.size} titre(s) écarté(s).
       <button type="button" class="btn btn-ghost" data-action="sugg-undismiss">Tout remettre</button></p>` : ""}
   </details>`;
@@ -100,7 +102,7 @@ export function render(app) {
     ce que regardent les gens qui ont aimé les mêmes titres (TMDB), les thèmes qui reviennent
     chez toi (dystopie, super-héros…) et la note des titres.</p>`;
   if (running) {
-    return html`<h1>Suggestions</h1>${intro}<p role="status" class="sync-status" id="sugg-progress">
+    return html`<h1>Suggestions</h1>${intro}<p class="sync-status" id="sugg-progress" aria-live="off">
       ${running.label || "Calcul…"} ${running.total ? `${running.done}/${running.total}` : ""}</p>
       <p class="muted">Le premier calcul prend une à deux minutes ; les suivants quelques secondes.</p>`;
   }
@@ -140,8 +142,8 @@ export function render(app) {
   </form>
   ${needsPlatforms ? html`<p class="warning">Plateformes pas encore lues pour ces suggestions.
     <button type="button" class="btn" data-action="sugg-platforms">Lire les plateformes</button></p>` : ""}
-  <p class="summary" role="status">${items.length} suggestion${items.length > 1 ? "s" : ""}</p>
-  <ul class="rows">${items.slice(0, limit).map((s) => card(app, s))}</ul>
+  <p class="summary" data-announce>${items.length} suggestion${items.length > 1 ? "s" : ""}</p>
+  <ul class="rows" role="list">${items.slice(0, limit).map((s) => card(app, s))}</ul>
   ${items.length > limit ? html`<button type="button" class="btn btn-ghost" data-action="sugg-more">
     Afficher plus</button>` : ""}
   <p class="credit">Données TMDB ; disponibilités JustWatch (via TMDB).</p>`;
@@ -149,6 +151,7 @@ export function render(app) {
 
 async function compute(app) {
   app.ui.suggRunning = { done: 0, total: 0, label: "Préparation…" };
+  app.announce("Calcul des suggestions commencé, une à deux minutes au premier passage.");
   await app.rerender();
   let lastPaint = 0;
   try {
@@ -166,6 +169,7 @@ async function compute(app) {
     app.ui.suggestions = toSaved(result);
     app.store.setSetting(SAVED, app.ui.suggestions);
     app.ui.suggLimit = PAGE_SIZE;
+    app.announce(`Suggestions prêtes : ${result.items.length} titres.`);
   } finally {
     app.ui.suggRunning = null;
   }
@@ -225,9 +229,8 @@ export const actions = {
     app.toast(`${n} titre(s) remis dans les suggestions (au prochain calcul).`);
   },
   async "sugg-prefs"(app, form) {
-    const labels = new Map(saved(app).themes);
-    for (const opt of form.querySelectorAll("option")) labels.set(opt.value, opt.textContent.replace(" (genre)", ""));
-    const pick = (name) => new Map(new FormData(form).getAll(name).map((f) => [f, labels.get(f) || f]));
+    const pick = (name) => new Map([...form.querySelectorAll(`input[name="${name}"]:checked`)]
+      .map((box) => [box.value, box.dataset.label]));
     setPreferences(app.store, pick("more"), pick("less"), isoUtc());
     await compute(app);
   },

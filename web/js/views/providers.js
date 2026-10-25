@@ -1,7 +1,7 @@
 // Bloc « Où regarder » d'une fiche (plateformes en France, JustWatch via TMDB).
 
 import { ATTRIBUTION, REGION, parseProviders } from "../core/providers.js";
-import { html, safeUrl } from "./dom.js";
+import { externalLink, html, safeImageUrl, safeUrl } from "./dom.js";
 
 export async function providersBlock(app, media, tmdbId) {
   if (!app.tmdb.configured) return "";
@@ -20,10 +20,10 @@ export async function providersBlock(app, media, tmdbId) {
     ${offers.length ? html`<dl>${offers.map(([label, list]) => html`<div>
       <dt>${label}</dt>
       <dd>${list.map((p) => html`<span class="provider ${mine.has(p.name) ? "is-mine" : ""}">
-        ${safeUrl(p.logo) ? html`<img src="${p.logo}" alt="" width="24" height="24" loading="lazy">` : ""}
+        ${safeImageUrl(p.logo) ? html`<img src="${p.logo}" alt="" width="24" height="24" loading="lazy">` : ""}
         ${p.name}${mine.has(p.name) ? html`<span class="sr-only"> (une de mes plateformes)</span>` : ""}</span>`)}</dd>
     </div>`)}</dl>` : html`<p class="muted">Pas disponible en France pour l'instant.</p>`}
-    <p class="credit">${ATTRIBUTION}${safeUrl(availability.link) ? html` <a href="${availability.link}"
-      rel="noopener" target="_blank">Détail sur TMDB</a>` : ""}</p>
+    <p class="credit">${ATTRIBUTION}${safeUrl(availability.link)
+      ? html` ${externalLink(availability.link, "Détail sur TMDB")}` : ""}</p>
   </section>`;
 }

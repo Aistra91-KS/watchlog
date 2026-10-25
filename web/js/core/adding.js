@@ -9,13 +9,17 @@ import { MOVIE, SHOW, episodeKey, newId } from "./model.js";
 const DAY_MS = 86_400_000;
 // Au-delà, /updates/shows?since=month ne couvre plus l'écart : on relit toutes les séries.
 const FULL_SYNC_AFTER_DAYS = 28;
+// Réglage : séries / films dont la dernière mise à jour a échoué, relus à la synchro suivante
+// (sinon leur changement pourrait sortir de la fenêtre « updates » et ne plus jamais être lu).
+const RETRY = "sync_retry";
 
 /** Textes français et durées réelles (TMDB) d'une série. Erreurs comptées, jamais bloquantes. */
 export async function enrichShowFromTmdb(store, tmdb, key) {
   const show = store.get("shows", key);
   const result = { ok: false, errors: [] };
-  if (!show || !tmdb || !(await tmdb.available())) return result;
+  if (!show || !tmdb) return result;
   try {
+    if (!(await tmdb.available())) return result;   // pas de clé TMDB : rien à compléter
     let tmdbId = show.tmdb_id;
     if (!tmdbId && show.tvdb_id) tmdbId = await tmdb.findTvByTvdb(show.tvdb_id);
     if (!tmdbId) return result;
@@ -123,6 +127,8 @@ export async function syncLibrary(store, tvmaze, tmdb, { progress = () => {}, no
       report.errors.push(`TVMaze : ${error.message}`);
     }
   }
+  const retry = new Set(store.setting(RETRY, []));
+  const failed = new Set();
   const shows = [];
   for (const lib of store.library.values()) {
     if (lib.kind !== SHOW) continue;
@@ -131,12 +137,13 @@ export async function syncLibrary(store, tvmaze, tmdb, { progress = () => {}, no
     const synced = Date.parse(show.synced_at || "") || 0;
     // Sans liste des mises à jour (première synchro, ou trop ancienne) : tout est relu.
     const changed = updates ? (updates.get(show.tvmaze_id) || 0) * 1000 > synced : true;
-    if (changed || !synced) shows.push(show);
+    if (changed || !synced || retry.has(show.key)) shows.push(show);
   }
   const movies = [...store.library.values()].filter((l) => l.kind === MOVIE)
     .map((l) => store.get("movies", l.ref))
-    .filter((m) => m?.tmdb_id && (!m.release_date_fr || m.release_date_fr > isoUtc(now).slice(0, 10))
-      && now - (Date.parse(m.synced_at || "") || 0) > DAY_MS);
+    .filter((m) => m?.tmdb_id && (retry.has(m.key)
+      || ((!m.release_date_fr || m.release_date_fr > isoUtc(now).slice(0, 10))
+        && now - (Date.parse(m.synced_at || "") || 0) > DAY_MS)));
   const total = report.tvmazeDown ? movies.length : shows.length + movies.length;
   let done = 0;
   if (!report.tvmazeDown) {
@@ -144,39 +151,61 @@ export async function syncLibrary(store, tvmaze, tmdb, { progress = () => {}, no
       progress(done, total, show.title);
       try {
         const data = await tvmaze.getShow(show.tvmaze_id, true);
-        if (data) {
+        if (!data) {
+          console.warn(`Synchro : « ${show.title} » introuvable sur TVMaze (${show.tvmaze_id})`);
+          report.errors.push(`${show.title} : introuvable sur TVMaze (retirée ?)`);
+        } else {
           const episodes = await tvmaze.getEpisodesWithSpecials(show.tvmaze_id, data.status, true);
           upsertShowFromTvmaze(store, data, episodes);
           const enrich = await enrichShowFromTmdb(store, tmdb, show.key);
           report.errors.push(...enrich.errors);
+          if (enrich.errors.length) failed.add(show.key);   // textes français à relire
           report.shows += 1;
         }
       } catch (error) {
         console.warn(`Synchro : « ${show.title} » non mise à jour`, error);
         report.errors.push(`${show.title} : ${error.message}`);
+        failed.add(show.key);
       }
       done += 1;
     }
   }
-  if (tmdb && movies.length && (await tmdb.available())) {
+  let tmdbReady = false;
+  if (tmdb && movies.length) {
+    try {
+      tmdbReady = await tmdb.available();
+    } catch (error) {
+      report.errors.push(`TMDB : ${error.message} Films non mis à jour.`);
+      for (const movie of movies) failed.add(movie.key);
+    }
+  }
+  if (tmdbReady) {
     for (const movie of movies) {
       progress(done, total, movie.title);
       try {
         const data = await tmdb.getMovie(movie.tmdb_id);
-        if (data) {
+        if (!data) {
+          console.warn(`Synchro : « ${movie.title} » introuvable sur TMDB (${movie.tmdb_id})`);
+          report.errors.push(`${movie.title} : introuvable sur TMDB`);
+        } else {
           upsertMovieFromTmdb(store, data);
           report.movies += 1;
         }
       } catch (error) {
         console.warn(`Synchro : « ${movie.title} » non mis à jour`, error);
         report.errors.push(`${movie.title} : ${error.message}`);
+        failed.add(movie.key);
       }
       done += 1;
     }
   }
   progress(total, total, "");
   refreshCompleted(store);
-  if (!report.tvmazeDown) store.setSetting("last_sync_at", isoUtc(now));
+  if (!report.tvmazeDown) {
+    store.setSetting("last_sync_at", isoUtc(now));
+    // Les titres en échec sont relus la prochaine fois ; ceux qui ont réussi sortent de la liste.
+    store.setSetting(RETRY, [...failed]);
+  }
   return report;
 }
 

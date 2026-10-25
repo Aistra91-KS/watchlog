@@ -21,7 +21,7 @@ export function statusSelect(store, kind, ref, id) {
 
 export function favoriteButton(store, kind, ref) {
   const on = Boolean(getLibraryItem(store, kind, ref)?.favorite);
-  return html`<button type="button" class="btn btn-ghost" aria-pressed="${on}" data-action="favorite"
+  return html`<button type="button" class="btn btn-ghost" aria-pressed="${on ? "true" : "false"}" data-action="favorite"
     data-kind="${kind}" data-ref="${ref}" data-focus="fav-${ref}">
     <span aria-hidden="true">${on ? "★" : "☆"}</span> Favori</button>`;
 }
@@ -35,7 +35,7 @@ export function watchButton(store, kind, ref, label = "") {
         data-ref="${ref}" data-focus="w-${ref}" aria-label="${`Vu${name}. Retirer le visionnage`}">
         <span aria-hidden="true">✓</span> Vu</button>`
     : html`<button type="button" class="btn btn-watch" data-action="watch" data-kind="${kind}"
-        data-ref="${ref}" data-focus="w-${ref}" aria-label="${`Marquer comme vu${name}`}">Vu ?</button>`;
+        data-ref="${ref}" data-focus="w-${ref}" aria-label="${`Vu ? Marquer comme vu${name}`}">Vu ?</button>`;
 }
 
 /** Note 1 à 5 en boutons radio (accessibles au clavier), émotions et commentaire. */
@@ -84,7 +84,7 @@ export function watchDetails(store, kind, ref) {
 export function removeButton(kind, ref) {
   return html`<div class="confirm" data-confirm>
     <button type="button" class="btn btn-ghost btn-danger" data-action="remove-library"
-      data-kind="${kind}" data-ref="${ref}">Retirer de la bibliothèque</button>
+      data-kind="${kind}" data-ref="${ref}" id="remove-ask">Retirer de la bibliothèque</button>
     <span class="confirm-box" role="group" aria-label="Confirmer le retrait">
       Historique et notes gardés.
       <button type="button" class="btn btn-danger" data-action="remove-library" data-confirm-yes
@@ -134,7 +134,9 @@ export const actions = {
     return true;
   },
   "cancel-confirm"(app, el) {
-    el.closest("[data-confirm]")?.classList.remove("confirming");
+    const box = el.closest("[data-confirm]");
+    box?.classList.remove("confirming");
+    box?.querySelector("button")?.focus();   // retour au bouton qui a ouvert la confirmation
     return false;
   },
   rating(app, form) {

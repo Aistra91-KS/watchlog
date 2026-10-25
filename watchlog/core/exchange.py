@@ -219,28 +219,30 @@ def import_data(session: Session, data: dict) -> ExchangeReport:
     for entry in data.get("shows") or []:
         try:
             show = _import_show(session, entry, report)
-        except (TypeError, ValueError, KeyError) as exc:
+            for key in _keys(entry, SHOW):
+                show_ids[key] = show.id
+        except (TypeError, ValueError, KeyError, AttributeError) as exc:
             _skip(report, "Série", entry, exc)
-            continue
-        for key in _keys(entry, SHOW):
-            show_ids[key] = show.id
 
     for entry in data.get("movies") or []:
         try:
             movie = _import_movie(session, entry, report)
-        except (TypeError, ValueError, KeyError) as exc:
+            for key in _keys(entry, MOVIE):
+                movie_ids[key] = movie.id
+        except (TypeError, ValueError, KeyError, AttributeError) as exc:
             _skip(report, "Film", entry, exc)
-            continue
-        for key in _keys(entry, MOVIE):
-            movie_ids[key] = movie.id
 
     session.flush()
     for entry in data.get("lists") or []:
-        _import_list(session, entry, show_ids, movie_ids, report)
-    _import_dismissed(session, data.get("dismissed") or [])
-    _import_themes(session, data.get("theme_preferences") or [])
+        try:
+            _import_list(session, entry, show_ids, movie_ids, report)
+        except (TypeError, ValueError, KeyError, AttributeError) as exc:
+            _skip(report, "Liste", {"title": entry.get("name") if isinstance(entry, dict) else None},
+                  exc)
+    _import_dismissed(session, data.get("dismissed") or [], report)
+    _import_themes(session, data.get("theme_preferences") or [], report)
     platforms = (data.get("settings") or {}).get("my_platforms")
-    if platforms and not settings.my_platforms(session):
+    if isinstance(platforms, list) and platforms and not settings.my_platforms(session):
         settings.set_my_platforms(session, platforms)
     return report
 
@@ -248,6 +250,94 @@ def import_data(session: Session, data: dict) -> ExchangeReport:
 def import_json(session: Session, source) -> ExchangeReport:
     """read_json + import_data. Pas de commit."""
     return import_data(session, read_json(source))
+
+
+def _check_rating(value, where: str) -> None:
+    if value is None:
+        return
+    if not isinstance(value, dict):
+        raise ValueError(f"avis illisible ({where})")
+    rating = value.get("rating")
+    if rating is not None and (not isinstance(rating, int) or isinstance(rating, bool)
+                               or not 1 <= rating <= 5):
+        raise ValueError(f"note invalide ({where}) : {rating!r}")
+
+
+def _check_watch(value, where: str) -> None:
+    if value is None:
+        return
+    if not isinstance(value, dict):
+        raise ValueError(f"visionnage illisible ({where})")
+    plays = value.get("plays")
+    if plays is not None and (not isinstance(plays, int) or plays < 1):
+        raise ValueError(f"nombre de visionnages invalide ({where})")
+    _check_types(value, where, instants=("watched_at", "last_watched_at"))
+
+
+# Champs typés (mêmes listes que web/js/core/exchange.js)
+TEXT_FIELDS = ("title", "original_title", "status", "network", "poster_url", "summary",
+               "summary_fr", "genres", "overview", "imdb_id", "match_status")
+INT_FIELDS = ("tvmaze_id", "tvdb_id", "tmdb_id", "year", "runtime")
+DAY_FIELDS = ("premiered", "release_date_fr", "release_date_original")
+
+
+def _check_types(obj: dict, where: str, text=(), ints=(), days=(), instants=()) -> None:
+    for name in text:
+        if obj.get(name) is not None and not isinstance(obj[name], str):
+            raise ValueError(f"{name} invalide ({where})")
+    for name in ints:
+        value = obj.get(name)
+        if value is not None and (not isinstance(value, int) or isinstance(value, bool)):
+            raise ValueError(f"{name} invalide ({where})")
+    for name in days:
+        value = obj.get(name)
+        if value is not None and (not isinstance(value, str) or len(value) != 10
+                                  or parse_date(value) is None):
+            raise ValueError(f"date {name} invalide ({where})")
+    for name in instants:
+        value = obj.get(name)
+        if value is not None and (not isinstance(value, str) or parse_datetime_utc(value) is None):
+            raise ValueError(f"date {name} invalide ({where})")
+
+
+def validate_entry(entry, kind: str) -> None:
+    """Vérifie une série ou un film AVANT toute écriture : une entrée invalide est ignorée en
+    entier, jamais importée à moitié (même règle que l'app web). ValueError sinon."""
+    if not isinstance(entry, dict):
+        raise ValueError("entrée illisible")
+    if not isinstance(entry.get("title"), str) or not entry["title"].strip():
+        raise ValueError("titre manquant")
+    _check_types(entry, "titre", TEXT_FIELDS, INT_FIELDS, DAY_FIELDS, ("synced_at",))
+    library = entry.get("library")
+    if library is not None and (not isinstance(library, dict)
+                                or library.get("status") not in STATUSES):
+        status = library.get("status") if isinstance(library, dict) else library
+        raise ValueError(f"statut inconnu : {status!r}")
+    if library is not None:
+        _check_types(library, "bibliothèque", instants=("added_at",))
+    _check_rating(entry.get("rating"), "titre")
+    if kind == MOVIE:
+        _check_watch(entry.get("watch"), "film")
+        return
+    episodes = entry.get("episodes")
+    if episodes is not None and not isinstance(episodes, list):
+        raise ValueError("épisodes illisibles")
+    for item in episodes or []:
+        if not isinstance(item, dict) or not isinstance(item.get("season"), int):
+            raise ValueError("épisode sans saison")
+        number = item.get("number")
+        if number is not None and not isinstance(number, int):
+            raise ValueError("numéro d'épisode invalide")
+        where = f"S{item['season']}E{number if number is not None else '?'}"
+        _check_types(item, where, ("title", "title_fr"), ("runtime", "tvmaze_episode_id"),
+                     ("airdate",), ("airstamp",))
+        _check_watch(item.get("watch"), where)
+        _check_rating(item.get("rating"), where)
+
+
+def _ignored(report: ExchangeReport, label: str, row) -> None:
+    log.warning("Import JSON : %s : %r", label, row)
+    report.skipped.append(label)
 
 
 def _skip(report: ExchangeReport, label: str, entry, exc: Exception) -> None:
@@ -266,7 +356,7 @@ def _keys(entry: dict, kind: str) -> list[tuple]:
             keys.append(("tvdb", int(entry["tvdb_id"])))
     elif entry.get("tmdb_id"):
         keys.append(("tmdb", int(entry["tmdb_id"])))
-    if entry.get("title"):
+    if isinstance(entry.get("title"), str) and entry["title"]:
         keys.append(("title", entry["title"].strip().casefold(), entry.get("year")))
     return keys
 
@@ -301,8 +391,7 @@ def _fill(obj, entry: dict, names) -> None:
 
 
 def _import_show(session: Session, entry: dict, report: ExchangeReport) -> Show:
-    if not entry.get("title"):
-        raise ValueError("titre manquant")
+    validate_entry(entry, SHOW)
     show = _find_show(session, entry)
     if show is None:
         show = Show(**{n: entry.get(n) for n in SHOW_FIELDS if entry.get(n) is not None})
@@ -321,10 +410,14 @@ def _import_show(session: Session, entry: dict, report: ExchangeReport) -> Show:
     existing = list(session.exec(select(Episode).where(Episode.show_id == show.id)))
     by_tvmaze = {e.tvmaze_episode_id: e for e in existing if e.tvmaze_episode_id}
     by_number = {(e.season, e.number): e for e in existing if e.number is not None}
+    # Spécial sans id TVMaze (série saisie à la main) : retrouvé par saison + titre.
+    by_special = {(e.season, e.title or ""): e for e in existing if e.number is None}
     for item in entry.get("episodes") or []:
         ep = by_tvmaze.get(item.get("tvmaze_episode_id")) if item.get("tvmaze_episode_id") else None
         if ep is None and item.get("number") is not None:
             ep = by_number.get((int(item["season"]), int(item["number"])))
+        if ep is None and item.get("number") is None and not item.get("tvmaze_episode_id"):
+            ep = by_special.get((item["season"], item.get("title") or ""))
         if ep is None:
             ep = Episode(show_id=show.id, **{n: item.get(n) for n in EPISODE_FIELDS
                                              if item.get(n) is not None})
@@ -339,8 +432,7 @@ def _import_show(session: Session, entry: dict, report: ExchangeReport) -> Show:
 
 
 def _import_movie(session: Session, entry: dict, report: ExchangeReport) -> Movie:
-    if not entry.get("title"):
-        raise ValueError("titre manquant")
+    validate_entry(entry, MOVIE)
     movie = _find_movie(session, entry)
     if movie is None:
         movie = Movie(**{n: entry.get(n) for n in MOVIE_FIELDS if entry.get(n) is not None})
@@ -416,8 +508,10 @@ def _import_rating(session: Session, kind: str, ref_id: int, value: dict | None,
 
 def _import_list(session: Session, entry: dict, show_ids: dict, movie_ids: dict,
                  report: ExchangeReport) -> None:
-    name = (entry.get("name") or "").strip()
+    name = entry.get("name") if isinstance(entry, dict) else None
+    name = name.strip() if isinstance(name, str) else ""
     if not name:
+        _ignored(report, "Liste sans nom ignorée", entry)
         return
     custom = session.exec(select(CustomList).where(CustomList.name == name)).first()
     if custom is None:
@@ -427,21 +521,25 @@ def _import_list(session: Session, entry: dict, show_ids: dict, movie_ids: dict,
         report.lists += 1
     present = {(i.kind, i.ref_id) for i in
                session.exec(select(CustomListItem).where(CustomListItem.list_id == custom.id))}
-    for item in entry.get("items") or []:
-        kind = item.get("kind")
+    items = entry.get("items")
+    for item in items if isinstance(items, list) else []:
+        kind = item.get("kind") if isinstance(item, dict) else None
         ids = show_ids if kind == SHOW else movie_ids
-        ref_id = next((ids[k] for k in _keys(item, kind) if k in ids), None)
+        ref_id = next((ids[k] for k in _keys(item, kind) if k in ids), None) if kind else None
         if ref_id is None:
             log.warning("Import JSON : élément de la liste %s introuvable : %s", name, item)
-            report.skipped.append(f"Liste « {name} » : « {item.get('title', '?')} » introuvable")
+            title = item.get("title", "?") if isinstance(item, dict) else "?"
+            report.skipped.append(f"Liste « {name} » : « {title} » introuvable")
         elif (kind, ref_id) not in present:
             session.add(CustomListItem(list_id=custom.id, kind=kind, ref_id=ref_id))
             present.add((kind, ref_id))
 
 
-def _import_dismissed(session: Session, rows: list[dict]) -> None:
+def _import_dismissed(session: Session, rows: list, report: ExchangeReport) -> None:
     for row in rows:
-        if not row.get("tmdb_id") or row.get("kind") not in (SHOW, MOVIE):
+        if (not isinstance(row, dict) or not row.get("tmdb_id")
+                or row.get("kind") not in (SHOW, MOVIE)):
+            _ignored(report, "Titre écarté illisible ignoré", row)
             continue
         exists = session.exec(select(DismissedSuggestion).where(
             DismissedSuggestion.kind == row["kind"],
@@ -452,10 +550,12 @@ def _import_dismissed(session: Session, rows: list[dict]) -> None:
                 dismissed_at=parse_datetime_utc(row.get("dismissed_at")) or utcnow()))
 
 
-def _import_themes(session: Session, rows: list[dict]) -> None:
+def _import_themes(session: Session, rows: list, report: ExchangeReport) -> None:
     """Préférences de thèmes : la plus récente l'emporte."""
     for row in rows:
-        if not row.get("feature") or row.get("weight") not in (1, -1):
+        if (not isinstance(row, dict) or not row.get("feature")
+                or row.get("weight") not in (1, -1)):
+            _ignored(report, "Préférence de thème illisible ignorée", row)
             continue
         when = parse_datetime_utc(row.get("updated_at"))
         pref = session.get(ThemePreference, row["feature"])

@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Watchlog · suivi de séries et de films</title>
-  <meta name="description" content="Watchlog : suis tes séries et tes films, épisode par épisode. Liste « À regarder », calendrier des sorties, statistiques et suggestions. Gratuit, sans compte : tes données restent dans ton navigateur.">
+  <title>Watchlog · suivi de séries et de films, gratuit et sans compte</title>
+  <meta name="description" content="Suis tes séries et tes films épisode par épisode : à regarder, calendrier, statistiques, suggestions. Gratuit, sans compte, données dans ton navigateur.">
   <meta name="theme-color" content="#2f5d8a" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#14181d" media="(prefers-color-scheme: dark)">
   <meta name="color-scheme" content="light dark">
   <link rel="canonical" href="https://aistra91-ks.github.io/watchlog/">
   <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
   <link rel="icon" href="assets/icon.png" type="image/png" sizes="64x64">
-  <link rel="apple-touch-icon" href="assets/icon.png">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
   <link rel="manifest" href="manifest.webmanifest">
   <meta property="og:type" content="website">
   <meta property="og:locale" content="fr_FR">
@@ -19,8 +19,14 @@
   <meta property="og:title" content="Watchlog · suivi de séries et de films">
   <meta property="og:description" content="Suis tes séries et tes films épisode par épisode : à regarder, calendrier, statistiques, suggestions. Sans compte, données dans ton navigateur.">
   <meta property="og:url" content="https://aistra91-ks.github.io/watchlog/">
-  <meta property="og:image" content="https://aistra91-ks.github.io/watchlog/assets/icon.png">
-  <meta name="twitter:card" content="summary">
+  <meta property="og:image" content="https://aistra91-ks.github.io/watchlog/assets/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Watchlog, suivi de séries et de films">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Watchlog · suivi de séries et de films">
+  <meta name="twitter:description" content="Suis tes séries et tes films épisode par épisode. Gratuit, sans compte, données dans ton navigateur.">
+  <meta name="twitter:image" content="https://aistra91-ks.github.io/watchlog/assets/og-image.png">
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -33,11 +39,24 @@
     "inLanguage": "fr",
     "isAccessibleForFree": true,
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" },
-    "codeRepository": "https://github.com/Aistra91-KS/watchlog"
+    "featureList": "Liste À regarder, épisodes à cocher, calendrier des sorties, statistiques, suggestions personnalisées, import et export JSON",
+    "browserRequirements": "Navigateur récent avec JavaScript",
+    "image": "https://aistra91-ks.github.io/watchlog/assets/og-image.png",
+    "author": { "@type": "Person", "name": "Aistra91-KS" },
+    "sameAs": "https://github.com/Aistra91-KS/watchlog"
   }
   </script>
   <link rel="stylesheet" href="css/style.css">
   <script type="module" src="js/main.js"></script>
+  <link rel="modulepreload" href="js/core/store.js">
+  <link rel="modulepreload" href="js/core/model.js">
+  <link rel="modulepreload" href="js/core/dates.js">
+  <link rel="modulepreload" href="js/core/library.js">
+  <link rel="modulepreload" href="js/core/queue.js">
+  <link rel="modulepreload" href="js/storage/idb.js">
+  <link rel="modulepreload" href="js/views/dom.js">
+  <link rel="modulepreload" href="js/views/shared.js">
+  <link rel="modulepreload" href="js/views/a-regarder.js">
 </head>
 <body>
   <a class="skip-link" href="#main">Aller au contenu</a>
@@ -45,14 +64,34 @@
     <a class="brand" href="#/a-regarder"><img src="assets/icon.png" alt="" width="28" height="28"> Watchlog</a>
     <nav id="nav" aria-label="Navigation principale"></nav>
   </header>
-  <p id="sync-status" class="sync-status" role="status" hidden></p>
+  <p id="sync-status" class="sync-status" aria-live="off" hidden></p>
   <p id="save-error" class="banner-error" role="alert" hidden></p>
   <main id="main" tabindex="-1">
-    <h1>Watchlog</h1>
-    <p>Suivi de séries et de films, épisode par épisode : liste « À regarder », calendrier des
-      sorties, statistiques et suggestions. Sans compte : tes données restent dans ton navigateur.</p>
+    <!-- Contenu de présentation, remplacé par l'application dès que le JavaScript démarre. -->
+    <h1>Watchlog : suivi de séries et de films</h1>
+    <p>Suis tes séries et tes films épisode par épisode. Gratuit, sans compte et sans
+      publicité : tes données restent dans ton navigateur.</p>
     <noscript><p class="error">Watchlog a besoin de JavaScript pour fonctionner.</p></noscript>
+    <h2>Fonctions</h2>
+    <ul>
+      <li>Liste « À regarder » : le prochain épisode de chaque série, les films à voir.</li>
+      <li>Épisodes à cocher, « J'en suis là », notes et émotions.</li>
+      <li>Calendrier des prochaines sorties.</li>
+      <li>Statistiques : temps passé, rythme, genres, records.</li>
+      <li>Suggestions personnalisées selon tes goûts (thèmes, recommandations TMDB).</li>
+      <li>Où regarder en France (abonnement, location, achat).</li>
+    </ul>
+    <h2>Questions fréquentes</h2>
+    <h3>Faut-il un compte ?</h3>
+    <p>Non. Tout est gardé dans ton navigateur ; exporte un fichier pour faire une sauvegarde
+      ou passer sur un autre appareil.</p>
+    <h3>D'où viennent les données ?</h3>
+    <p>Séries : TVMaze. Films, suggestions et plateformes : TMDB (avec ta propre clé gratuite).</p>
   </main>
-  <div id="toast" class="toasts" aria-live="polite"></div>
+  <div class="toasts">
+    <div id="toast" role="status"></div>
+    <div id="toast-alert" role="alert"></div>
+  </div>
+  <p id="announce" class="sr-only" role="status"></p>
 </body>
 </html>

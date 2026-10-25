@@ -7,7 +7,7 @@ import { refreshCompleted } from "../core/library.js";
 import { platformChoices } from "../core/providers.js";
 import { clearAll, storageEstimate } from "../storage/idb.js";
 import { maskSecret, readSecret, saveSecret } from "../storage/secret.js";
-import { html, raw } from "./dom.js";
+import { externalLink, html, raw } from "./dom.js";
 
 const REPO_URL = "https://github.com/Aistra91-KS/watchlog";
 const TMDB_KEY_HELP = "https://www.themoviedb.org/settings/api";
@@ -50,12 +50,12 @@ export async function render(app) {
 
   <section aria-labelledby="tmdb-h"><h2 id="tmdb-h">Connexion TMDB</h2>
     <p>TMDB fournit les films, les textes français, les suggestions et les plateformes.
-      Crée une clé gratuite sur <a href="${TMDB_KEY_HELP}" rel="noopener" target="_blank">themoviedb.org</a>
+      Crée une clé gratuite sur ${externalLink(TMDB_KEY_HELP, "themoviedb.org")}
       (« Clé d'API » ou « Jeton d'accès en lecture »), puis colle-la ici.
       <strong>Elle reste dans ce navigateur</strong> : jamais envoyée ailleurs qu'à TMDB, jamais
       dans le fichier d'export.</p>
     <p>${secret ? html`Clé enregistrée : <code>${maskSecret(secret)}</code>` : "Aucune clé enregistrée."}
-      ${status ? html` <span class="${status.ok ? "ok" : "error"}" role="status">${status.message}</span>` : ""}</p>
+      ${status ? html` <span class="${status.ok ? "ok" : "error"}" data-announce>${status.message}</span>` : ""}</p>
     <form class="inline-form" data-submit="save-secret">
       <label class="field field-wide"><span>Clé d'API ou jeton TMDB</span>
         <input type="password" name="secret" autocomplete="off" spellcheck="false"></label>
@@ -82,7 +82,7 @@ export async function render(app) {
         <input type="file" name="file" accept=".json,application/json" required></label>
       <button class="btn">Importer</button>
     </form>
-    ${app.ui.importReport ? html`<pre class="report" role="status">${app.ui.importReport.join("\n")}</pre>` : ""}
+    ${app.ui.importReport ? html`<pre class="report" data-announce>${app.ui.importReport.join("\n")}</pre>` : ""}
   </section>
 
   <section aria-labelledby="sync-h"><h2 id="sync-h">Mise à jour des séries et films</h2>
@@ -91,7 +91,7 @@ export async function render(app) {
       ${lastSync ? `Dernière : ${fmtDate(lastSync)}.` : "Jamais faite."}</p>
     <p><button type="button" class="btn" data-action="sync" ${app.sync.running ? raw("disabled") : ""}>
       ${app.sync.running ? "Mise à jour en cours…" : "Mettre à jour maintenant"}</button></p>
-    ${report ? html`<details><summary>Dernier rapport (${fmtDate(report.at)}${report.problems
+    ${report ? html`<details data-keep="sync-report"><summary>Dernier rapport (${fmtDate(report.at)}${report.problems
       ? `, ${report.problems} problème(s)` : ""})</summary>
       <pre class="report">${report.lines.join("\n")}</pre></details>` : ""}
   </section>
@@ -105,7 +105,7 @@ export async function render(app) {
         (ou si tu vides son historique) : exporte-les de temps en temps.</span>`}</p>
     <div class="confirm ${confirmClear ? "confirming" : ""}">
       <button type="button" class="btn btn-ghost" data-action="clear-cache">Vider le cache des API</button>
-      <button type="button" class="btn btn-ghost btn-danger" data-action="ask-clear">Tout effacer</button>
+      <button type="button" class="btn btn-ghost btn-danger" data-action="ask-clear" id="clear-ask">Tout effacer</button>
       <span class="confirm-box" role="group" aria-label="Confirmer l'effacement">
         Bibliothèque, visionnages et notes de ce navigateur seront effacés.
         <button type="button" class="btn btn-danger" data-action="clear-all" id="clear-yes">Oui, tout effacer</button>
@@ -116,8 +116,8 @@ export async function render(app) {
 
   <section aria-labelledby="about-h"><h2 id="about-h">À propos</h2>
     <p>Watchlog, suivi de séries et de films. Code source et version à installer sur PC :
-      <a href="${REPO_URL}" rel="noopener" target="_blank">GitHub</a>.</p>
-    <p class="credit">Données séries : <a href="https://www.tvmaze.com" rel="noopener" target="_blank">TVMaze</a>
+      ${externalLink(REPO_URL, "GitHub")}.</p>
+    <p class="credit">Données séries : ${externalLink("https://www.tvmaze.com", "TVMaze")}
       (CC BY-SA). This product uses the TMDB API but is not endorsed or certified by TMDB.
       Disponibilités : JustWatch (via TMDB).</p>
   </section>`;
@@ -166,10 +166,15 @@ export const actions = {
     if (!file || !file.size) throw new Error("Choisis un fichier.");
     const report = importData(app.store, readJson(await file.text()));
     refreshCompleted(app.store);
-    await app.flush();
+    const saved = await app.flush();
     app.ui.importReport = report.lines();
-    app.toast(report.skipped.length ? `Import fait, ${report.skipped.length} entrée(s) ignorée(s).`
-      : "Import fait.", report.skipped.length ? "error" : "info");
+    if (!saved) {
+      app.toast("Import lu mais pas enregistré : le stockage du navigateur refuse l'écriture.",
+        "error");
+    } else {
+      app.toast(report.skipped.length ? `Import fait, ${report.skipped.length} entrée(s) ignorée(s).`
+        : "Import fait.", report.skipped.length ? "error" : "info");
+    }
   },
   sync(app) {
     app.runSync();
@@ -181,9 +186,12 @@ export const actions = {
   },
   "ask-clear"(app) {
     app.ui.confirmClear = true;
-    setTimeout(() => document.getElementById("clear-yes")?.focus(), 0);
+    app.ui.focusAfter = "clear-yes";   // posé après le rendu (asynchrone sur cette page)
   },
-  "cancel-clear"(app) { app.ui.confirmClear = false; },
+  "cancel-clear"(app) {
+    app.ui.confirmClear = false;
+    app.ui.focusAfter = "clear-ask";
+  },
   async "clear-all"(app) {
     app.store.takeDirty();   // rien ne doit être réécrit après l'effacement
     await clearAll(app.db);
