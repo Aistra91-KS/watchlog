@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Watchlog · suivi de séries et de films</title>
+  <meta name="description" content="Watchlog : suis tes séries et tes films, épisode par épisode. Liste « À regarder », calendrier des sorties, statistiques et suggestions. Gratuit, sans compte : tes données restent dans ton navigateur.">
+  <meta name="theme-color" content="#2f5d8a" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#14181d" media="(prefers-color-scheme: dark)">
+  <meta name="color-scheme" content="light dark">
+  <link rel="canonical" href="https://aistra91-ks.github.io/watchlog/">
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="assets/icon.png" type="image/png" sizes="64x64">
+  <link rel="apple-touch-icon" href="assets/icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="fr_FR">
+  <meta property="og:site_name" content="Watchlog">
+  <meta property="og:title" content="Watchlog · suivi de séries et de films">
+  <meta property="og:description" content="Suis tes séries et tes films épisode par épisode : à regarder, calendrier, statistiques, suggestions. Sans compte, données dans ton navigateur.">
+  <meta property="og:url" content="https://aistra91-ks.github.io/watchlog/">
+  <meta property="og:image" content="https://aistra91-ks.github.io/watchlog/assets/icon.png">
+  <meta name="twitter:card" content="summary">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "Watchlog",
+    "url": "https://aistra91-ks.github.io/watchlog/",
+    "description": "Suivi de séries et de films : liste à regarder, calendrier des sorties, statistiques et suggestions. Données gardées dans le navigateur.",
+    "applicationCategory": "EntertainmentApplication",
+    "operatingSystem": "Tous (navigateur web)",
+    "inLanguage": "fr",
+    "isAccessibleForFree": true,
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" },
+    "codeRepository": "https://github.com/Aistra91-KS/watchlog"
+  }
+  </script>
+  <link rel="stylesheet" href="css/style.css">
+  <script type="module" src="js/main.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Aller au contenu</a>
+  <header class="topbar">
+    <a class="brand" href="#/a-regarder"><img src="assets/icon.png" alt="" width="28" height="28"> Watchlog</a>
+    <nav id="nav" aria-label="Navigation principale"></nav>
+  </header>
+  <p id="sync-status" class="sync-status" role="status" hidden></p>
+  <p id="save-error" class="banner-error" role="alert" hidden></p>
+  <main id="main" tabindex="-1">
+    <h1>Watchlog</h1>
+    <p>Suivi de séries et de films, épisode par épisode : liste « À regarder », calendrier des
+      sorties, statistiques et suggestions. Sans compte : tes données restent dans ton navigateur.</p>
+    <noscript><p class="error">Watchlog a besoin de JavaScript pour fonctionner.</p></noscript>
+  </main>
+  <div id="toast" class="toasts" aria-live="polite"></div>
+</body>
+</html>

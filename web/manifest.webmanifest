@@ -1,0 +1,24 @@
+{
+  "name": "Watchlog",
+  "short_name": "Watchlog",
+  "description": "Suivi de séries et de films, épisode par épisode.",
+  "lang": "fr",
+  "start_url": "./#/a-regarder",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#14181d",
+  "theme_color": "#2f5d8a",
+  "icons": [
+    {
+      "src": "assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icon.png",
+      "sizes": "64x64",
+      "type": "image/png"
+    }
+  ]
+}
