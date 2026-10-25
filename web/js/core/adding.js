@@ -12,6 +12,17 @@ const FULL_SYNC_AFTER_DAYS = 28;
 // Réglage : séries / films dont la dernière mise à jour a échoué, relus à la synchro suivante
 // (sinon leur changement pourrait sortir de la fenêtre « updates » et ne plus jamais être lu).
 const RETRY = "sync_retry";
+// Statuts de diffusion TVMaze, traduits pour l'affichage (adding.TVMAZE_STATUS_LABELS)
+export const TVMAZE_STATUS_LABELS = {
+  Running: "En cours de diffusion", Ended: "Terminée", "To Be Determined": "Indéterminé",
+  "In Development": "En développement",
+};
+
+/** « Running » -> « En cours de diffusion » (statut inconnu : renvoyé tel quel). */
+export function tvmazeStatusLabel(status) {
+  if (!status) return "";
+  return TVMAZE_STATUS_LABELS[status] || status;
+}
 
 /** Textes français et durées réelles (TMDB) d'une série. Erreurs comptées, jamais bloquantes. */
 export async function enrichShowFromTmdb(store, tmdb, key) {
