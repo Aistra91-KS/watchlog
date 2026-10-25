@@ -15,3 +15,17 @@ __pycache__/
 
 # Exports générés
 exports/
+
+# Notes perso pour Claude Code (dépôt public)
+CLAUDE.local.md
+.claude/settings.local.json
+.claude/worktrees/
+
+# Garde-fous dépôt public : autres fichiers d'environnement, bases, exports
+.env.*
+!.env.example
+*.db
+*.db-*
+*.sqlite
+*.csv
+*.xlsx

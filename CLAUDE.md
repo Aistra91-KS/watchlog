@@ -1,9 +1,13 @@
 # Watchlog — guide du projet pour Claude
 
 Outil de suivi de séries et de films, en local, sous Windows : un seul utilisateur par
-installation. Il remplace / complète
-l'app mobile **Bingers** : l'historique vient d'un export Bingers, et peut y repartir.
+installation. Il remplace / complète l'app mobile **Bingers** : l'historique vient d'un export
+Bingers, et peut y repartir.
 Tout le projet (code, commentaires, docstrings, interface, commits) est **en français**.
+
+**Dépôt public** : rien de personnel dans le code, les tests, la doc ni ce fichier (prénom,
+email, chemins locaux, goûts, données réelles, clés). Les notes perso du propriétaire (goûts,
+constats sur sa vraie bibliothèque) sont dans `CLAUDE.local.md`, non versionné.
 
 Le [README.md](README.md) est la doc utilisateur (installation, pages, commandes, dépannage) :
 le garder à jour à chaque fonctionnalité visible.
@@ -127,7 +131,7 @@ Idempotent, ne remplace jamais ce qui est déjà dans Watchlog (Watchlog fait r�
 Séries retrouvées sur TVMaze par id TVDB, sinon par titre (« à confirmer »). Numérotation
 Bingers (TVDB) ≠ TVMaze pour certaines séries (Lupin, La casa de papel, Top Gear) : jamais
 deviné, visionnages mis en attente et correspondance validée à la main (page Paramètres).
-Beaucoup de dates Bingers = date de l'import Bingers : les statistiques et les
+Beaucoup de dates Bingers = date de l'import dans Bingers : les statistiques et les
 suggestions détectent ces « jours d'import » (≥ 50 visionnages le même jour) et les ignorent.
 
 ### Export Bingers (`bingers_export.py`)
@@ -163,6 +167,14 @@ Moteur hybride, entièrement local (pas d'IA externe) :
 Mots-clés lus en parallèle (6 threads, `RateLimiter` thread-safe), cache 90 jours ; premier
 calcul 1-2 min, ensuite quelques secondes. Le résultat est gardé 1 h (`st.cache_resource`,
 page Suggestions) ou jusqu'à « Recalculer ».
+Pour juger les suggestions sur une vraie bibliothèque : voir `CLAUDE.local.md` (s'il existe).
+
+## Agents (`.claude/agents/`)
+
+- `silent-failure-hunter` : échecs silencieux dans `core/` ou un diff.
+- `code-reviewer` : revue de code (qualité, sécurité, fuite de secrets ou de données perso).
+- `a11y-architect` : accessibilité (WCAG 2.2) de la page web et de l'interface.
+- `seo-specialist` : référencement de la page publique (GitHub Pages).
 
 ## Idées et projets futurs
 
