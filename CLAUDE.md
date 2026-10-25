@@ -135,7 +135,9 @@ tests/                 pytest ; conftest.py = faux clients TVMaze/TMDB, faux zip
 - Commits : messages en français, au format « Zone : ce qui change » (ex. « Suggestions :
   filtres, score « % pour toi » et page Aperçu »).
 - **Commit automatique à la fin de chaque travail** (sans attendre qu'on le demande), une fois
-  les tests passés : un commit par sujet, sur la branche courante. Pas de push.
+  les tests passés : un commit par sujet, **directement sur `main`** (pas de branche de travail
+  ni de pull request). Pas de push en local ; dans une session cloud, push sur `main` (c'est
+  ce qui publie l'app web).
 
 ### App web (`web/`)
 - Port fidèle de `core/` : même règles, mêmes constantes. Un changement de logique côté
