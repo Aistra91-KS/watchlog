@@ -204,3 +204,45 @@ def test_cli_export_and_import_json(source, tmp_path, monkeypatch):
     bad.write_text("{}", encoding="utf-8")
     assert cli.cmd_import(argparse.Namespace(zip=str(bad), no_posters=True), target,
                           None, None) == 1
+
+
+# --- Contrat avec l'app web (web/js/core/exchange.js) -------------------------------
+
+ROOT = __import__("pathlib").Path(__file__).resolve().parents[1]
+PYTHON_FIXTURE = ROOT / "web" / "tests" / "fixtures" / "python-export.json"
+WEB_FIXTURE = ROOT / "tests" / "fixtures" / "web-export.json"
+
+
+def test_contract_python_fixture_is_up_to_date(source):
+    """La fixture lue par les tests web doit refléter le format Python actuel.
+
+    Après un changement de format voulu : relancer ce test avec WATCHLOG_REGEN_FIXTURES=1
+    (réécrit la fixture), puis `node web/tests/tools/web-export-fixture.mjs`.
+    """
+    with Session(source) as s:
+        data = export_data(s)
+    if __import__("os").getenv("WATCHLOG_REGEN_FIXTURES"):
+        data["exported_at"] = "2026-10-25T12:00:00Z"
+        PYTHON_FIXTURE.write_text(json.dumps(data, ensure_ascii=False, indent=1) + "\n",
+                                  encoding="utf-8")
+    fixture = read_json(PYTHON_FIXTURE)
+    for d in (data, fixture):
+        d.pop("exported_at")
+    assert data == fixture
+
+
+def test_contract_file_written_by_web_app(source):
+    """Un fichier écrit par l'app web (statut changé, épisode vu, film saisi à la main)."""
+    data = read_json(WEB_FIXTURE)
+    assert data["app"] == "web"
+    with Session(source) as s:
+        report = import_data(s, data)
+        s.commit()
+        assert not report.skipped
+        assert (report.movies_added, report.library_changes) == (1, 2)
+        assert report.watches == 2
+        item = s.exec(select(LibraryItem).where(LibraryItem.kind == SHOW)).one()
+        assert item.status == STOPPED
+        manual = s.exec(select(Movie).where(Movie.title == "Film du téléphone")).one()
+        assert manual.is_manual and manual.tmdb_id is None
+        assert len(s.exec(select(Watch).where(Watch.kind == EPISODE)).all()) == 2

@@ -34,7 +34,8 @@ VERSION = 1
 
 # Champs de métadonnées copiés tels quels (textes et nombres).
 SHOW_FIELDS = ("tvmaze_id", "tvdb_id", "tmdb_id", "imdb_id", "title", "original_title", "status",
-               "network", "poster_url", "summary", "summary_fr", "genres", "is_manual")
+               "network", "poster_url", "summary", "summary_fr", "genres", "is_manual",
+               "match_status")
 EPISODE_FIELDS = ("season", "number", "title", "title_fr", "runtime", "is_special",
                   "tvmaze_episode_id")
 MOVIE_FIELDS = ("tmdb_id", "imdb_id", "title", "original_title", "year", "runtime", "poster_url",
@@ -92,6 +93,7 @@ def export_data(session: Session) -> dict:
     for show in session.exec(select(Show).order_by(Show.title)):
         entry = {name: getattr(show, name) for name in SHOW_FIELDS}
         entry["premiered"] = iso_date(show.premiered)
+        entry["synced_at"] = iso_datetime(show.last_synced_at)
         entry["library"] = _library(library[SHOW].get(show.id))
         entry["rating"] = _rating(ratings[SHOW].get(show.id))
         entry["episodes"] = []
@@ -110,6 +112,7 @@ def export_data(session: Session) -> dict:
         entry = {name: getattr(movie, name) for name in MOVIE_FIELDS}
         entry["release_date_fr"] = iso_date(movie.release_date_fr)
         entry["release_date_original"] = iso_date(movie.release_date_original)
+        entry["synced_at"] = iso_datetime(movie.last_synced_at)
         entry["library"] = _library(library[MOVIE].get(movie.id))
         entry["watch"] = _watch(watches[MOVIE].get(movie.id))
         entry["rating"] = _rating(ratings[MOVIE].get(movie.id))
@@ -304,6 +307,7 @@ def _import_show(session: Session, entry: dict, report: ExchangeReport) -> Show:
     if show is None:
         show = Show(**{n: entry.get(n) for n in SHOW_FIELDS if entry.get(n) is not None})
         show.premiered = parse_date(entry.get("premiered"))
+        show.last_synced_at = parse_datetime_utc(entry.get("synced_at"))
         session.add(show)
         session.flush()
         report.shows_added += 1
@@ -340,6 +344,7 @@ def _import_movie(session: Session, entry: dict, report: ExchangeReport) -> Movi
     movie = _find_movie(session, entry)
     if movie is None:
         movie = Movie(**{n: entry.get(n) for n in MOVIE_FIELDS if entry.get(n) is not None})
+        movie.last_synced_at = parse_datetime_utc(entry.get("synced_at"))
         session.add(movie)
         session.flush()
         report.movies_added += 1

@@ -1,0 +1,142 @@
+{
+ "format": "watchlog",
+ "version": 1,
+ "app": "python",
+ "exported_at": "2026-10-25T12:00:00Z",
+ "shows": [
+  {
+   "tvmaze_id": 101,
+   "tvdb_id": 9001,
+   "tmdb_id": null,
+   "imdb_id": null,
+   "title": "Le Royaume",
+   "original_title": null,
+   "status": null,
+   "network": null,
+   "poster_url": null,
+   "summary": null,
+   "summary_fr": null,
+   "genres": "Drame",
+   "is_manual": false,
+   "match_status": "ok",
+   "premiered": "2020-01-05",
+   "synced_at": null,
+   "library": {
+    "status": "watching",
+    "favorite": true,
+    "added_at": "2024-01-01T10:00:00Z"
+   },
+   "rating": null,
+   "episodes": [
+    {
+     "season": 1,
+     "number": 1,
+     "title": "Le début",
+     "title_fr": null,
+     "runtime": 50,
+     "is_special": false,
+     "tvmaze_episode_id": 1,
+     "airdate": "2020-01-05",
+     "airstamp": null,
+     "watch": {
+      "watched_at": "2024-02-01T21:00:00Z",
+      "last_watched_at": "2024-02-01T21:00:00Z",
+      "plays": 1
+     },
+     "rating": {
+      "rating": 4,
+      "emotions": null,
+      "favorite_character": null,
+      "note": null
+     }
+    },
+    {
+     "season": 1,
+     "number": 2,
+     "title": "La suite",
+     "title_fr": null,
+     "runtime": null,
+     "is_special": false,
+     "tvmaze_episode_id": 2,
+     "airdate": null,
+     "airstamp": "2020-01-12T20:00:00Z",
+     "watch": null,
+     "rating": null
+    }
+   ]
+  }
+ ],
+ "movies": [
+  {
+   "tmdb_id": 550,
+   "imdb_id": null,
+   "title": "Fight Club",
+   "original_title": null,
+   "year": 1999,
+   "runtime": 139,
+   "poster_url": null,
+   "overview": null,
+   "genres": null,
+   "is_manual": false,
+   "release_date_fr": "1999-11-10",
+   "release_date_original": null,
+   "synced_at": null,
+   "library": {
+    "status": "to_watch",
+    "favorite": false,
+    "added_at": null
+   },
+   "watch": {
+    "watched_at": "2023-05-01T20:00:00Z",
+    "last_watched_at": "2024-05-01T20:00:00Z",
+    "plays": 2
+   },
+   "rating": {
+    "rating": 5,
+    "emotions": "thrilled",
+    "favorite_character": null,
+    "note": null
+   }
+  }
+ ],
+ "lists": [
+  {
+   "name": "Week-end",
+   "description": "À voir vite",
+   "items": [
+    {
+     "kind": "movie",
+     "tmdb_id": 550,
+     "title": "Fight Club",
+     "year": 1999
+    },
+    {
+     "kind": "show",
+     "tvmaze_id": 101,
+     "title": "Le Royaume"
+    }
+   ]
+  }
+ ],
+ "dismissed": [
+  {
+   "kind": "movie",
+   "tmdb_id": 777,
+   "title": "Pas pour moi",
+   "dismissed_at": "2024-03-01T00:00:00Z"
+  }
+ ],
+ "theme_preferences": [
+  {
+   "feature": "k:4565",
+   "label": "Dystopie",
+   "weight": 1,
+   "updated_at": "2024-03-02T00:00:00Z"
+  }
+ ],
+ "settings": {
+  "my_platforms": [
+   "Netflix"
+  ]
+ }
+}

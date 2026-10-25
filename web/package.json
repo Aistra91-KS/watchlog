@@ -1,0 +1,9 @@
+{
+  "name": "watchlog-web",
+  "private": true,
+  "type": "module",
+  "description": "Version web de Watchlog (GitHub Pages) : HTML/JS sans compilation.",
+  "scripts": {
+    "test": "node --test tests/*.test.js"
+  }
+}
