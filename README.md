@@ -25,7 +25,7 @@ chaque push sur `main`, après ses tests (workflow `.github/workflows/pages.yml`
   [themoviedb.org](https://www.themoviedb.org/settings/api)). Elle reste dans ce navigateur,
   à part des données : jamais dans le fichier exporté. Sans clé, les séries fonctionnent
   (TVMaze), mais pas les films, les suggestions ni les plateformes.
-- **Pages** : À regarder, Bibliothèque, fiches série et film (épisodes à cocher, « J'en suis
+- **Pages** : À regarder (filtre « Sur mes plateformes », comme dans le logiciel), Bibliothèque, fiches série et film (épisodes à cocher, « J'en suis
   là », note, plateformes), Calendrier, Suggestions, Statistiques, Ajouter, Paramètres.
 - **Mise à jour** des séries et films : automatique à l'ouverture si la dernière date de plus
   de 24 h, ou bouton dans Paramètres.

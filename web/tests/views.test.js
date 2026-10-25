@@ -63,3 +63,25 @@ test("échappement et URL sûres", () => {
   assert.equal(safeUrl("https://static.tvmaze.com/a.jpg"), "https://static.tvmaze.com/a.jpg");
   assert.ok(String(poster("javascript:alert(1)", "X")).includes("poster-empty"));
 });
+
+test("« À regarder », « Sur mes plateformes » : recherche, puis liste filtrée", async (t) => {
+  const saved = new Map([["watchlog.prefs.queue", JSON.stringify({ mine: true })]]);
+  globalThis.localStorage = { getItem: (k) => saved.get(k) ?? null, setItem: (k, v) => saved.set(k, v) };
+  t.after(() => { delete globalThis.localStorage; });
+  const app = fakeApp();
+  app.store.setSetting("my_platforms", ["Netflix"]);
+  app.store.put("shows", { ...app.store.get("shows", "tvmaze:1"), tmdb_id: 10 });
+  addMovie(app.store, "Pas vu", { id: 551, release: "2001-01-01" });
+
+  assert.match(String(await aRegarder.render(app, [])), /pas appliqué/);   // pas de clé TMDB
+
+  app.tmdb = { configured: true, connected: true, available: async () => true,
+    watchProviders: async (media) => (media === "tv"
+      ? { FR: { flatrate: [{ provider_name: "Netflix" }] } } : { FR: { rent: [{ provider_name: "Netflix" }] } }) };
+  const done = new Promise((resolve) => { app.rerender = resolve; });
+  assert.match(String(await aRegarder.render(app, [])), /Recherche des\s+plateformes/);
+  await done;
+  const out = String(await aRegarder.render(app, []));
+  assert.match(out, /Le Royaume/);
+  assert.ok(!out.includes("Pas vu"), "film seulement en location : masqué");
+});

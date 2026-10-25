@@ -13,9 +13,10 @@ import {
 } from "../js/core/library.js";
 import { COMPLETED, EPISODE, MOVIE, SHOW, STOPPED, TO_WATCH, refKey } from "../js/core/model.js";
 import { lastWatchedLabel, libraryOverview, progressLabel, SORT_PAUSED } from "../js/core/progress.js";
+import { ApiError } from "../js/api/http.js";
 import {
-  buildQueue, calendar, dayEntryLabel, groupDay, nextEpisode, releasesBetween, NO_DATE,
-  RELEASED, SORT_RECENT, UPCOMING,
+  buildQueue, calendar, checkPlatforms, dayEntryLabel, filterOnPlatforms, groupDay, nextEpisode,
+  releasesBetween, NO_DATE, RELEASED, SORT_RECENT, UPCOMING,
 } from "../js/core/queue.js";
 import { addEpisode, addMovie, addShow, makeStore, watch } from "./helpers.js";
 
@@ -119,6 +120,70 @@ test("« À regarder » : ordre par date, sections, statuts, prochain épisode",
   assert.deepEqual(buildQueue(store, { today: TODAY, sort: SORT_RECENT, kinds: [EPISODE],
     availabilities: [RELEASED] }).map((i) => i.title), ["Bêta"]);
   assert.equal(nextEpisode(store, b, TODAY).code, "S01E02");
+});
+
+/** Faux TMDB pour les plateformes (comme PlatformTMDB de tests/test_queue.py). */
+class PlatformTMDB {
+  constructor(offers, { failing = new Set(), find = new Map(), available = true } = {}) {
+    Object.assign(this, { offers, failing, find, ready: available, calls: [] });
+  }
+
+  async available() { return this.ready; }
+
+  async watchProviders(media, id) {
+    this.calls.push(`${media}:${id}`);
+    if (this.failing.has(`${media}:${id}`)) throw new ApiError("TMDB indisponible (simulé)");
+    return { FR: this.offers[`${media}:${id}`] || {} };
+  }
+
+  async findTvByTvdb(tvdbId) { return this.find.get(tvdbId) ?? null; }
+}
+
+const offer = (kind, ...names) => ({ [kind]: names.map((n, i) => ({ provider_name: n,
+  display_priority: i })) });
+
+test("« Sur mes plateformes » : un appel par titre, titres inconnus signalés", async () => {
+  const store = makeStore();
+  const shows = [addShow(store, "Sur Netflix", { id: 1, tmdb_id: 10 }),
+    addShow(store, "Via TVDB", { id: 2, tvdb_id: 500 }),
+    addShow(store, "Saisie à la main", { id: 3 }),
+    addShow(store, "En panne", { id: 4, tmdb_id: 30 })];
+  for (const [i, show] of shows.entries()) {
+    addEpisode(store, show, 1, 1, { airdate: "2026-01-01", id: i * 10 + 1 });
+    addEpisode(store, show, 1, 2, { airdate: "2026-01-08", id: i * 10 + 2 });
+  }
+  addMovie(store, "Film en location", { id: 40, release: "2025-01-01" });
+  addMovie(store, "Film gratuit", { id: 41, release: "2025-02-01" });
+  addMovie(store, "Film sans id", { id: 42, release: "2025-03-01", tmdb_id: null });
+  const tmdb = new PlatformTMDB({ "tv:10": offer("flatrate", "Netflix"),
+    "tv:20": offer("flatrate", "Canal+"), "movie:40": offer("rent", "Netflix"),
+    "movie:41": offer("ads", "Netflix", "TF1+") },
+  { failing: new Set(["tv:30"]), find: new Map([[500, 20]]) });
+  const items = buildQueue(store, { today: TODAY });
+
+  const check = await checkPlatforms(store, tmdb, items);
+
+  assert.deepEqual(tmdb.calls.sort(), ["movie:40", "movie:41", "tv:10", "tv:20", "tv:30"]);
+  assert.equal(store.get("shows", shows[1]).tmdb_id, 20);       // trouvé via TVDB, gardé
+  const result = filterOnPlatforms(items, check, ["Netflix"]);
+  assert.deepEqual(result.items.map((i) => `${i.title} ${i.code}`.trim()),
+    ["Film gratuit", "Sur Netflix S01E01", "Sur Netflix S01E02"]);
+  assert.deepEqual(result.noId, ["Film sans id", "Saisie à la main"]);
+  assert.deepEqual(result.failed, ["En panne"]);
+  assert.equal(result.hidden, 3);
+  const both = filterOnPlatforms(items, check, ["Netflix", "Canal+"]);
+  assert.deepEqual(new Set(both.items.map((i) => i.title)),
+    new Set(["Sur Netflix", "Via TVDB", "Film gratuit"]));
+});
+
+test("« Sur mes plateformes » : TMDB non connecté = panne, jamais « pas dispo »", async () => {
+  const store = makeStore();
+  const show = addShow(store, "Série", { tmdb_id: 10 });
+  addEpisode(store, show, 1, 1, { airdate: "2026-01-01" });
+  const tmdb = new PlatformTMDB({}, { available: false });
+  const items = buildQueue(store, { today: TODAY });
+  const result = filterOnPlatforms(items, await checkPlatforms(store, tmdb, items), ["Netflix"]);
+  assert.deepEqual([result.items, result.failed, tmdb.calls], [[], ["Série"], []]);
 });
 
 test("série à numérotation à vérifier : exclue de « À regarder »", () => {

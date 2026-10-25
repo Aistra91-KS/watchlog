@@ -41,6 +41,25 @@ function defaultSleep(ms) {
   return new Promise((resolve) => { setTimeout(resolve, ms); });
 }
 
+/** Exécute `worker` sur chaque élément, `concurrency` à la fois, dans l'ordre des résultats
+ *  (le débit reste limité par le RateLimiter du client). */
+export async function mapPool(items, worker, concurrency, onDone = () => {}) {
+  const results = new Array(items.length);
+  let next = 0;
+  let done = 0;
+  async function run() {
+    while (next < items.length) {
+      const i = next;
+      next += 1;
+      results[i] = await worker(items[i]);
+      done += 1;
+      onDone(done, items.length);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, run));
+  return results;
+}
+
 /** Cache en mémoire (tests) ; storage/idb.js fournit la même interface dans le navigateur. */
 export class MemoryCache {
   constructor() { this.rows = new Map(); }

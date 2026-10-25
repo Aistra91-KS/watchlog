@@ -1,12 +1,14 @@
 // Liste « À regarder » et calendrier (port de watchlog/core/queue.py).
 // Épisodes et films non vus, triés par date de sortie ; à venir et sans date à la fin.
 
+import { mapPool } from "../api/http.js";
 import { addDays, localDate, today as todayParis } from "./dates.js";
 import { getWatch } from "./library.js";
 import {
   COMPLETED, EPISODE, FOR_LATER, MATCH_OK, MATCH_REMAPPED, MOVIE, SHOW, TO_WATCH, WATCHING,
   episodeCode, episodeTitle, refKey,
 } from "./model.js";
+import { REGION, parseProviders, streamingNames } from "./providers.js";
 
 export const RELEASED = "released";
 export const UPCOMING = "upcoming";
@@ -16,6 +18,7 @@ export const DEFAULT_STATUSES = [WATCHING, TO_WATCH];
 export const SORT_DATE = "date";
 export const SORT_RECENT = "recent";
 const AVAILABILITY_ORDER = { [RELEASED]: 0, [UPCOMING]: 1, [NO_DATE]: 2 };
+const PLATFORM_WORKERS = 6;   // titres lus en parallèle sur TMDB (débit limité par le client)
 
 export function availability(day, today) {
   if (!day) return NO_DATE;
@@ -131,6 +134,87 @@ export function buildQueue(store, {
     });
   }
   return items.sort(compareDefault);
+}
+
+// --- Filtre « Sur mes plateformes » ----------------------------------------------------
+
+/** Le titre d'un élément : la série pour un épisode, le film sinon. */
+export function titleKey(item) {
+  return item.kind === EPISODE ? refKey(SHOW, item.show) : refKey(MOVIE, item.ref);
+}
+
+/** Id TMDB d'une série ; s'il manque, cherché via l'id TVDB et enregistré. Une panne TMDB
+ *  lève ApiError (à distinguer d'une série que TMDB ne connaît pas). */
+async function showTmdbId(store, tmdb, showKey) {
+  const show = store.get("shows", showKey);
+  if (!show) return null;
+  if (!show.tmdb_id && show.tvdb_id) {
+    const id = await tmdb.findTvByTvdb(show.tvdb_id);
+    if (id) store.put("shows", { ...show, tmdb_id: id });
+    return id || null;
+  }
+  return show.tmdb_id || null;
+}
+
+/** Plateformes « streaming » (abonnement, gratuit) de chaque titre de `items`, un seul appel
+ *  TMDB par série ou film (port de queue.check_platforms). Les titres sans id TMDB et ceux
+ *  dont TMDB n'a pas donné les plateformes sont gardés à part : on ne sait pas.
+ *  Retour : {streaming: Map clé → noms, noId: Map clé → titre, failed: Map clé → titre}. */
+export async function checkPlatforms(store, tmdb, items, progress = () => {}) {
+  const check = { streaming: new Map(), noId: new Map(), failed: new Map() };
+  const titles = [...new Map(items.map((i) => [titleKey(i), i])).values()];
+  let ready = false;
+  try {
+    ready = await tmdb.available();
+  } catch (error) {
+    console.warn("Plateformes inconnues : TMDB injoignable", error);
+  }
+  if (!ready) {
+    // TMDB non connecté ou injoignable : panne, jamais « pas dispo ».
+    for (const item of titles) check.failed.set(titleKey(item), item.title);
+    return check;
+  }
+  await mapPool(titles, async (item) => {
+    const key = titleKey(item);
+    try {
+      const tmdbId = item.kind === EPISODE ? await showTmdbId(store, tmdb, item.show)
+        : store.get("movies", item.ref)?.tmdb_id;
+      if (!tmdbId) {
+        check.noId.set(key, item.title);
+        return;
+      }
+      const results = await tmdb.watchProviders(item.kind === EPISODE ? "tv" : "movie", tmdbId);
+      check.streaming.set(key, streamingNames(parseProviders(results[REGION] || {})));
+    } catch (error) {
+      console.warn(`Plateformes inconnues pour « ${item.title} »`, error);
+      check.failed.set(key, item.title);
+    }
+  }, PLATFORM_WORKERS, progress);
+  return check;
+}
+
+/** Garde les éléments disponibles sur au moins une de `platforms`. Les titres dont on ne
+ *  connaît pas les plateformes sont retirés mais listés (noId, failed), pour le dire. */
+export function filterOnPlatforms(items, check, platforms) {
+  const mine = new Set(platforms);
+  const kept = [];
+  const noId = new Map();
+  const failed = new Map();
+  for (const item of items) {
+    const key = titleKey(item);
+    if (check.streaming.has(key)) {
+      if (check.streaming.get(key).some((name) => mine.has(name))) kept.push(item);
+    } else if (check.failed.has(key)) {
+      failed.set(key, item.title);
+    } else {   // pas d'id TMDB (ou titre absent du contrôle : on ne sait pas non plus)
+      noId.set(key, item.title);
+    }
+  }
+  const sorted = (map) => [...map.values()].sort((a, b) => a.localeCompare(b, "fr",
+    { sensitivity: "base" }));
+  const result = { items: kept, noId: sorted(noId), failed: sorted(failed) };
+  result.hidden = result.noId.length + result.failed.length;
+  return result;
 }
 
 /** Prochain épisode non vu d'une série (hors spéciaux), quel que soit son statut. */

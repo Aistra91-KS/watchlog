@@ -3,6 +3,7 @@
 // (recommandations TMDB, thèmes forts, tendances) -> score, « % pour toi », diversification.
 // Une panne TMDB n'est jamais avalée : comptée et signalée dans `errors`.
 
+import { mapPool } from "../api/http.js";
 import { posterUrl } from "./catalog.js";
 import { isoUtc, parisDay, today as todayParis, daysBetween } from "./dates.js";
 import { COMPLETED, EPISODE, FOR_LATER, MOVIE, SHOW, STOPPED, TO_WATCH, WATCHING, splitGenres }
@@ -63,24 +64,6 @@ class Failures {
           + "« Recalculer » plus tard."
         : `TMDB n'a pas répondu pour ${failed} sur ${total} ${step} (effet faible sur le résultat).`));
   }
-}
-
-/** Exécute `worker` sur chaque élément, `concurrency` à la fois, dans l'ordre des résultats. */
-async function mapPool(items, worker, concurrency = WORKERS, onDone = () => {}) {
-  const results = new Array(items.length);
-  let next = 0;
-  let done = 0;
-  async function run() {
-    while (next < items.length) {
-      const i = next;
-      next += 1;
-      results[i] = await worker(items[i]);
-      done += 1;
-      onDone(done, items.length);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, run));
-  return results;
 }
 
 export function shortText(text, length = SUMMARY_LENGTH) {
