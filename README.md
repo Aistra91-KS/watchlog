@@ -144,6 +144,7 @@ Avec le Python du `.venv` (sous Windows : `.\.venv\Scripts\python.exe`) :
 | Commande | Rôle |
 | --- | --- |
 | `python -m watchlog import chemin\vers\export.zip` | importe un export Bingers |
+| `python -m watchlog import chemin\vers\watchlog.json` | importe un fichier de l'app web |
 | `python -m watchlog sync` | met à jour séries (TVMaze) et films (TMDB) |
 | `python -m watchlog check` | vérifie la connexion à TMDB |
 | `python -m watchlog export` | exporte « À regarder » (Excel), la base complète (CSV) et un .zip pour Bingers |
