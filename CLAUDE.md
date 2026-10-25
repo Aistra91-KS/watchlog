@@ -9,6 +9,10 @@ Tout le projet (code, commentaires, docstrings, interface, commits) est **en fra
 email, chemins locaux, goûts, données réelles, clés). Les notes perso du propriétaire (goûts,
 constats sur sa vraie bibliothèque) sont dans `CLAUDE.local.md`, non versionné.
 
+Deux apps qui partagent un format d'échange JSON (`core/exchange.py` ↔ `web/js/core/exchange.js`) :
+le logiciel Python/Streamlit (local) et une **app web** HTML/JS sans compilation (`web/`,
+GitHub Pages, données dans IndexedDB, clé TMDB saisie par l'utilisateur dans Paramètres).
+
 Le [README.md](README.md) est la doc utilisateur (installation, pages, commandes, dépannage) :
 le garder à jour à chaque fonctionnalité visible.
 
@@ -70,6 +74,15 @@ watchlog/
     views/*.py         une page par fichier (a_regarder, bibliotheque, calendrier, suggestions,
                        apercu, ajouter, statistiques, parametres, serie, film)
 launcher/              lanceur Windows + install.ps1 (raccourcis)
+web/                   app web (GitHub Pages), modules ES sans compilation ni dépendance
+  index.html, css/     page unique (routes #/page), thèmes clair / sombre
+  js/core/             logique pure, testée sous Node (port de core/ : library, queue,
+                       progress, stats, taste, suggestions, exchange, catalog, adding)
+  js/core/taste-data.js GÉNÉRÉ depuis taste.py (tests/test_web_sync.py)
+  js/api/              clients TVMaze / TMDB (cache IndexedDB, débit limité, réessais)
+  js/storage/          IndexedDB (idb.js), clé TMDB en localStorage (secret.js)
+  js/views/            une page par fichier ; gabarit `html` qui échappe tout (dom.js)
+  tests/               node --test ; contrat d'échange avec Python (fixtures/)
 tests/                 pytest ; conftest.py = faux clients TVMaze/TMDB, faux zip Bingers
 ```
 
@@ -123,6 +136,19 @@ tests/                 pytest ; conftest.py = faux clients TVMaze/TMDB, faux zip
   filtres, score « % pour toi » et page Aperçu »).
 - **Commit automatique à la fin de chaque travail** (sans attendre qu'on le demande), une fois
   les tests passés : un commit par sujet, sur la branche courante. Pas de push.
+
+### App web (`web/`)
+- Port fidèle de `core/` : même règles, mêmes constantes. Un changement de logique côté
+  Python se reporte côté JS (et inversement), avec ses tests des deux côtés.
+- Format d'échange « watchlog » v1 : changer `exchange.py` ⇒ changer `exchange.js`, puis
+  `WATCHLOG_REGEN_FIXTURES=1 pytest tests/test_exchange.py` et
+  `node web/tests/tools/web-export-fixture.mjs` (tests de contrat dans les deux sens).
+- Sécurité : tout HTML passe par le gabarit `html` de `dom.js` (échappement) ; URL externes via `safeUrl`
+  (https seulement) ; un fichier importé n'est pas fiable. La clé TMDB ne va jamais dans
+  IndexedDB, le cache, l'export ni la console.
+- Tests : `node --test "tests/*.test.js"` dans `web/` ; les vues se testent en rendant leur
+  HTML sous Node (`tests/views.test.js`). Essai réel : `python -m http.server` dans `web/`.
+- Même règle d'échec non silencieux : `console.warn` + compteur / message visible.
 
 ## Logique des points sensibles
 
@@ -193,5 +219,4 @@ Suggestions :
 Autres :
 - Notifications (nouvel épisode d'une série en cours, film dispo en streaming).
 - Import depuis d'autres trackers (TV Time, Trakt, Letterboxd).
-- Accès depuis le téléphone sur le réseau local (Streamlit `--server.address 0.0.0.0`).
 - Notes par épisode dans les statistiques, objectifs annuels.

@@ -1,9 +1,44 @@
 # Watchlog
 
+Suivi de séries et de films, épisode par épisode : liste « À regarder », calendrier des
+sorties, statistiques et suggestions personnalisées. Les fiches des séries viennent de
+TVMaze, celles des films de TMDB. L'historique peut être importé depuis un export de
+l'application Bingers.
 
-Suivi personnel de séries et de films, en local. Les fiches des séries viennent de
-TVMaze, celles des films de TMDB. L'historique peut être importé depuis un export
-de l'application Bingers. L'interface s'ouvre dans le navigateur (Streamlit).
+Deux façons de l'utiliser, qui s'échangent leurs données par un fichier JSON :
+
+- **Version web** : **[aistra91-ks.github.io/watchlog](https://aistra91-ks.github.io/watchlog/)**,
+  sans installation ni compte, sur téléphone comme sur ordinateur. Les données restent dans
+  le navigateur. Voir « [Version web](#version-web) ».
+- **Logiciel Python** (ce dépôt) : interface Streamlit en local, base SQLite, import Bingers,
+  exports Excel / CSV / Bingers, sauvegardes. Voir « Mise en place » ci-dessous.
+
+## Version web
+
+Le dossier `web/` est une application HTML/JS (sans compilation) publiée sur GitHub Pages à
+chaque push sur `main`, après ses tests (workflow `.github/workflows/pages.yml`).
+
+- **Données** : gardées dans le navigateur (IndexedDB), jamais envoyées ailleurs. Le
+  navigateur peut les effacer s'il manque de place : exporte-les de temps en temps
+  (Paramètres > « Exporter mes données »).
+- **Clé TMDB** : chacun saisit la sienne dans Paramètres (gratuite sur
+  [themoviedb.org](https://www.themoviedb.org/settings/api)). Elle reste dans ce navigateur,
+  à part des données : jamais dans le fichier exporté. Sans clé, les séries fonctionnent
+  (TVMaze), mais pas les films, les suggestions ni les plateformes.
+- **Pages** : À regarder, Bibliothèque, fiches série et film (épisodes à cocher, « J'en suis
+  là », note, plateformes), Calendrier, Suggestions, Statistiques, Ajouter, Paramètres.
+- **Mise à jour** des séries et films : automatique à l'ouverture si la dernière date de plus
+  de 24 h, ou bouton dans Paramètres.
+- **Échange avec le logiciel Python** : dans le logiciel, Paramètres > « App web » >
+  « Exporter pour l'app web (.json) », puis dans la version web Paramètres > « Importer ».
+  Dans l'autre sens : « Exporter mes données » sur le web, puis import dans le logiciel
+  (ou `python -m watchlog import fichier.json`). Les visionnages s'ajoutent (jamais
+  supprimés) ; pour un titre déjà présent, le fichier importé fait référence pour le statut,
+  le favori et la note.
+- **Essayer en local** : `python -m http.server 8000` dans `web/`, puis http://localhost:8000.
+- **Tests** : `node --test "tests/*.test.js"` dans `web/` (Node 20+, aucune dépendance,
+  aucun appel réseau).
+- **Publier un fork** : Settings > Pages > Source « GitHub Actions ».
 
 ## Mise en place (une fois pour toutes)
 
@@ -279,7 +314,9 @@ pour revenir aux vraies données.
 python -m pytest
 ```
 
-Les tests n'appellent jamais les vraies API (faux serveurs).
+Les tests n'appellent jamais les vraies API (faux serveurs). Ceux de la version web :
+`node --test "tests/*.test.js"` dans `web/`. Des tests de contrat vérifient que le fichier
+d'échange JSON se relit à l'identique dans les deux sens (Python ↔ web).
 
 ## Sources et mentions
 
@@ -288,7 +325,9 @@ Les tests n'appellent jamais les vraies API (faux serveurs).
 - Films : This product uses the TMDB API but is not endorsed or certified by TMDB.
   ([themoviedb.org](https://www.themoviedb.org))
 
-Ces mentions sont aussi affichées en bas de l'interface.
+- Disponibilités en France : JustWatch (via TMDB).
+
+Ces mentions sont aussi affichées dans l'interface (et dans Paramètres de la version web).
 
 ## Dépannage
 
