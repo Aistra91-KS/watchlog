@@ -14,11 +14,12 @@ import { setPreferences } from "../core/taste.js";
 import { html, options, poster, previewHref, raw } from "./dom.js";
 import { loadPrefs, savePrefs } from "./prefs.js";
 import { icon } from "./icons.js";
-import { alert, badge, expander, helpTip, segmented } from "./ui.js";
+import { alert, badge, expander, helpTip, multiSelect, segmented, slider } from "./ui.js";
 
 const SAVED = "suggestions_result";   // réglage (IndexedDB) : dernier résultat, sans les traits
 const PREFS = "suggestions";
-const DEFAULTS = { kind: "", genre: "", theme: "", sort: SORT_RELEVANCE, mine: false, minVote: 0 };
+const DEFAULTS = { kind: "", genres: [], themes: [], platforms: [], sort: SORT_RELEVANCE, mine: false,
+  streaming: false, years: null, minVote: 0 };
 const PAGE_SIZE = 15;   // suggestions affichées, puis « Afficher plus » par tranche
 
 function saved(app) {
@@ -133,6 +134,9 @@ export function render(app) {
   const running = app.ui.suggRunning;
   const result = saved(app);
   const prefs = loadPrefs(PREFS, DEFAULTS);
+  for (const name of ["genres", "themes", "platforms"]) {
+    if (!Array.isArray(prefs[name])) prefs[name] = [];   // préférences d'une ancienne version
+  }
   if (running) {
     const ratio = running.total ? Math.min(1, running.done / running.total) : 0;
     return html`<h1>Suggestions</h1>${intro}<div class="progress" aria-live="off">
@@ -146,16 +150,30 @@ export function render(app) {
       <p><button type="button" class="btn btn-primary" data-action="sugg-compute">Calculer mes
         suggestions</button></p>`;
   }
-  const items = filterItems(result.items, {
-    kinds: prefs.kind ? [prefs.kind] : [SHOW, MOVIE], genres: prefs.genre ? [prefs.genre] : [],
-    themes: prefs.theme ? [prefs.theme] : [], sort: prefs.sort, minVote: Number(prefs.minVote) || 0,
-    platforms: prefs.mine ? app.store.setting("my_platforms", []) : [],
-  });
-  const genres = [...new Set(result.items.flatMap((s) => s.genres))].sort((a, b) => a.localeCompare(b, "fr"));
-  const themes = [...new Set(result.items.flatMap((s) => s.themes))].sort((a, b) => a.localeCompare(b, "fr"));
-  const limit = app.ui.suggLimit || PAGE_SIZE;
-  const needsPlatforms = prefs.mine && result.items.some((s) => !s.streaming);
+  const kinds = prefs.kind ? [prefs.kind] : [SHOW, MOVIE];
+  const pool = result.items.filter((s) => kinds.includes(s.kind));
+  const byName = (a, b) => a.localeCompare(b, "fr", { sensitivity: "base" });
+  const genres = [...new Set(pool.flatMap((s) => s.genres))].sort(byName);
+  // Thèmes partagés par au moins deux suggestions, les plus fréquents d'abord (+ ceux choisis).
+  const counts = new Map();
+  for (const t of pool.flatMap((s) => s.themes)) counts.set(t, (counts.get(t) || 0) + 1);
+  const themes = [...counts].filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1]).map(([t]) => t);
+  for (const t of prefs.themes) if (!themes.includes(t)) themes.push(t);
+  const platforms = [...new Set(pool.flatMap((s) => s.streaming || []))].sort(byName);
+  const years = pool.map((s) => s.year).filter(Boolean);
+  const [low, high] = years.length ? [Math.min(...years), Math.max(...years)] : [0, 0];
+  const range = Array.isArray(prefs.years) && low <= prefs.years[0] && prefs.years[0] <= prefs.years[1]
+    && prefs.years[1] <= high ? prefs.years : [low, high];
+  const yearFilter = range[0] === low && range[1] === high ? null : range;
   const mine = app.store.setting("my_platforms", []);
+  const chosenPlatforms = [...new Set([...prefs.platforms, ...(prefs.mine ? mine : [])])];
+  const items = filterItems(result.items, { kinds, genres: prefs.genres, themes: prefs.themes,
+    platforms: chosenPlatforms, streamingOnly: prefs.streaming, years: yearFilter,
+    minVote: Number(prefs.minVote) || 0, sort: prefs.sort });
+  const limit = app.ui.suggLimit || PAGE_SIZE;
+  const missing = result.items.some((s) => !s.streaming);
+  const platformFilter = chosenPlatforms.length > 0 || prefs.streaming;
+  const pairs = (list) => list.map((v) => [v, v]);
   return html`
   <h1>Suggestions</h1>
   ${intro}
@@ -170,19 +188,30 @@ export function render(app) {
     <button type="button" class="btn" data-action="sugg-compute"
       title="${`Calculées le ${fmtDate(result.computedAt)} ; refait le calcul avec l'état actuel de la bibliothèque.`}">Recalculer</button>
   </form>
-  <form class="cols" style="--cols: 1fr 1fr 1fr 1fr" aria-label="Filtrer les suggestions">
-    <label class="field"><span>Genres</span><select data-change="sugg-pref" name="genre">${options(
-      [["", "Tous les genres"], ...genres.map((g) => [g, g])], prefs.genre)}</select></label>
-    <label class="field"><span>Thèmes</span><select data-change="sugg-pref" name="theme">${options(
-      [["", "Tous les thèmes"], ...themes.map((t) => [t, t])], prefs.theme)}</select></label>
-    <label class="field"><span>Note TMDB minimale</span><select data-change="sugg-pref" name="minVote">${options(
-      [["0", "Toutes"], ["6", "6 et plus"], ["7", "7 et plus"], ["8", "8 et plus"]], String(prefs.minVote))}</select></label>
-    <span class="check"><label class="check"><input type="checkbox" data-change="sugg-mine"
+  <form class="cols" style="--cols: 1fr 1fr 1fr" aria-label="Genres, thèmes et plateformes">
+    ${multiSelect("Genres", "genres", pairs(genres), prefs.genres, { placeholder: "Tous les genres",
+      change: "sugg-multi" })}
+    ${multiSelect("Thèmes", "themes", pairs(themes), prefs.themes, { placeholder: "Tous les thèmes",
+      change: "sugg-multi", help: "Mots-clés TMDB : dystopie, super-héros, voyage dans le temps…" })}
+    ${multiSelect("Plateformes (abonnement ou gratuit)", "platforms", pairs(platforms), prefs.platforms,
+      { placeholder: missing && !platforms.length ? "Plateformes pas encore lues" : "Toutes les plateformes",
+        change: "sugg-multi" })}
+  </form>
+  <form class="cols" style="--cols: 3fr 2fr 2fr 2fr" aria-label="Années, note et disponibilité">
+    ${low < high ? slider("Années de sortie", "years", { min: low, max: high, value: range,
+      change: "sugg-years" }) : html`<span></span>`}
+    ${slider("Note TMDB minimale", "minVote", { min: 0, max: 9, step: 0.5, value: Number(prefs.minVote) || 0,
+      change: "sugg-vote", format: (v) => Number(v).toFixed(1).replace(".", ",") })}
+    <span class="check"><label class="check"><input type="checkbox" data-change="sugg-flag" name="streaming"
+      ${prefs.streaming ? raw("checked") : ""}> Dispo en streaming uniquement</label>
+      ${helpTip("Sur une plateforme d'abonnement ou gratuite, en France.")}</span>
+    <span class="check"><label class="check"><input type="checkbox" data-change="sugg-flag" name="mine"
       ${prefs.mine ? raw("checked") : ""} ${mine.length ? "" : raw("disabled")}> Sur mes plateformes</label>
-      ${helpTip(mine.length ? `Seulement les titres disponibles sur ${mine.join(", ")}.`
+      ${helpTip(mine.length ? `Ajoute tes plateformes (${mine.join(", ")}) au filtre « Plateformes ».`
         : "Choisis d'abord tes plateformes dans Paramètres > Mes plateformes.")}</span>
   </form>
-  ${needsPlatforms ? alert("warning", html`Plateformes pas encore lues pour ces suggestions.
+  ${missing ? alert(platformFilter ? "warning" : "info", html`Plateformes pas encore lues pour
+    ${platformFilter ? "ces suggestions : les filtres de plateformes sont incomplets" : "les suggestions"}.
     <button type="button" class="btn" data-action="sugg-platforms">Lire les plateformes</button>`) : ""}
   <p class="caption" data-announce>${items.length} suggestion${items.length > 1 ? "s" : ""} · calculées
     le ${fmtDate(result.computedAt)}</p>
@@ -238,7 +267,18 @@ export const actions = {
   async "sugg-compute"(app) { await compute(app); },
   "sugg-status"(app, el) { app.ui.suggStatus = { ...app.ui.suggStatus, [el.dataset.key]: el.value }; },
   "sugg-pref"(app, el) { savePrefs(PREFS, { ...loadPrefs(PREFS, DEFAULTS), [el.name]: el.value }); },
-  "sugg-mine"(app, el) { savePrefs(PREFS, { ...loadPrefs(PREFS, DEFAULTS), mine: el.checked }); },
+  "sugg-flag"(app, el) { savePrefs(PREFS, { ...loadPrefs(PREFS, DEFAULTS), [el.name]: el.checked }); },
+  "sugg-multi"(app, el) {
+    const boxes = el.closest("fieldset").querySelectorAll("input:checked");
+    savePrefs(PREFS, { ...loadPrefs(PREFS, DEFAULTS), [el.name]: [...boxes].map((b) => b.value) });
+    app.ui.suggLimit = PAGE_SIZE;
+  },
+  "sugg-years"(app, el) {
+    const box = el.closest("fieldset");
+    const [a, b] = ["years-min", "years-max"].map((n) => Number(box.querySelector(`[name="${n}"]`).value));
+    savePrefs(PREFS, { ...loadPrefs(PREFS, DEFAULTS), years: [Math.min(a, b), Math.max(a, b)] });
+  },
+  "sugg-vote"(app, el) { savePrefs(PREFS, { ...loadPrefs(PREFS, DEFAULTS), minVote: Number(el.value) }); },
   "sugg-more"(app) { app.ui.suggLimit = (app.ui.suggLimit || PAGE_SIZE) + PAGE_SIZE; },
   async "sugg-platforms"(app, el) {
     el.disabled = true;
@@ -281,7 +321,8 @@ export const actions = {
     app.toast(`« ${form.dataset.title} » a été ajouté à la bibliothèque (${STATUS_LABELS[status]}).`);
   },
   "sugg-reset"(app) {
-    savePrefs(PREFS, { ...DEFAULTS, sort: loadPrefs(PREFS, DEFAULTS).sort });
+    const { kind, sort } = loadPrefs(PREFS, DEFAULTS);
+    savePrefs(PREFS, { ...DEFAULTS, kind, sort });
     app.ui.suggLimit = PAGE_SIZE;
   },
   "sugg-undismiss"(app) {

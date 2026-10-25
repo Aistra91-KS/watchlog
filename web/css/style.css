@@ -312,6 +312,30 @@ legend { font-size: 0.875rem; margin-bottom: 4px; padding: 0; }
   outline-offset: 1px; }
 @media (pointer: coarse) { .segmented label { min-height: 44px; } }
 
+/* Liste à choix multiples repliée (st.multiselect) */
+.ms { position: relative; }
+.ms > summary { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  min-height: 40px; padding: 6px 12px; border: 1px solid var(--field-border);
+  border-radius: var(--radius); background: var(--surface); cursor: pointer; list-style: none; }
+.ms > summary::-webkit-details-marker { display: none; }
+.ms[open] > summary { border-color: var(--primary); }
+.ms[open] > summary .icon { transform: rotate(180deg); }
+.ms-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.ms-value.is-empty { color: var(--muted); }
+.ms-panel { position: absolute; z-index: 12; left: 0; right: 0; top: calc(100% + 4px);
+  max-height: 320px; overflow-y: auto; padding: 4px 12px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+.ms-panel .check { display: flex; min-height: 36px; }
+@media (pointer: coarse) { .ms-panel .check { min-height: 44px; } }
+.ms-field > span { display: inline-flex; align-items: center; gap: 4px; font-size: 0.875rem; }
+
+/* Curseurs (st.slider) */
+.slider { display: flex; flex-direction: column; gap: 4px; font-size: 0.875rem; min-width: 0; }
+.slider legend { margin-bottom: 4px; }
+.slider-value { color: var(--primary); font-variant-numeric: tabular-nums; margin-left: 4px; }
+.slider input[type="range"] { width: 100%; min-height: 24px; padding: 0; border: none;
+  background: none; accent-color: var(--primary); }
+
 /* Rangées de filtres : colonnes comme st.columns (--cols : leurs largeurs sur grand écran),
    repliées sur écran moyen, empilées sur téléphone. */
 .filters, .cols {

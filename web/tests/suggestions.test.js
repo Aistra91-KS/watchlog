@@ -155,4 +155,9 @@ test("filtres et tris de la page", () => {
   assert.deepEqual(filterItems(items, { themes: ["Dystopie"] }).map((s) => s.title), ["A"]);
   assert.deepEqual(filterItems(items, { streamingOnly: true }).map((s) => s.title), ["A"]);
   assert.deepEqual(filterItems(items, { kinds: [SHOW], minVote: 7 }), []);
+  // Années (bornes comprises) ; un titre sans année est exclu dès qu'il y a ce filtre
+  const withUnknown = [...items, { ...items[0], title: "C", year: null }];
+  assert.deepEqual(filterItems(withUnknown, { years: [2000, 2010] }).map((s) => s.title), ["A"]);
+  assert.deepEqual(filterItems(withUnknown, { years: [2001, 2020] }).map((s) => s.title), ["B", "A"]);
+  assert.equal(filterItems(withUnknown).length, 3);
 });

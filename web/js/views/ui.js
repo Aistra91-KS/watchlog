@@ -85,3 +85,35 @@ export const actions = {
     app.ui.focusAfter = el.id;
   },
 };
+
+/** st.multiselect : liste repliée qui affiche le choix (ou `placeholder`), cases à cocher
+ *  dedans (au clavier et au doigt). pairs = [[valeur, libellé], ...]. */
+export function multiSelect(label, name, pairs, chosen, { placeholder = "", change, help = "" } = {}) {
+  const picked = pairs.filter(([v]) => chosen.includes(v)).map(([, l]) => l);
+  return html`<div class="field ms-field"><span id="${`ms-${name}`}">${label}${help ? helpTip(help) : ""}</span>
+    <details class="ms" data-keep="${`ms-${name}`}">
+      <summary aria-describedby="${`ms-${name}`}"><span class="ms-value ${picked.length ? "" : "is-empty"}">${
+        picked.length ? picked.join(", ") : placeholder}</span>${icon("expand_more")}</summary>
+      <fieldset class="ms-panel"><legend class="sr-only">${label}</legend>
+        ${pairs.length ? pairs.map(([v, l]) => html`<label class="check"><input type="checkbox" name="${name}"
+          value="${v}" data-change="${change}" ${chosen.includes(v) ? raw("checked") : ""}> ${l}</label>`)
+          : html`<p class="caption">Aucun choix possible.</p>`}
+      </fieldset>
+    </details></div>`;
+}
+
+/** st.slider : curseur avec sa valeur affichée. Deux bornes (plage) si `value` est un tableau. */
+export function slider(label, name, { min, max, step = 1, value, change, format = String }) {
+  if (Array.isArray(value)) {
+    const [lo, hi] = value;
+    return html`<fieldset class="slider"><legend>${label} <span class="slider-value">${format(lo)} – ${format(hi)}</span></legend>
+      <input type="range" name="${`${name}-min`}" min="${min}" max="${max}" step="${step}" value="${lo}"
+        data-change="${change}" aria-label="${`${label} : début`}" aria-valuetext="${format(lo)}">
+      <input type="range" name="${`${name}-max`}" min="${min}" max="${max}" step="${step}" value="${hi}"
+        data-change="${change}" aria-label="${`${label} : fin`}" aria-valuetext="${format(hi)}">
+    </fieldset>`;
+  }
+  return html`<label class="slider"><span>${label} <span class="slider-value">${format(value)}</span></span>
+    <input type="range" name="${name}" min="${min}" max="${max}" step="${step}" value="${value}"
+      data-change="${change}" aria-valuetext="${format(value)}"></label>`;
+}
