@@ -4,7 +4,11 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { ApiError } from "../js/api/http.js";
-import { syncLibrary, syncReportLines, tvmazeStatusLabel } from "../js/core/adding.js";
+import {
+  addManualMovie, addMovie as addTmdbMovie, syncLibrary, syncReportLines, tvmazeStatusLabel,
+} from "../js/core/adding.js";
+import { getWatch, markWatched } from "../js/core/library.js";
+import { COMPLETED, MOVIE as MOVIE_KIND, TO_WATCH } from "../js/core/model.js";
 import { addMovie, addShow, makeStore } from "./helpers.js";
 
 const NOW = Date.parse("2026-10-25T12:00:00Z");
@@ -65,4 +69,22 @@ test("statut de diffusion TVMaze en français (comme adding.tvmaze_status_label)
   assert.equal(tvmazeStatusLabel("Ended"), "Terminée");
   assert.equal(tvmazeStatusLabel("Pilot"), "Pilot");
   assert.equal(tvmazeStatusLabel(null), "");
+});
+
+test("film ajouté en « Terminé » : vu à la date choisie (comme adding._record_movie_watch)", async () => {
+  const tmdb = { getMovie: async (id) => ({ id, title: "Fight Club", release_date: "1999-11-10" }) };
+  let store = makeStore();
+  let movie = await addTmdbMovie(store, tmdb, 550, { status: COMPLETED, watchedOn: "1999-11-10" });
+  assert.equal(getWatch(store, MOVIE_KIND, movie.key).watched_at, "1999-11-10T11:00:00Z");
+  store = makeStore();
+  movie = await addTmdbMovie(store, tmdb, 550, { status: COMPLETED });
+  assert.equal(getWatch(store, MOVIE_KIND, movie.key).watched_at, null);       // date inconnue
+  store = makeStore();
+  movie = await addTmdbMovie(store, tmdb, 550, { status: TO_WATCH, watchedOn: "2000-01-01" });
+  assert.equal(getWatch(store, MOVIE_KIND, movie.key), null);
+  markWatched(store, MOVIE_KIND, movie.key, "2020-02-02T20:00:00Z");
+  await addTmdbMovie(store, tmdb, 550, { status: COMPLETED, watchedOn: "2000-01-01" });
+  assert.equal(getWatch(store, MOVIE_KIND, movie.key).watched_at, "2020-02-02T20:00:00Z");   // gardé
+  const manual = addManualMovie(store, { title: "Film perso", status: COMPLETED, watchedOn: "1995-03-03" });
+  assert.equal(getWatch(store, MOVIE_KIND, manual.key).watched_at, "1995-03-03T11:00:00Z");
 });

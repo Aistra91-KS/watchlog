@@ -23,6 +23,7 @@ import * as serie from "./views/serie.js";
 const ROUTES = {
   "a-regarder": aRegarder, bibliotheque, calendrier, serie, film,
   suggestions: () => import("./views/suggestions.js"),
+  apercu: () => import("./views/apercu.js"),
   statistiques: () => import("./views/statistiques.js"),
   ajouter: () => import("./views/ajouter.js"),
   parametres: () => import("./views/parametres.js"),
@@ -195,7 +196,8 @@ function parseHash() {
 }
 
 function renderNav() {
-  const current = ["serie", "film"].includes(app.route.name) ? "bibliotheque" : app.route.name;
+  const parent = { serie: "bibliotheque", film: "bibliotheque", apercu: "suggestions" };
+  const current = parent[app.route.name] || app.route.name;
   document.getElementById("nav").innerHTML = html`<ul role="list">${NAV.map(([name, label]) => html`
     <li><a href="#/${name}" ${name === current ? html`aria-current="page"` : ""}>${label}</a></li>`)}
     </ul>`.text;

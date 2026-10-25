@@ -57,6 +57,11 @@ export function showHref(key) { return href("serie", key); }
 
 export function movieHref(key) { return href("film", key); }
 
+/** Page Aperçu d'un titre TMDB (#/apercu/serie|film/<id>). */
+export function previewHref(kind, tmdbId) {
+  return href("apercu", kind === "show" ? "serie" : "film", tmdbId);
+}
+
 /** Affiche, ou cadre gris « Pas d'affiche » comme l'app Python (common.show_poster). Texte
  *  alternatif vide : le titre est toujours écrit à côté, l'image est décorative. */
 export function poster(url, title, size = "md") {

@@ -3,16 +3,17 @@
 // les suivants quelques secondes grâce au cache).
 
 import { addMovie, addSuggestedShow } from "../core/adding.js";
-import { fmtDate, isoUtc } from "../core/dates.js";
-import { MOVIE, SHOW, STATUSES, STATUS_LABELS, TO_WATCH } from "../core/model.js";
+import { fmtDate, isoUtc, today } from "../core/dates.js";
+import { COMPLETED, MOVIE, SHOW, STATUSES, STATUS_LABELS, TO_WATCH } from "../core/model.js";
 import { REGION, parseProviders, streamingNames } from "../core/providers.js";
 import {
   SORT_RATING, SORT_RECENT, SORT_RELEVANCE, TMDB_MEDIA, computeAll, dismiss, filterItems,
   undismissAll,
 } from "../core/suggestions.js";
 import { setPreferences } from "../core/taste.js";
-import { html, options, poster, raw } from "./dom.js";
+import { html, options, poster, previewHref, raw } from "./dom.js";
 import { loadPrefs, savePrefs } from "./prefs.js";
+import { icon } from "./icons.js";
 import { alert, badge, expander, helpTip, segmented } from "./ui.js";
 
 const SAVED = "suggestions_result";   // réglage (IndexedDB) : dernier résultat, sans les traits
@@ -49,13 +50,15 @@ const STATUS_PAIRS = STATUSES.map((st) => [st, STATUS_LABELS[st]]);
 function card(app, s) {
   const mine = new Set(app.store.setting("my_platforms", []));
   const id = `${s.kind}-${s.tmdbId}`;
+  const status = app.ui.suggStatus?.[id] || TO_WATCH;
   const details = [s.originalTitle && s.originalTitle !== s.title ? `Titre original : ${s.originalTitle}`
     : null, s.genres.length ? s.genres.join(", ") : null,
   s.voteAverage ? `Note TMDB : ${s.voteAverage.toFixed(1).replace(".", ",")}/10` : null].filter(Boolean);
   return html`<li class="row is-plain suggestion">
     ${poster(s.posterUrl, s.title, "sm")}
     <div class="row-main">
-      <h2 class="row-title">${s.title}${s.year ? ` (${s.year})` : ""}</h2>
+      <h2 class="row-title"><a href="${previewHref(s.kind, s.tmdbId)}" title="Voir la fiche détaillée">${s.title}${s.year
+        ? ` (${s.year})` : ""}${icon("open_in_new")}<span class="sr-only"> : fiche détaillée</span></a></h2>
       <p class="row-sub">${s.kind === MOVIE ? badge("Film", "orange")
         : badge("Série", "blue")} ${badge(`${s.match} % pour toi`, "green")}
         ${s.trending ? badge("Tendance de la semaine", "orange", "trending_up") : ""}
@@ -70,7 +73,11 @@ function card(app, s) {
       <form class="row-form" data-submit="sugg-add" data-kind="${s.kind}" data-id="${s.tmdbId}"
         data-title="${s.title}">
         <label class="field field-wide"><span>Statut</span><select name="status" id="${`sugg-status-${id}`}"
-          aria-label="${`Statut pour ${s.title}`}">${options(STATUS_PAIRS, TO_WATCH)}</select></label>
+          data-change="sugg-status" data-key="${id}" aria-label="${`Statut pour ${s.title}`}">${options(
+            STATUS_PAIRS, status)}</select></label>
+        ${s.kind === MOVIE && status === COMPLETED ? html`<label class="field"><span>Vu le
+          (facultatif)</span><input type="date" name="day" min="1900-01-01" max="${today()}"
+          aria-label="${`Vu le (facultatif) : ${s.title}`}"></label>` : ""}
         <button class="btn" aria-label="${`Ajouter ${s.title}`}">Ajouter</button>
         <button type="button" class="btn" data-action="sugg-dismiss" data-kind="${s.kind}"
           data-id="${s.tmdbId}" data-title="${s.title}"
@@ -215,6 +222,12 @@ async function compute(app) {
   }
 }
 
+/** Retire un titre du dernier résultat (ajouté ou écarté), sans tout recalculer. */
+export function forgetSuggestion(app, kind, tmdbId) {
+  if (!saved(app)) return;
+  updateItems(app, (items) => items.filter((s) => !(s.kind === kind && s.tmdbId === tmdbId)));
+}
+
 function updateItems(app, change) {
   const result = saved(app);
   app.ui.suggestions = { ...result, items: change(result.items) };
@@ -223,6 +236,7 @@ function updateItems(app, change) {
 
 export const actions = {
   async "sugg-compute"(app) { await compute(app); },
+  "sugg-status"(app, el) { app.ui.suggStatus = { ...app.ui.suggStatus, [el.dataset.key]: el.value }; },
   "sugg-pref"(app, el) { savePrefs(PREFS, { ...loadPrefs(PREFS, DEFAULTS), [el.name]: el.value }); },
   "sugg-mine"(app, el) { savePrefs(PREFS, { ...loadPrefs(PREFS, DEFAULTS), mine: el.checked }); },
   "sugg-more"(app) { app.ui.suggLimit = (app.ui.suggLimit || PAGE_SIZE) + PAGE_SIZE; },
@@ -261,7 +275,7 @@ export const actions = {
     if (form.dataset.kind === SHOW) {
       await addSuggestedShow(app.store, app.tvmaze, app.tmdb, id, { title: form.dataset.title, status });
     } else {
-      await addMovie(app.store, app.tmdb, id, { status });
+      await addMovie(app.store, app.tmdb, id, { status, watchedOn: new FormData(form).get("day") || null });
     }
     updateItems(app, (items) => items.filter((s) => !(s.kind === form.dataset.kind && s.tmdbId === id)));
     app.toast(`« ${form.dataset.title} » a été ajouté à la bibliothèque (${STATUS_LABELS[status]}).`);

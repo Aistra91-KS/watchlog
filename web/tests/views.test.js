@@ -8,6 +8,7 @@ import { EPISODE, MOVIE } from "../js/core/model.js";
 import { html, poster, safeUrl } from "../js/views/dom.js";
 import * as aRegarder from "../js/views/a-regarder.js";
 import * as ajouter from "../js/views/ajouter.js";
+import * as apercu from "../js/views/apercu.js";
 import * as bibliotheque from "../js/views/bibliotheque.js";
 import * as calendrier from "../js/views/calendrier.js";
 import * as film from "../js/views/film.js";
@@ -123,4 +124,22 @@ test("ajouter : onglets, résultats séries + films, saisie manuelle", async () 
   assert.ok(out.includes("Terminée") && !out.includes(EVIL));
   app.ui.tabs = { add: "Saisie manuelle" };
   assert.ok(String(ajouter.render(app, [])).includes("Ajouter la série"));
+});
+
+test("aperçu d'un titre TMDB : rien d'injecté, déjà dans la bibliothèque, titre inconnu", async () => {
+  const app = fakeApp();
+  app.tmdb = { configured: true, details: async (media, id) => (id === 550 ? {
+    id: 550, title: EVIL, overview: EVIL, release_date: "1999-11-10", genres: [{ name: EVIL }],
+    poster_path: "/p.jpg", backdrop_path: "/b.jpg", vote_average: 8.4, vote_count: 30000,
+    credits: { cast: [{ name: EVIL, character: EVIL, profile_path: "/c.jpg" }], crew: [] },
+    videos: { results: [{ site: "YouTube", type: "Trailer", key: "abcdefghijk", iso_639_1: "fr" }] },
+  } : null), recommendations: async () => [{ id: 9, title: EVIL, release_date: "2001-01-01" }],
+  watchProviders: async () => ({}) };
+  const out = String(await apercu.render(app, ["film", "550"]));
+  assert.equal(out.match(/<h1[\s>]/g)?.length, 1);
+  assert.ok(!out.includes(EVIL) && !out.includes("javascript:"));
+  assert.ok(out.includes("Déjà dans ta bibliothèque") && out.includes("Lire la bande-annonce"));
+  assert.ok(out.includes("#/apercu/film/9"));
+  assert.match(String(await apercu.render(app, ["film", "1"])), /introuvable/);
+  assert.match(String(await apercu.render(app, ["rien", "x"])), /Aucun titre/);
 });

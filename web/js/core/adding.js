@@ -3,8 +3,10 @@
 
 import { applyTmdbSeason, upsertMovieFromTmdb, upsertShowFromTvmaze } from "./catalog.js";
 import { isoUtc } from "./dates.js";
-import { ensureLibraryItem, markWatchedUntil, refreshCompleted, setStatus } from "./library.js";
-import { MOVIE, SHOW, episodeKey, newId } from "./model.js";
+import {
+  ensureLibraryItem, getWatch, markWatchedUntil, refreshCompleted, setStatus, setWatchDate,
+} from "./library.js";
+import { COMPLETED, MOVIE, SHOW, episodeKey, newId } from "./model.js";
 
 const DAY_MS = 86_400_000;
 // Au-delà, /updates/shows?since=month ne couvre plus l'écart : on relit toutes les séries.
@@ -84,13 +86,20 @@ export async function addSuggestedShow(store, tvmaze, tmdb, tmdbId, { status = "
   return { show: store.get("shows", show.key), warnings };
 }
 
-/** Ajoute un film TMDB. */
-export async function addMovie(store, tmdb, tmdbId, { status = "to_watch" } = {}) {
+/** Film ajouté en « Terminé » : il compte comme vu, à la date choisie (sinon date inconnue).
+ *  Un visionnage déjà enregistré n'est pas modifié (adding._record_movie_watch). */
+function recordMovieWatch(store, key, status, watchedOn) {
+  if (status === COMPLETED && !getWatch(store, MOVIE, key)) setWatchDate(store, MOVIE, key, watchedOn);
+}
+
+/** Ajoute un film TMDB (« Terminé » : vu le `watchedOn`, jour « AAAA-MM-JJ » ou null). */
+export async function addMovie(store, tmdb, tmdbId, { status = "to_watch", watchedOn = null } = {}) {
   const data = await tmdb.getMovie(tmdbId);
   if (!data) throw new Error("Film introuvable sur TMDB (ou TMDB non connecté).");
   const movie = upsertMovieFromTmdb(store, data);
   ensureLibraryItem(store, MOVIE, movie.key, status);
   setStatus(store, MOVIE, movie.key, status);
+  recordMovieWatch(store, movie.key, status, watchedOn);
   return movie;
 }
 
@@ -112,13 +121,15 @@ export function addManualShow(store, { title, seasons = [], status = "to_watch" 
 }
 
 /** Film saisi à la main (hors TMDB). */
-export function addManualMovie(store, { title, year = null, runtime = null, status = "to_watch" }) {
+export function addManualMovie(store, { title, year = null, runtime = null, status = "to_watch",
+  watchedOn = null }) {
   const name = (title || "").trim();
   if (!name) throw new Error("Titre obligatoire.");
   const key = `manual:${newId()}`;
   store.put("movies", { key, title: name, year: year || null, runtime: runtime || null,
     is_manual: true, synced_at: null });
   ensureLibraryItem(store, MOVIE, key, status);
+  recordMovieWatch(store, key, status, watchedOn);
   return store.get("movies", key);
 }
 

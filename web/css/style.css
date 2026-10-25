@@ -698,6 +698,27 @@ details:not(.expander) > summary { cursor: pointer; color: var(--primary); font-
 .prefs .chips { margin-bottom: 1rem; }
 @media (max-width: 640px) { .suggestion .poster-sm { width: 64px; } }
 
+/* --- Aperçu d'un titre TMDB ------------------------------------------------------------ */
+.backdrop { position: relative; height: 220px; border-radius: 12px; overflow: hidden;
+  margin: 0 0 1rem; background: var(--surface); }
+.backdrop img { width: 100%; height: 100%; object-fit: cover; object-position: center 25%; }
+.backdrop::after { content: ""; position: absolute; inset: 0;
+  background: linear-gradient(to bottom, rgb(0 0 0 / 0) 40%, rgb(0 0 0 / 0.55)); }
+.trailer { width: min(100%, 75%); aspect-ratio: 16 / 9; margin: 0 0 1rem; }
+.trailer iframe { width: 100%; height: 100%; border: 0; border-radius: var(--radius); }
+@media (max-width: 640px) { .trailer { width: 100%; } }
+.cast { list-style: none; padding: 0; margin: 0 0 1rem; display: flex; flex-wrap: wrap; gap: 12px; }
+.cast li { width: 104px; text-align: center; display: flex; flex-direction: column;
+  align-items: center; gap: 2px; }
+.cast img, .cast-empty { width: 72px; height: 72px; border-radius: 50%; object-fit: cover;
+  background: rgba(128, 128, 128, 0.2); display: block; }
+.cast-name { font-size: 0.85rem; margin-top: 4px; line-height: 1.3; }
+.cast .caption { font-size: 0.75rem; line-height: 1.3; }
+.cards.similar { grid-template-columns: repeat(auto-fill, minmax(min(45%, 140px), 1fr)); }
+@media (min-width: 1100px) { .cards.similar { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+.row-title a { color: inherit; text-decoration: none; }
+.row-title a:hover { color: var(--primary); }
+
 /* Progression (st.progress) */
 .progress { margin: 0 0 1rem; }
 .progress p { margin: 0 0 6px; font-size: 0.875rem; }
