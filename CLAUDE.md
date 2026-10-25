@@ -77,7 +77,7 @@ launcher/              lanceur Windows + install.ps1 (raccourcis)
 web/                   app web (GitHub Pages), modules ES sans compilation ni dépendance
   index.html, css/     page unique (routes #/page), thèmes clair / sombre, aspect Streamlit
   js/core/             logique pure, testée sous Node (port de core/ : library, queue,
-                       progress, stats, taste, suggestions, exchange, catalog, adding)
+                       progress, stats, taste, suggestions, preview, exchange, catalog, adding)
   js/core/taste-data.js GÉNÉRÉ depuis taste.py (tests/test_web_sync.py)
   js/api/              clients TVMaze / TMDB (cache IndexedDB, débit limité, réessais)
   js/storage/          IndexedDB (idb.js), clé TMDB en localStorage (secret.js)

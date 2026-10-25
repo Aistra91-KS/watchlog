@@ -29,11 +29,14 @@ chaque push sur `main`, après ses tests (workflow `.github/workflows/pages.yml`
   contenu sur toute la largeur de l'écran, mêmes pages, filtres, compteurs, cartes et couleurs
   que l'interface Streamlit. Thème clair, sombre ou celui de l'appareil : Paramètres >
   « Apparence ».
-- **Pages** : À regarder (compteurs, « Vu » / « Vu jusqu'ici », filtre « Sur mes
-  plateformes »), Bibliothèque, fiches série et film (épisodes à cocher, temps passé et
-  restant, revisionnages datés, avis, plateformes), Calendrier (vues Mois, Semaine, Liste),
-  Suggestions, Statistiques (onglets Activité, Séries, Films, Notes), Ajouter (recherche
-  séries + films ou saisie manuelle), Paramètres.
+- **Pages** : les mêmes que le logiciel. À regarder (compteurs, « Vu » / « Vu jusqu'ici »,
+  filtre « Sur mes plateformes »), Bibliothèque, fiches série (tableau des épisodes avec date
+  « Vu le », note et visionnages, dates de plusieurs épisodes d'un coup, revisionnage par
+  saison) et film (revisionnages datés), Calendrier (vues Mois, Semaine, Liste), Suggestions
+  (filtres genres, thèmes, plateformes, années, note) et page Aperçu d'un titre (casting,
+  bande-annonce chargée seulement si tu la lances, titres similaires), Statistiques (onglets
+  Activité, Séries, Films, Notes), Ajouter (recherche séries + films ou saisie manuelle),
+  Paramètres.
 - **Mise à jour** des séries et films : automatique à l'ouverture si la dernière date de plus
   de 24 h, ou bouton dans Paramètres.
 - **Échange avec le logiciel Python** : dans le logiciel, Paramètres > « App web » >
