@@ -315,6 +315,12 @@ a.row-title:hover { text-decoration: underline; }
 
 /* --- Suggestions ------------------------------------------------------------------------ */
 .match { font-weight: 700; color: var(--ok); }
+.suggestion { align-items: flex-start; }
+.suggestion details summary { cursor: pointer; color: var(--primary); font-size: 0.9rem; min-height: 32px; }
+.row-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.prefs { background: var(--surface); border-radius: var(--radius); padding: var(--gap); margin-bottom: var(--gap); }
+.prefs summary { cursor: pointer; font-weight: 700; min-height: 32px; }
+.prefs select[multiple] { min-width: 220px; }
 .reasons { font-size: 0.85rem; color: var(--muted); margin: 2px 0 0; }
 
 @media (prefers-reduced-motion: reduce) {

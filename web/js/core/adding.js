@@ -54,6 +54,21 @@ export async function addShow(store, tvmaze, tmdb, tvmazeId, { status = "to_watc
   return { show, warnings: enrich.errors };
 }
 
+/** Ajoute une série suggérée (id TMDB) : fiche TVMaze retrouvée via TVDB, sinon IMDb.
+ *  `title` : titre français TMDB, gardé si TVMaze n'a que le titre original. */
+export async function addSuggestedShow(store, tvmaze, tmdb, tmdbId, { status = "to_watch",
+  title = null } = {}) {
+  const ids = await tmdb.tvExternalIds(tmdbId);
+  let data = ids.tvdb_id ? await tvmaze.lookupTvdb(ids.tvdb_id) : null;
+  if (!data && ids.imdb_id) data = await tvmaze.lookupImdb(ids.imdb_id);
+  if (!data) throw new Error("Série introuvable sur TVMaze : cherche-la dans la page Ajouter.");
+  const { show, warnings } = await addShow(store, tvmaze, tmdb, data.id, { status });
+  const current = store.get("shows", show.key);
+  store.put("shows", { ...current, tmdb_id: current.tmdb_id || tmdbId,
+    title: title && current.title === current.original_title ? title : current.title });
+  return { show: store.get("shows", show.key), warnings };
+}
+
 /** Ajoute un film TMDB. */
 export async function addMovie(store, tmdb, tmdbId, { status = "to_watch" } = {}) {
   const data = await tmdb.getMovie(tmdbId);

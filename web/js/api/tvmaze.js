@@ -17,6 +17,15 @@ export class TVMazeClient {
     this.http = new CachedClient("TVMaze", BASE_URL, { cache, limiter, fetchFn, now, sleep });
   }
 
+  /** Série correspondant à un id TVDB ou IMDb (la redirection est suivie). null si inconnue. */
+  lookupTvdb(tvdbId) {
+    return this.http.getJson("/lookup/shows", { thetvdb: tvdbId }, { ttl: 30 * DAY_MS });
+  }
+
+  lookupImdb(imdbId) {
+    return this.http.getJson("/lookup/shows", { imdb: imdbId }, { ttl: 30 * DAY_MS });
+  }
+
   async search(query) {
     return (await this.http.getJson("/search/shows", { q: query }, { ttl: DAY_MS })) || [];
   }
