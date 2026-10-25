@@ -74,6 +74,17 @@ export function fmtDate(value) {
   return `${d}/${m}/${y}`;
 }
 
+/** Temps écoulé (dates.fmt_ago) : « à l'instant », « il y a 5 min », « il y a 3 h »,
+ *  « il y a 2 jours ». `when` : instant ISO ; `now` : millisecondes. */
+export function fmtAgo(when, now = Date.now()) {
+  const minutes = Math.floor((now - Date.parse(when)) / 60_000);
+  if (!(minutes >= 1)) return "à l'instant";
+  if (minutes < 60) return `il y a ${minutes} min`;
+  if (minutes < 24 * 60) return `il y a ${Math.floor(minutes / 60)} h`;
+  const days = Math.floor(minutes / (24 * 60));
+  return `il y a ${days} jour${days > 1 ? "s" : ""}`;
+}
+
 /** « samedi 25 octobre » (jour de la semaine et mois en toutes lettres). */
 export function fmtLongDay(day) {
   return new Date(`${day}T12:00:00Z`).toLocaleDateString("fr-FR", {
@@ -81,10 +92,11 @@ export function fmtLongDay(day) {
   });
 }
 
-/** Durée en minutes -> « 2 h 05 », « 45 min ». */
+/** Durée en minutes, comme common.fmt_runtime : « 2 h 05 », « 2 h », « 45 min ». */
 export function fmtRuntime(minutes) {
   if (!minutes) return "";
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
-  return h ? `${h} h ${String(m).padStart(2, "0")}` : `${m} min`;
+  if (!h) return `${m} min`;
+  return m ? `${h} h ${String(m).padStart(2, "0")}` : `${h} h`;
 }

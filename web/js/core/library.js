@@ -70,20 +70,32 @@ export function setWatchDate(store, kind, ref, day) {
   });
 }
 
-/** Un visionnage de plus (revisionnage) : plays + 1, dernier visionnage = maintenant. */
-export function addRewatch(store, kind, ref) {
-  const existing = getWatch(store, kind, ref);
-  if (!existing) return markWatched(store, kind, ref);
-  return store.put("watches", {
-    ...existing, plays: (existing.plays || 1) + 1, last_watched_at: isoUtc(),
-  });
+/** Moment d'un revisionnage : l'heure exacte si c'est aujourd'hui (ou sans date), sinon midi. */
+function rewatchTime(day) {
+  return !day || day === todayParis() ? isoUtc() : localDayToUtc(day);
 }
 
-/** Retire un revisionnage (plays - 1, jamais sous 1). */
+/** Un visionnage de plus (revisionnage, library.add_rewatch) daté de `day` (vide ou
+ *  aujourd'hui : maintenant). Le dernier visionnage n'avance que si la date est plus
+ *  récente (un revisionnage oublié, saisi après coup, ne le recule pas). Pas encore vu :
+ *  vu ce jour-là. */
+export function addRewatch(store, kind, ref, day = null) {
+  const when = rewatchTime(day);
+  const existing = getWatch(store, kind, ref);
+  if (!existing) return markWatched(store, kind, ref, when);
+  const last = [existing.last_watched_at, when].filter(Boolean).sort().at(-1);
+  return store.put("watches", { ...existing, plays: (existing.plays || 1) + 1,
+    last_watched_at: last });
+}
+
+/** Retire un revisionnage (plays - 1, jamais sous 1) ; revenu à un seul visionnage, le dernier
+ *  visionnage redevient le premier. */
 export function removeRewatch(store, kind, ref) {
   const existing = getWatch(store, kind, ref);
   if (!existing || (existing.plays || 1) <= 1) return existing;
-  return store.put("watches", { ...existing, plays: existing.plays - 1 });
+  const plays = existing.plays - 1;
+  return store.put("watches", { ...existing, plays,
+    last_watched_at: plays === 1 ? existing.watched_at : existing.last_watched_at });
 }
 
 /** Épisode déjà diffusé (date française au plus tard aujourd'hui). */

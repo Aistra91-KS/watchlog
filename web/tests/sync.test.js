@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { ApiError } from "../js/api/http.js";
-import { syncLibrary, syncReportLines } from "../js/core/adding.js";
+import { syncLibrary, syncReportLines, tvmazeStatusLabel } from "../js/core/adding.js";
 import { addMovie, addShow, makeStore } from "./helpers.js";
 
 const NOW = Date.parse("2026-10-25T12:00:00Z");
@@ -58,4 +58,11 @@ test("TMDB injoignable : films signalés et gardés pour la prochaine fois", asy
   const report = await syncLibrary(store, new FakeTVMaze(), new DownTMDB(), { now: NOW });
   assert.ok(report.errors[0].startsWith("TMDB : TMDB injoignable"));
   assert.deepEqual(store.setting("sync_retry"), ["tmdb:7"]);
+});
+
+test("statut de diffusion TVMaze en français (comme adding.tvmaze_status_label)", () => {
+  assert.equal(tvmazeStatusLabel("Running"), "En cours de diffusion");
+  assert.equal(tvmazeStatusLabel("Ended"), "Terminée");
+  assert.equal(tvmazeStatusLabel("Pilot"), "Pilot");
+  assert.equal(tvmazeStatusLabel(null), "");
 });
