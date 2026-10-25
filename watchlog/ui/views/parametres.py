@@ -9,10 +9,10 @@ import pandas as pd
 import streamlit as st
 from sqlmodel import func, select
 
-from watchlog.core import importer, providers, settings
+from watchlog.core import exchange, importer, providers, settings
 from watchlog.core.bingers_export import export_bingers_zip
 from watchlog.core.backup import backup_date, list_backups, make_backup
-from watchlog.core.config import BACKUP_DIR
+from watchlog.core.config import BACKUP_DIR, WEB_APP_URL
 from watchlog.core.db import get_engine
 from watchlog.core.export import export_all_csv, export_queue_excel
 from watchlog.core.http import ApiError
@@ -314,6 +314,39 @@ if "bingers_export" in st.session_state:
         "Télécharger pour Bingers (.zip)", data=bingers_data,
         file_name=f"watchlog-bingers-{stamp}.zip", mime="application/zip", on_click="ignore")
     right.text("\n".join(bingers_lines))
+
+
+# --- App web (échange JSON) --------------------------------------------------------
+def exchange_bytes() -> bytes:
+    buffer = io.BytesIO()
+    with common.db() as session:
+        exchange.write_json(session, buffer)
+    return buffer.getvalue()
+
+
+st.header("App web")
+st.write(f"La [version web de Watchlog]({WEB_APP_URL}) s'ouvre sur le téléphone, sans "
+         "installation ; ses données restent dans le navigateur. Pour y retrouver ta "
+         "bibliothèque, exporte-la ici puis importe le fichier dans la page Paramètres de l'app "
+         "web (et inversement). À l'import, les visionnages s'ajoutent, et le fichier fait "
+         "référence pour les statuts, favoris et notes. Ta clé TMDB n'est jamais dans le fichier.")
+st.download_button("Exporter pour l'app web (.json)", data=exchange_bytes,
+                   file_name=f"watchlog-{stamp}.json", mime="application/json", on_click="ignore")
+uploaded_json = st.file_uploader("Fichier exporté par l'app web (.json)", type=["json"])
+if st.button("Importer le fichier de l'app web", disabled=uploaded_json is None):
+    backup_or_warn()
+    try:
+        with common.db() as session:
+            json_report = exchange.import_json(session, uploaded_json)
+            session.commit()
+    except ValueError as exc:  # fichier qui n'est pas un export Watchlog : message clair
+        st.error(f"Import impossible : {exc}")
+    except Exception as exc:  # noqa: BLE001  (base verrouillée, etc. : message clair)
+        log.exception("Import JSON depuis l'interface")
+        st.error(f"Import impossible : {exc}")
+    else:
+        remember("exchange_report", json_report.lines())
+show_report("exchange_report")
 
 # --- Sauvegardes -------------------------------------------------------------------
 st.header("Sauvegardes")

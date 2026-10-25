@@ -13,6 +13,8 @@ DB_PATH = DATA_DIR / "watchlog.db"
 POSTERS_DIR = DATA_DIR / "posters"
 BACKUP_DIR = DATA_DIR / "backups"
 LOG_PATH = DATA_DIR / "watchlog.log"
+# Version web (dossier web/, publiée par GitHub Pages) ; WATCHLOG_WEB_URL pour un fork.
+WEB_APP_URL = os.getenv("WATCHLOG_WEB_URL") or "https://aistra91-ks.github.io/watchlog/"
 
 # Les identifiants ne sont lus QUE depuis .env (ou l'environnement). Jamais en dur.
 load_dotenv(ROOT / ".env")

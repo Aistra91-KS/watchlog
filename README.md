@@ -161,7 +161,8 @@ d'abord une sauvegarde de la base. `import`, `sync` et `check` affichent d'abord
   **pour Bingers** (voir ci-dessous).
 - En ligne de commande : `python -m watchlog export` crée les trois fichiers dans le dossier
   `exports/` (nom avec la date et l'heure). Options : `--excel CHEMIN`, `--csv CHEMIN`,
-  `--bingers CHEMIN` pour choisir l'emplacement (avec des options, seuls ces fichiers sont créés).
+  `--bingers CHEMIN` pour choisir l'emplacement (avec des options, seuls ces fichiers sont créés),
+  `--json CHEMIN` pour le fichier de l'app web (voir « App web »).
 
 ### Renvoyer ses données dans Bingers
 
@@ -179,6 +180,16 @@ d'ajout du titre. Les séries recalées à la main (numérotation différente) s
 
 Les CSV sont en UTF-8 avec BOM : Excel les ouvre avec les bons accents. Le cache des API
 n'est pas exporté (volumineux et inutile).
+
+### Échanger avec l'app web
+
+Page Paramètres, section « App web » : **Exporter pour l'app web (.json)** écrit toute la
+bibliothèque (séries, épisodes, films, visionnages, statuts, notes, listes, thèmes, plateformes)
+dans un fichier à importer dans la page Paramètres de l'app web ; dans l'autre sens, on importe
+ici le fichier exporté par l'app web (une sauvegarde est faite juste avant). Fusion : les
+visionnages s'ajoutent (jamais supprimés), les titres manquants sont créés, et pour un titre déjà
+présent le fichier fait référence pour le statut, le favori et la note. Aucune clé d'API dans le
+fichier. En ligne de commande : `export --json CHEMIN` et `import fichier.json`.
 
 ## Comment marchent les suggestions
 

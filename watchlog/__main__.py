@@ -54,9 +54,28 @@ def cmd_import(args, engine, tvmaze, tmdb) -> int:
         print(f"Fichier introuvable : {source}")
         return 1
     backup_first()
+    if source.suffix.lower() == ".json":  # fichier de l'app web
+        return import_exchange(source, engine)
     print(f"Import de {source.name}...")
     report = import_bingers(source, engine, tvmaze, tmdb, progress=print_progress,
                             download_posters=not args.no_posters)
+    print_lines(report.lines())
+    return 0
+
+
+def import_exchange(source: Path, engine) -> int:
+    from sqlmodel import Session
+
+    from watchlog.core.exchange import import_json
+
+    print(f"Import de {source.name} (app web)...")
+    try:
+        with Session(engine) as session:
+            report = import_json(session, source)
+            session.commit()
+    except ValueError as exc:
+        print(f"Import impossible : {exc}")
+        return 1
     print_lines(report.lines())
     return 0
 
@@ -87,6 +106,17 @@ def cmd_export(args, engine, tvmaze, tmdb) -> int:
 
     # Sans option : les trois exports, dans exports/ avec la date et l'heure dans le nom.
     excel, csv, bingers = args.excel, args.csv, getattr(args, "bingers", None)
+    as_json = getattr(args, "json", None)
+    if as_json is not None:
+        from watchlog.core.exchange import write_json
+
+        dest = Path(as_json)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        with Session(engine) as session:
+            count = write_json(session, dest)
+        print(f"App web : {count} série(s) et film(s) -> {dest}")
+        if excel is None and csv is None and bingers is None:
+            return 0
     if excel is None and csv is None and bingers is None:
         stamp = f"{datetime.now():%Y%m%d-%H%M%S}"
         excel = ROOT / "exports" / f"a-regarder-{stamp}.xlsx"
@@ -129,8 +159,9 @@ def build_parser() -> argparse.ArgumentParser:
                                      description="Watchlog : suivi perso de séries et films.")
     sub = parser.add_subparsers(dest="command", required=True, metavar="commande")
 
-    p = sub.add_parser("import", help="importer un export Bingers (.zip)")
-    p.add_argument("zip", help="chemin du fichier .zip exporté depuis Bingers")
+    p = sub.add_parser("import", help="importer un export Bingers (.zip) ou de l'app web (.json)")
+    p.add_argument("zip", metavar="fichier",
+                   help="export Bingers (.zip) ou fichier exporté par l'app web (.json)")
     p.add_argument("--no-posters", action="store_true", help="ne pas télécharger les affiches")
     p.set_defaults(func=cmd_import)
 
@@ -145,6 +176,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--excel", metavar="CHEMIN", help="fichier Excel « À regarder » (.xlsx)")
     p.add_argument("--csv", metavar="CHEMIN", help="fichier .zip des CSV de la base")
     p.add_argument("--bingers", metavar="CHEMIN", help="fichier .zip au format Bingers")
+    p.add_argument("--json", metavar="CHEMIN", help="fichier .json pour l'app web (seul, si "
+                                                     "aucune autre option)")
     p.set_defaults(func=cmd_export)
     sub.add_parser("run", help="lancer l'interface (Streamlit)").set_defaults(func=cmd_run)
     return parser
