@@ -1,73 +1,98 @@
-// Page « Bibliothèque » : toutes les séries et tous les films suivis, avec leur progression.
+// Page « Bibliothèque » : grille d'affiches des séries et films, avec leur progression.
+// Même présentation que la page Python (bibliotheque.py) : filtres, cartes, « Ouvrir ».
 
 import { MOVIE, SHOW, STATUSES, STATUS_LABELS } from "../core/model.js";
 import {
-  SORT_LABELS, SORT_TITLE, lastWatchedLabel, libraryOverview, progressLabel,
+  SORT_LABELS, SORT_PAUSED, SORT_RECENT, SORT_TITLE, lastWatchedLabel, libraryOverview,
+  progressLabel,
 } from "../core/progress.js";
-import { html, kindBadge, movieHref, options, poster, raw, showHref } from "./dom.js";
+import { html, movieHref, options, poster, raw, showHref } from "./dom.js";
 import { loadPrefs, savePrefs } from "./prefs.js";
+import { alert } from "./ui.js";
 
 const PREFS = "library";
-const DEFAULTS = { kind: "", status: "", sort: SORT_TITLE, favoriteOnly: false };
-const PAGE_SIZE = 90;
+const DEFAULTS = { kind: "", statuses: [], sort: SORT_TITLE, favoriteOnly: false };
+// Éléments affichés en plus à chaque « Afficher plus »
+const CHUNK = 48;
+// Tris où la date du dernier visionnage est affichée sur chaque carte
+const DATED_SORTS = [SORT_RECENT, SORT_PAUSED];
 
-function card(entry) {
+function card(entry, dated) {
   const link = entry.kind === SHOW ? showHref(entry.ref) : movieHref(entry.ref);
-  return html`<li class="card ${entry.kind === MOVIE ? "is-movie" : "is-show"}">
-    <a href="${link}">
-      ${poster(entry.posterUrl, entry.title)}
-      <span class="card-title">${entry.favorite ? html`<span aria-hidden="true">★ </span><span class="sr-only">Favori :
-        </span>` : ""}${entry.title}</span>
-    </a>
-    <p class="card-meta">${kindBadge(entry.kind)} ${STATUS_LABELS[entry.status]}${entry.year ? ` · ${entry.year}` : ""}</p>
+  const details = [entry.kind === SHOW ? "Série" : "Film", entry.year, STATUS_LABELS[entry.status],
+    entry.favorite ? "Favori" : null].filter(Boolean);
+  const seen = dated ? lastWatchedLabel(entry) : "";
+  // Le titre est le lien lu au clavier ; l'affiche et « Ouvrir » (comme l'app Python) sont
+  // des raccourcis pour la souris et le doigt, hors de l'ordre de tabulation.
+  return html`<li class="card">
+    <a href="${link}" tabindex="-1" aria-hidden="true">${poster(entry.posterUrl, entry.title)}</a>
+    <a class="card-title" href="${link}">${entry.title}</a>
+    <p class="card-meta">${details.join(" · ")}</p>
     <p class="card-meta">${progressLabel(entry)}</p>
-    <p class="card-meta muted">${lastWatchedLabel(entry)}</p>
+    ${seen ? html`<p class="card-meta">${seen}</p>` : ""}
+    <a class="btn btn-wide card-open" href="${link}" tabindex="-1" aria-hidden="true">Ouvrir</a>
   </li>`;
 }
 
 export function render(app) {
   const prefs = loadPrefs(PREFS, DEFAULTS);
+  const statuses = Array.isArray(prefs.statuses) ? prefs.statuses : [];
   const search = app.ui.librarySearch || "";
   const entries = libraryOverview(app.store, { kind: prefs.kind || null,
-    status: prefs.status || null, search, favoriteOnly: prefs.favoriteOnly, sort: prefs.sort });
-  const limit = app.ui.libraryLimit || PAGE_SIZE;
-  const shows = entries.filter((e) => e.kind === SHOW).length;
+    status: statuses.length ? statuses : null, search, favoriteOnly: prefs.favoriteOnly,
+    sort: prefs.sort });
+  const shown = app.ui.libraryLimit || CHUNK;
+  const n = entries.length;
   return html`
   <h1>Bibliothèque</h1>
-  <form class="filters" role="search" aria-label="Filtrer la bibliothèque">
-    <label class="field field-wide"><span>Rechercher un titre</span>
-      <input type="search" id="library-search" value="${search}" data-input="library-search"
-        autocomplete="off"></label>
+  <form class="cols" style="--cols: 1fr 2fr 2fr 1.6fr" role="search" aria-label="Filtrer la bibliothèque">
     <label class="field"><span>Type</span>
       <select data-change="library-pref" name="kind">${options([["", "Tout"], [SHOW, "Séries"],
         [MOVIE, "Films"]], prefs.kind)}</select></label>
-    <label class="field"><span>Statut</span>
-      <select data-change="library-pref" name="status">${options([["", "Tous"],
-        ...STATUSES.map((s) => [s, STATUS_LABELS[s]])], prefs.status)}</select></label>
+    <fieldset class="chips"><legend>Statut</legend>
+      ${STATUSES.map((s) => html`<label class="chip"><input type="checkbox" value="${s}"
+        data-change="library-status" ${statuses.includes(s) ? raw("checked") : ""}>
+        ${STATUS_LABELS[s]}</label>`)}
+    </fieldset>
+    <label class="field"><span>Recherche</span>
+      <input type="search" id="library-search" value="${search}" data-input="library-search"
+        placeholder="Titre ou titre original" autocomplete="off"></label>
     <label class="field"><span>Tri</span>
       <select data-change="library-pref" name="sort">${options(Object.entries(SORT_LABELS),
         prefs.sort)}</select></label>
-    <label class="check"><input type="checkbox" data-change="library-fav" ${prefs.favoriteOnly
-      ? raw("checked") : ""}> Favoris seulement</label>
   </form>
-  <p class="summary" data-announce>${shows} série${shows > 1 ? "s" : ""},
-    ${entries.length - shows} film${entries.length - shows > 1 ? "s" : ""}</p>
-  ${entries.length ? html`<ul class="cards" role="list">${entries.slice(0, limit).map(card)}</ul>`
-    : html`<p class="empty">Rien ne correspond. <a href="#/ajouter">Ajouter un titre</a></p>`}
-  ${entries.length > limit ? html`<button type="button" class="btn btn-ghost"
-    data-action="library-more">Afficher plus (${entries.length - limit} restants)</button>` : ""}`;
+  <p><label class="check"><input type="checkbox" data-change="library-fav" ${prefs.favoriteOnly
+    ? raw("checked") : ""}> Favoris seulement</label></p>
+  ${prefs.sort === SORT_PAUSED ? html`<p class="caption">Séries « En cours » seulement, celle
+    délaissée depuis le plus longtemps en premier : de quoi choisir une série à reprendre.</p>` : ""}
+  ${n ? html`
+    <p class="caption" data-announce>${n} élément${n > 1 ? "s" : ""}${shown < n
+      ? ` · ${shown} affichés` : ""}</p>
+    <ul class="cards" role="list">${entries.slice(0, shown).map((e) => card(e,
+      DATED_SORTS.includes(prefs.sort)))}</ul>
+    ${shown < n ? html`<button type="button" class="btn" data-action="library-more">Afficher
+      ${Math.min(CHUNK, n - shown)} de plus</button>` : ""}`
+    : alert("info", html`Aucun élément ne correspond à ces filtres.
+      <a href="#/ajouter">Ajouter un titre</a>`)}`;
 }
 
 export const actions = {
   "library-search"(app, el) {
     app.ui.librarySearch = el.value;
-    app.ui.libraryLimit = PAGE_SIZE;
+    app.ui.libraryLimit = CHUNK;
   },
   "library-pref"(app, el) {
     savePrefs(PREFS, { ...loadPrefs(PREFS, DEFAULTS), [el.name]: el.value });
+    app.ui.libraryLimit = CHUNK;
+  },
+  "library-status"(app, el) {
+    const boxes = el.closest("fieldset").querySelectorAll("input:checked");
+    savePrefs(PREFS, { ...loadPrefs(PREFS, DEFAULTS), statuses: [...boxes].map((b) => b.value) });
+    app.ui.libraryLimit = CHUNK;
   },
   "library-fav"(app, el) {
     savePrefs(PREFS, { ...loadPrefs(PREFS, DEFAULTS), favoriteOnly: el.checked });
+    app.ui.libraryLimit = CHUNK;
   },
-  "library-more"(app) { app.ui.libraryLimit = (app.ui.libraryLimit || PAGE_SIZE) + PAGE_SIZE; },
+  "library-more"(app) { app.ui.libraryLimit = (app.ui.libraryLimit || CHUNK) + CHUNK; },
 };

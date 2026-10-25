@@ -1,6 +1,7 @@
-// Bloc « Où regarder » d'une fiche (plateformes en France, JustWatch via TMDB).
+// Bloc « Où regarder » d'une fiche (plateformes en France, JustWatch via TMDB), présenté comme
+// common.show_availability : logos par type d'offre (abonnement, location...), lien vers les prix.
 
-import { ATTRIBUTION, REGION, parseProviders } from "../core/providers.js";
+import { REGION, parseProviders } from "../core/providers.js";
 import { externalLink, html, safeImageUrl, safeUrl } from "./dom.js";
 
 export async function providersBlock(app, media, tmdbId) {
@@ -8,22 +9,27 @@ export async function providersBlock(app, media, tmdbId) {
   let availability;
   try {
     const results = await app.tmdb.watchProviders(media, tmdbId);
-    availability = parseProviders(results[REGION] || {});
+    availability = parseProviders(results?.[REGION] || {});
   } catch (error) {
     console.warn(`Plateformes non lues (${media} ${tmdbId})`, error);
-    return html`<section><h2>Où regarder</h2><p class="muted">Plateformes indisponibles pour
-      l'instant (${error.message}).</p></section>`;
+    return html`<p><strong>Où regarder</strong></p><p class="caption">Plateformes indisponibles pour
+      l'instant (${error.message}).</p>`;
   }
   const mine = new Set(app.store.setting("my_platforms", []));
   const offers = Object.entries(availability.offers);
-  return html`<section class="providers"><h2>Où regarder</h2>
-    ${offers.length ? html`<dl>${offers.map(([label, list]) => html`<div>
+  if (!offers.length) {
+    return html`<p><strong>Où regarder</strong></p><p class="caption">Pas disponible en streaming,
+      location ou achat en France pour l'instant.</p>`;
+  }
+  return html`<div class="providers"><p><strong>Où regarder</strong></p>
+    <dl>${offers.map(([label, list]) => html`<div>
       <dt>${label}</dt>
-      <dd>${list.map((p) => html`<span class="provider ${mine.has(p.name) ? "is-mine" : ""}">
-        ${safeImageUrl(p.logo) ? html`<img src="${p.logo}" alt="" width="24" height="24" loading="lazy">` : ""}
-        ${p.name}${mine.has(p.name) ? html`<span class="sr-only"> (une de mes plateformes)</span>` : ""}</span>`)}</dd>
-    </div>`)}</dl>` : html`<p class="muted">Pas disponible en France pour l'instant.</p>`}
-    <p class="credit">${ATTRIBUTION}${safeUrl(availability.link)
-      ? html` ${externalLink(availability.link, "Détail sur TMDB")}` : ""}</p>
-  </section>`;
+      <dd>${list.map((p) => html`<span class="provider ${mine.has(p.name) ? "is-mine" : ""}"
+        title="${p.name}">${safeImageUrl(p.logo) ? html`<img src="${p.logo}" alt="" width="32" height="32"
+        loading="lazy">` : ""}<span class="name">${p.name}${mine.has(p.name)
+        ? " (une de mes plateformes)" : ""}</span></span>`)}</dd>
+    </div>`)}</dl>
+    ${safeUrl(availability.link) ? html`<p class="caption">${externalLink(availability.link,
+      "Voir les offres et les prix")}</p>` : ""}
+  </div>`;
 }

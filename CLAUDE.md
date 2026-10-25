@@ -75,7 +75,7 @@ watchlog/
                        apercu, ajouter, statistiques, parametres, serie, film)
 launcher/              lanceur Windows + install.ps1 (raccourcis)
 web/                   app web (GitHub Pages), modules ES sans compilation ni dépendance
-  index.html, css/     page unique (routes #/page), thèmes clair / sombre
+  index.html, css/     page unique (routes #/page), thèmes clair / sombre, aspect Streamlit
   js/core/             logique pure, testée sous Node (port de core/ : library, queue,
                        progress, stats, taste, suggestions, exchange, catalog, adding)
   js/core/taste-data.js GÉNÉRÉ depuis taste.py (tests/test_web_sync.py)
@@ -149,6 +149,14 @@ tests/                 pytest ; conftest.py = faux clients TVMaze/TMDB, faux zip
 - Tests : `node --test "tests/*.test.js"` dans `web/` ; les vues se testent en rendant leur
   HTML sous Node (`tests/views.test.js`). Essai réel : `python -m http.server` dans `web/`.
 - Même règle d'échec non silencieux : `console.warn` + compteur / message visible.
+- **Même aspect que l'app Streamlit** : menu à gauche, pleine largeur, mêmes pages et mêmes
+  composants. `css/style.css` reprend les mesures de Streamlit (tailles, rayons, bordures,
+  couleurs de `.streamlit/config.toml`, pastilles et alertes) ; `views/ui.js` = équivalents
+  de `st.metric`, `st.expander`, `st.tabs`, `st.segmented_control`, `st.info`, `help=` ;
+  `views/icons.js` = icônes Material de Streamlit en SVG. Police : Source Sans 3 réduite et
+  renommée « Watchlog Sans » (`assets/fonts/`, licence OFL). Une page Python qui change
+  d'aspect ⇒ la page web aussi (et inversement). Écarts voulus, pour l'accessibilité :
+  champs bordés (≥ 3:1), textes et pastilles ≥ 4,5:1, cibles de 44 px au doigt.
 
 ## Logique des points sensibles
 

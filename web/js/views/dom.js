@@ -57,16 +57,18 @@ export function showHref(key) { return href("serie", key); }
 
 export function movieHref(key) { return href("film", key); }
 
-/** Affiche (ou un cadre avec l'initiale si elle manque). Texte alternatif vide : le titre
- *  est toujours écrit à côté, l'image est décorative. */
+/** Affiche, ou cadre gris « Pas d'affiche » comme l'app Python (common.show_poster). Texte
+ *  alternatif vide : le titre est toujours écrit à côté, l'image est décorative. */
 export function poster(url, title, size = "md") {
   if (safeImageUrl(url)) {
     return html`<img class="poster poster-${size}" src="${url}" alt="" loading="lazy"
       decoding="async" referrerpolicy="no-referrer">`;
   }
-  return html`<span class="poster poster-${size} poster-empty" aria-hidden="true">${(title || "?")[0]}</span>`;
+  return html`<span class="poster poster-${size} poster-empty" aria-hidden="true">${size === "xs"
+    ? "" : "Pas d'affiche"}</span>`;
 }
 
+/** :blue-badge[Série] / :orange-badge[Film] */
 export function kindBadge(kind) {
   return kind === "movie" ? html`<span class="badge badge-movie">Film</span>`
     : html`<span class="badge badge-show">Série</span>`;
