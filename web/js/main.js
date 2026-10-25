@@ -139,6 +139,8 @@ function renderNav() {
   document.getElementById("nav").innerHTML = html`<ul>${NAV.map(([name, label]) => html`
     <li><a href="#/${name}" ${name === current ? html`aria-current="page"` : ""}>${label}</a></li>`)}
     </ul>`.text;
+  document.querySelector('#nav [aria-current="page"]')?.scrollIntoView({ block: "nearest",
+    inline: "nearest" });
 }
 
 /** Réaffiche la page courante (après une action), en gardant le défilement et le focus. */
@@ -156,6 +158,8 @@ app.rerender = async ({ focusHeading = false } = {}) => {
       ${error.message}</p>`;
   }
   main.innerHTML = content.text;
+  // Graphiques plus larges que l'écran : on montre d'abord la fin (les mois récents).
+  for (const el of main.querySelectorAll("[data-scroll-end]")) el.scrollLeft = el.scrollWidth;
   const heading = main.querySelector("h1");
   document.title = `${heading ? heading.textContent.trim() : "Watchlog"} · Watchlog`;
   if (focusHeading) {

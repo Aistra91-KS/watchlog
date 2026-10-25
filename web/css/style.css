@@ -13,6 +13,10 @@
   --show: #2a78d6;
   --movie: #c4501d;            /* orange assombri pour le texte (contraste AA) */
   --movie-bar: #eb6834;
+  --show-bar: #2a78d6;
+  /* Rampe du calendrier de chaleur (common.CHART_COLORS) */
+  --heat-0: #ebedf0; --heat-1: #86b6ef; --heat-2: #3987e5; --heat-3: #1c5cab;
+  --heat-4: #0d366b; --heat-5: #06203f;
   --ok: #1d7a3f;
   --error: #b42318;
   --warning-bg: #fff4d6;
@@ -36,6 +40,9 @@
     --show: #6da7ec;
     --movie: #f08a5d;
     --movie-bar: #d95926;
+    --show-bar: #3987e5;
+    --heat-0: #232a32; --heat-1: #184f95; --heat-2: #256abf; --heat-3: #3987e5;
+    --heat-4: #6da7ec; --heat-5: #b7d3f6;
     --ok: #5fd08b;
     --error: #ff8a80;
     --warning-bg: #3a3014;
@@ -276,16 +283,34 @@ a.row-title:hover { text-decoration: underline; }
 .kpi strong { display: block; font-size: 1.5rem; }
 .kpi span { color: var(--muted); font-size: 0.9rem; }
 .chart-wrap { overflow-x: auto; }
+.chart { display: block; width: 100%; max-width: 720px; min-width: 480px; height: auto; }
+.chart.heatmap { width: auto; min-width: 0; max-width: none; }
 .chart text { fill: var(--muted); font-size: 11px; }
-.bar-show { fill: var(--show); }
+.chart .grid { stroke: var(--border); stroke-width: 1; }
+.chart g:hover rect[fill="transparent"] { fill: var(--surface-2); }
+.bar-show { fill: var(--show-bar); }
 .bar-movie { fill: var(--movie-bar); }
+.bar-show-bg { background: var(--show-bar); }
+.bar-movie-bg { background: var(--movie-bar); }
+.heat-0 { fill: var(--heat-0); } .heat-1 { fill: var(--heat-1); } .heat-2 { fill: var(--heat-2); }
+.heat-3 { fill: var(--heat-3); } .heat-4 { fill: var(--heat-4); } .heat-5 { fill: var(--heat-5); }
+.heat-bg-0 { background: var(--heat-0); } .heat-bg-1 { background: var(--heat-1); }
+.heat-bg-2 { background: var(--heat-2); } .heat-bg-3 { background: var(--heat-3); }
+.heat-bg-4 { background: var(--heat-4); } .heat-bg-5 { background: var(--heat-5); }
+.chart-block { margin: 0 0 var(--gap); }
+.data-table summary { cursor: pointer; color: var(--primary); min-height: 32px; font-size: 0.9rem; }
+.data-table table { border-collapse: collapse; font-size: 0.9rem; margin-top: 6px; }
+.data-table caption { text-align: left; color: var(--muted); }
+.data-table th, .data-table td { padding: 4px 10px; border-bottom: 1px solid var(--border); text-align: right; }
+.data-table th[scope="row"], .data-table thead th:first-child { text-align: left; }
 .legend { display: flex; gap: 16px; font-size: 0.9rem; }
 .legend .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px;
   margin-right: 6px; vertical-align: -1px; }
 .hbars { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
 .hbar { display: grid; grid-template-columns: minmax(90px, 30%) 1fr auto; gap: 8px; align-items: center; }
 .hbar .track { background: var(--surface-2); border-radius: 4px; height: 12px; overflow: hidden; }
-.hbar .fill { display: block; height: 100%; background: var(--show); }
+.hbar .fill { display: block; height: 100%; background: var(--show-bar); }
+.hbar .value { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 0.9rem; }
 .hbar .fill.is-movie { background: var(--movie-bar); }
 
 /* --- Suggestions ------------------------------------------------------------------------ */
