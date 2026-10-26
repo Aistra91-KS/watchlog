@@ -17,6 +17,8 @@ KIND_BADGES = {SHOW: ":blue-badge[Série]", MOVIE: ":orange-badge[Film]"}
 # « J'en suis à S2E5 » : date des visionnages passés (inconnue par défaut, pour ne pas
 # fausser les statistiques avec la date du jour).
 UNKNOWN_DATE, CHOSEN_DATE = "Date inconnue", "Je choisis une date"
+# Paramètre d'URL de la page Aperçu ouverte d'ici : son lien « Retour » revient à la recherche.
+PREVIEW_ORIGIN = {"from": "ajouter"}
 
 
 def remember_success(tab: str, kind: str, obj_id: int, title: str) -> None:
@@ -163,6 +165,42 @@ def add_result(index: int, status_key: str) -> None:
         start_progress(SEARCH, obj_id, title, status)
 
 
+def open_show_preview(index: int) -> None:
+    """Bouton « Voir la fiche » d'une série : son id TMDB est cherché (par l'id TVDB).
+
+    La page Aperçu est ouverte au rendu suivant (pas de changement de page dans un callback).
+    """
+    result = st.session_state["add_results"][index]
+    try:
+        tmdb_id = common.tmdb_client().find_tv_by_tvdb(result["tvdb_id"])
+    except ApiError as exc:
+        st.session_state[f"add_error_{SEARCH}"] = f"Fiche indisponible : {exc}"
+        return
+    if tmdb_id is None:
+        st.session_state[f"add_error_{SEARCH}"] = (
+            f"Pas de fiche détaillée pour « {common.md_escape(result['title'])} » : "
+            "série introuvable sur TMDB.")
+        return
+    st.session_state["add_open_preview"] = {**common.preview_params(SHOW, tmdb_id),
+                                            **PREVIEW_ORIGIN}
+
+
+def preview_link(index: int, result: dict) -> None:
+    """Lien vers la page Aperçu (casting, bande-annonce, plateformes) d'un titre pas ajouté.
+
+    L'Aperçu lit TMDB : rien si TMDB n'est pas connecté, ni pour une série sans id TVDB.
+    """
+    if not common.tmdb_status()[0]:
+        return
+    if result["kind"] == MOVIE:
+        st.page_link(common.PAGE_PREVIEW, label="Voir la fiche", icon=":material/info:",
+                     query_params={**common.preview_params(MOVIE, result["id"]),
+                                   **PREVIEW_ORIGIN})
+    elif result["tvdb_id"]:
+        st.button("Voir la fiche", icon=":material/info:", type="tertiary",
+                  key=f"add_preview_{result['id']}", on_click=open_show_preview, args=(index,))
+
+
 def search_form() -> None:
     """Recherche unique (séries TVMaze + films TMDB) ; résultats gardés dans session_state."""
     with st.form("add_search"):
@@ -202,6 +240,8 @@ def show_result(index: int, result: dict) -> None:
                 st.caption(common.md_escape(" · ".join(details)))
             if result["summary"]:
                 st.write(common.md_escape(result["summary"]))
+            if not result["in_library"]:
+                preview_link(index, result)
             if result["in_library"]:
                 st.write("Déjà dans la bibliothèque")
                 page = common.PAGE_SHOW if kind == SHOW else common.PAGE_MOVIE
@@ -229,6 +269,8 @@ def show_results() -> None:
         query = common.md_escape(st.session_state.get("add_query", ""))
         st.write(f"Aucun résultat pour « {query} ».")
         return
+    with common.db() as session:  # titre ajouté depuis l'Aperçu entre-temps
+        adding.refresh_library_state(session, results)
     shows = sum(1 for r in results if r["kind"] == SHOW)
     st.caption(f"{shows} série(s) et {len(results) - shows} film(s)")
     for index, result in enumerate(results):
@@ -296,6 +338,11 @@ def manual_movie_form() -> None:
 
 
 # --- Page ---------------------------------------------------------------------------------
+
+# « Voir la fiche » d'une série (callback open_show_preview) : on change de page ici.
+preview_params = st.session_state.pop("add_open_preview", None)
+if preview_params:
+    st.switch_page(common.PAGE_PREVIEW, query_params=preview_params)
 
 st.title("Ajouter")
 # key + on_change : l'onglet choisi est gardé quand la page se recharge (après un ajout).

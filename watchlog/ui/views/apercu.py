@@ -1,6 +1,8 @@
-"""Page « Aperçu » : infos détaillées d'un film ou d'une série TMDB (depuis les suggestions).
+"""Page « Aperçu » : infos détaillées d'un film ou d'une série TMDB (depuis les suggestions
+ou la recherche de la page Ajouter).
 
-URL : /apercu?type=serie|film&id=<id TMDB>. Le titre n'a pas besoin d'être dans la bibliothèque.
+URL : /apercu?type=serie|film&id=<id TMDB>[&from=ajouter]. Le titre n'a pas besoin d'être dans
+la bibliothèque. `from=ajouter` : le lien « Retour » ramène à la recherche.
 """
 
 import html
@@ -15,6 +17,8 @@ from watchlog.core.models import COMPLETED, MOVIE, SHOW, TO_WATCH
 from watchlog.ui import common
 
 MIN_DATE = date(1900, 1, 1)
+# Page d'où l'on vient (paramètre « from ») -> lien « Retour » ; par défaut, les suggestions.
+ORIGIN_ADD = "ajouter"
 
 
 def requested() -> tuple[str, int] | None:
@@ -47,8 +51,18 @@ def dismiss(item: preview.Preview) -> None:
 
 
 def open_other(kind: str, tmdb_id: int) -> None:
-    """Ouvre un autre titre dans cette même page (un lien vers la page en cours est ignoré)."""
-    st.query_params.from_dict(common.preview_params(kind, tmdb_id))
+    """Ouvre un autre titre dans cette même page (un lien vers la page en cours est ignoré).
+
+    La page d'origine est gardée, pour que « Retour » y ramène toujours.
+    """
+    params = common.preview_params(kind, tmdb_id)
+    if from_add():
+        params["from"] = ORIGIN_ADD
+    st.query_params.from_dict(params)
+
+
+def from_add() -> bool:
+    return st.query_params.get("from") == ORIGIN_ADD
 
 
 def cast_grid(people: list[preview.Person]) -> None:
@@ -86,7 +100,11 @@ if item is None:
     st.info("Titre introuvable sur TMDB (ou TMDB non connecté).")
     st.stop()
 
-st.page_link(common.PAGE_SUGGESTIONS, label="Retour aux suggestions", icon=":material/arrow_back:")
+if from_add():
+    st.page_link(common.PAGE_ADD, label="Retour à la recherche", icon=":material/arrow_back:")
+else:
+    st.page_link(common.PAGE_SUGGESTIONS, label="Retour aux suggestions",
+                 icon=":material/arrow_back:")
 for key, show in (("apercu_error", st.error), ("apercu_message", st.success)):
     text = st.session_state.pop(key, None)
     if text:
@@ -159,7 +177,8 @@ with col_info:
                              index=common.status_options().index(TO_WATCH),
                              format_func=common.status_label, key=status_key)
         col_add.button("Ajouter", type="primary", on_click=add, args=(item, status_key, date_key))
-        col_dismiss.button("Pas intéressé", on_click=dismiss, args=(item,))
+        if not from_add():  # « Pas intéressé » n'a de sens que pour une suggestion
+            col_dismiss.button("Pas intéressé", on_click=dismiss, args=(item,))
         if kind == MOVIE and st.session_state.get(status_key) == COMPLETED:
             st.date_input("Vu le (facultatif)", value=None, key=date_key, min_value=MIN_DATE,
                           max_value=date.today(), format="DD/MM/YYYY")

@@ -86,11 +86,22 @@ def _local_show(session: Session, tvmaze_id: int, tvdb_id: int | None = None) ->
     return show
 
 
+def _local_movie(session: Session, tmdb_id: int) -> Movie | None:
+    return session.exec(select(Movie).where(Movie.tmdb_id == tmdb_id)).first()
+
+
+def _library_state(session: Session, kind: str, local: Show | Movie | None) -> dict:
+    """local_id (id en base ou None) et in_library d'un résultat de recherche."""
+    return {"local_id": local.id if local else None,
+            "in_library": bool(local and library.get_library_item(session, kind, local.id))}
+
+
 def search_shows(session: Session, tvmaze, query: str) -> list[dict]:
     """Recherche de séries sur TVMaze. Renvoie une liste de dicts simples :
 
-    id (TVMaze), title, original_title, year, network, status (traduit), poster_url,
-    summary (court), local_id (id en base ou None), in_library (bool).
+    id (TVMaze), tvdb_id (pour retrouver la série sur TMDB, page Aperçu), title,
+    original_title, year, network, status (traduit), poster_url, summary (court),
+    local_id (id en base ou None), in_library (bool).
     """
     query = (query or "").strip()
     if not query:
@@ -105,6 +116,7 @@ def search_shows(session: Session, tvmaze, query: str) -> list[dict]:
         channel = data.get("network") or data.get("webChannel") or {}
         results.append({
             "id": data["id"],
+            "tvdb_id": externals.get("thetvdb"),
             "title": data.get("name") or "Sans titre",
             "original_title": data.get("name"),
             "year": _year(data.get("premiered")),
@@ -112,8 +124,7 @@ def search_shows(session: Session, tvmaze, query: str) -> list[dict]:
             "status": tvmaze_status_label(data.get("status")),
             "poster_url": (data.get("image") or {}).get("medium"),
             "summary": short_text(data.get("summary")),
-            "local_id": local.id if local else None,
-            "in_library": bool(local and library.get_library_item(session, SHOW, local.id)),
+            **_library_state(session, SHOW, local),
         })
     return results
 
@@ -121,7 +132,7 @@ def search_shows(session: Session, tvmaze, query: str) -> list[dict]:
 def search_movies(session: Session, tmdb, query: str) -> list[dict]:
     """Recherche de films sur TMDB (liste vide si TMDB n'est pas connecté).
 
-    Mêmes clés que search_shows (network et status valent None pour un film).
+    Mêmes clés que search_shows (tvdb_id, network et status valent None pour un film).
     """
     query = (query or "").strip()
     if not query:
@@ -130,9 +141,10 @@ def search_movies(session: Session, tmdb, query: str) -> list[dict]:
     for data in tmdb.search_movies(query):
         if "id" not in data:
             continue
-        local = session.exec(select(Movie).where(Movie.tmdb_id == data["id"])).first()
+        local = _local_movie(session, data["id"])
         results.append({
             "id": data["id"],
+            "tvdb_id": None,
             "title": data.get("title") or data.get("original_title") or "Sans titre",
             "original_title": data.get("original_title"),
             "year": _year(data.get("release_date")),
@@ -140,8 +152,7 @@ def search_movies(session: Session, tmdb, query: str) -> list[dict]:
             "status": None,
             "poster_url": TMDBClient.poster_url(data.get("poster_path")),
             "summary": short_text(data.get("overview")),
-            "local_id": local.id if local else None,
-            "in_library": bool(local and library.get_library_item(session, MOVIE, local.id)),
+            **_library_state(session, MOVIE, local),
         })
     return results
 
@@ -185,6 +196,20 @@ def search_all(session: Session, tvmaze, tmdb, query: str) -> SearchOutcome:
     for show, movie in zip_longest(shows, movies):
         outcome.results += [dict(r, kind=k) for r, k in ((show, SHOW), (movie, MOVIE)) if r]
     return outcome
+
+
+def refresh_library_state(session: Session, results: list[dict]) -> None:
+    """Remet à jour local_id / in_library de résultats déjà affichés (de search_all).
+
+    Un titre peut avoir été ajouté entre-temps depuis sa page Aperçu : sans cela, la
+    recherche proposerait encore de l'ajouter. Pas d'appel réseau, pas de commit.
+    """
+    for result in results:
+        if result["kind"] == SHOW:
+            local = _local_show(session, result["id"], result.get("tvdb_id"))
+        else:
+            local = _local_movie(session, result["id"])
+        result.update(_library_state(session, result["kind"], local))
 
 
 # --- Ajout depuis TVMaze / TMDB ------------------------------------------------

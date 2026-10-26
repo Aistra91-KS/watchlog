@@ -22,6 +22,7 @@ const ROUTES = {
   suggestions: () => import("./views/suggestions.js"),
   statistiques: () => import("./views/statistiques.js"),
   ajouter: () => import("./views/ajouter.js"),
+  apercu: () => import("./views/apercu.js"),
   parametres: () => import("./views/parametres.js"),
 };
 const DEFAULT_ROUTE = "a-regarder";
@@ -168,7 +169,9 @@ function parseHash() {
 }
 
 function renderNav() {
-  const current = ["serie", "film"].includes(app.route.name) ? "bibliotheque" : app.route.name;
+  // Fiches : rangées sous « Bibliothèque » ; aperçu (avant ajout) : sous « Ajouter ».
+  const current = { serie: "bibliotheque", film: "bibliotheque", apercu: "ajouter" }[app.route.name]
+    || app.route.name;
   document.getElementById("nav").innerHTML = html`<ul role="list">${NAV.map(([name, label]) => html`
     <li><a href="#/${name}" ${name === current ? html`aria-current="page"` : ""}>${label}</a></li>`)}
     </ul>`.text;

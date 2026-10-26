@@ -155,6 +155,20 @@ def test_search_all_tmdb_unavailable(session, caplog):
     assert "Recherche TMDB impossible" in caplog.text
 
 
+def test_refresh_library_state(session):
+    """Titre ajouté depuis l'Aperçu après la recherche : le résultat affiché suit."""
+    tvmaze = FakeTVMaze(searches={"fight": "tvmaze_search_hidden.json"})
+    tmdb = SearchTMDB()
+    results = adding.search_all(session, tvmaze, tmdb, "fight").results
+    assert results[0]["tvdb_id"] is None and results[1]["tvdb_id"] is None
+    assert not any(r["in_library"] for r in results)
+    show = adding.add_show(session, tvmaze, 303, WATCHING)
+    movie = adding.add_movie(session, tmdb, 550, TO_WATCH)
+    adding.refresh_library_state(session, results)
+    assert [(r["in_library"], r["local_id"]) for r in results] == [
+        (True, show.id), (True, movie.id), (False, None)]
+
+
 def test_search_all_tvmaze_down(session, caplog):
     outcome = adding.search_all(session, FakeTVMaze(fail=True), SearchTMDB(), "fight")
     assert [r["kind"] for r in outcome.results] == [MOVIE, MOVIE]

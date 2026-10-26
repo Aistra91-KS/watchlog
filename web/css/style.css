@@ -268,6 +268,13 @@ a.row-title:hover { text-decoration: underline; }
   border: 1px solid var(--border); border-radius: 999px; font-size: 0.9rem; }
 .provider img { border-radius: 6px; }
 .provider.is-mine { border-color: var(--ok); font-weight: 700; }
+/* Casting de la page Aperçu : photos rondes, nom et rôle. */
+.cast { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 12px; }
+.cast li { width: 104px; text-align: center; display: flex; flex-direction: column; align-items: center;
+  overflow-wrap: anywhere; }
+.cast img, .cast-empty { width: 72px; height: 72px; border-radius: 50%; object-fit: cover;
+  background: var(--surface); }
+.cast-name { font-size: 0.9rem; margin-top: 4px; }
 
 .rating { display: flex; flex-direction: column; gap: var(--gap); max-width: 640px; }
 .stars { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }

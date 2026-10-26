@@ -3,53 +3,71 @@
 import { addManualMovie, addManualShow, addMovie, addShow } from "../core/adding.js";
 import { posterUrl } from "../core/catalog.js";
 import { MOVIE, SHOW, STATUSES, STATUS_LABELS, TO_WATCH, refKey } from "../core/model.js";
-import { html, movieHref, options, poster, showHref } from "./dom.js";
+import { href, html, movieHref, options, poster, showHref } from "./dom.js";
 
 const STATUS_PAIRS = STATUSES.map((s) => [s, STATUS_LABELS[s]]);
 
+/** Lien vers l'aperçu d'un résultat (#/apercu/serie/<id TVMaze> ou #/apercu/film/<id TMDB>). */
+export const previewHref = (kind, id) => href("apercu", kind === SHOW ? "serie" : "film", id);
+
+/** Formulaire d'ajout d'une série TVMaze (statut, « j'en suis à »), ou lien vers sa fiche
+ *  si elle est déjà dans la bibliothèque. Aussi utilisé par la page Aperçu. */
+export function showAddForm(app, tvmazeId, name) {
+  const key = `tvmaze:${tvmazeId}`;
+  if (app.store.get("library", refKey(SHOW, key))) {
+    return html`<a class="btn btn-ghost" href="${showHref(key)}">Dans ma bibliothèque</a>`;
+  }
+  return html`<form class="add-form" data-submit="add-show" data-id="${tvmazeId}">
+    <label class="field"><span>Statut</span><select name="status"
+      aria-label="${`Statut pour ${name}`}">${options(STATUS_PAIRS, TO_WATCH)}</select></label>
+    <details class="until"><summary>J'en suis à…</summary>
+      <label class="field"><span>Saison</span><input name="season" type="number" min="1"
+        inputmode="numeric" aria-label="${`Saison en cours de ${name}`}"></label>
+      <label class="field"><span>Épisode</span><input name="episode" type="number" min="1"
+        inputmode="numeric" aria-label="${`Dernier épisode vu de ${name}`}"></label>
+    </details>
+    <button class="btn" aria-label="${`Ajouter la série ${name}`}">Ajouter</button>
+  </form>`;
+}
+
+/** Formulaire d'ajout d'un film TMDB, ou lien vers sa fiche (comme showAddForm). */
+export function movieAddForm(app, tmdbId, title) {
+  const key = `tmdb:${tmdbId}`;
+  if (app.store.get("library", refKey(MOVIE, key))) {
+    return html`<a class="btn btn-ghost" href="${movieHref(key)}">Dans ma bibliothèque</a>`;
+  }
+  return html`<form class="add-form" data-submit="add-movie" data-id="${tmdbId}">
+    <label class="field"><span>Statut</span><select name="status"
+      aria-label="${`Statut pour ${title}`}">${options(STATUS_PAIRS, TO_WATCH)}</select></label>
+    <button class="btn" aria-label="${`Ajouter le film ${title}`}">Ajouter</button>
+  </form>`;
+}
+
 function showResult(app, { show }) {
-  const key = `tvmaze:${show.id}`;
-  const inLibrary = app.store.get("library", refKey(SHOW, key));
   const year = show.premiered?.slice(0, 4);
   const channel = (show.network || show.webChannel || {}).name;
   return html`<li class="row is-show">
     ${poster(show.image?.medium, show.name, "sm")}
     <div class="row-main">
-      <p class="row-title">${show.name}</p>
+      <a class="row-title" href="${previewHref(SHOW, show.id)}">${show.name}<span
+        class="sr-only"> : voir la fiche</span></a>
       <p class="row-meta">${[year, channel, show.status === "Ended" ? "Terminée" : null]
         .filter(Boolean).join(" · ")}</p>
     </div>
-    ${inLibrary ? html`<a class="btn btn-ghost" href="${showHref(key)}">Dans ma bibliothèque</a>`
-      : html`<form class="add-form" data-submit="add-show" data-id="${show.id}">
-        <label class="field"><span>Statut</span><select name="status"
-          aria-label="${`Statut pour ${show.name}`}">${options(STATUS_PAIRS, TO_WATCH)}</select></label>
-        <details class="until"><summary>J'en suis à…</summary>
-          <label class="field"><span>Saison</span><input name="season" type="number" min="1"
-            inputmode="numeric" aria-label="${`Saison en cours de ${show.name}`}"></label>
-          <label class="field"><span>Épisode</span><input name="episode" type="number" min="1"
-            inputmode="numeric" aria-label="${`Dernier épisode vu de ${show.name}`}"></label>
-        </details>
-        <button class="btn" aria-label="${`Ajouter la série ${show.name}`}">Ajouter</button>
-      </form>`}
+    ${showAddForm(app, show.id, show.name)}
   </li>`;
 }
 
 function movieResult(app, movie) {
-  const key = `tmdb:${movie.id}`;
-  const inLibrary = app.store.get("library", refKey(MOVIE, key));
   return html`<li class="row is-movie">
     ${poster(posterUrl(movie.poster_path), movie.title, "sm")}
     <div class="row-main">
-      <p class="row-title">${movie.title}</p>
+      <a class="row-title" href="${previewHref(MOVIE, movie.id)}">${movie.title}<span
+        class="sr-only"> : voir la fiche</span></a>
       <p class="row-meta">${[movie.release_date?.slice(0, 4), movie.original_title !== movie.title
         ? movie.original_title : null].filter(Boolean).join(" · ")}</p>
     </div>
-    ${inLibrary ? html`<a class="btn btn-ghost" href="${movieHref(key)}">Dans ma bibliothèque</a>`
-      : html`<form class="add-form" data-submit="add-movie" data-id="${movie.id}">
-        <label class="field"><span>Statut</span><select name="status"
-          aria-label="${`Statut pour ${movie.title}`}">${options(STATUS_PAIRS, TO_WATCH)}</select></label>
-        <button class="btn" aria-label="${`Ajouter le film ${movie.title}`}">Ajouter</button>
-      </form>`}
+    ${movieAddForm(app, movie.id, movie.title)}
   </li>`;
 }
 
