@@ -4,7 +4,7 @@
 import { addDays, daysBetween, localDate, parisDay, today as todayParis } from "./dates.js";
 import { buildQueue, RELEASED } from "./queue.js";
 import {
-  COMPLETED, EPISODE, MOVIE, SHOW, WATCHING, episodeCode, splitGenres,
+  COMPLETED, EPISODE, MOVIE, SHOW, TO_WATCH, WATCHING, episodeCode, splitGenres,
 } from "./model.js";
 
 export const WEEKDAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
@@ -270,9 +270,10 @@ function estimatedMinutes(runtimes, kind) {
   return [Math.round(known.reduce((s, r) => s + r, 0) + missing * average), missing];
 }
 
-/** Ce qui reste à voir (épisodes hors spéciaux et films déjà sortis, non vus). */
-export function remainingTime(store, today = todayParis()) {
-  const items = buildQueue(store, { availabilities: [RELEASED], today });
+/** Ce qui reste à voir (épisodes hors spéciaux et films déjà sortis, non vus), pour les
+ *  statuts donnés (« En cours » et « À voir », plus « Plus tard » si demandé). */
+export function remainingTime(store, today = todayParis(), statuses = [WATCHING, TO_WATCH]) {
+  const items = buildQueue(store, { statuses, availabilities: [RELEASED], today });
   const out = { estimated: 0 };
   for (const [kind, name] of [[EPISODE, "episode"], [MOVIE, "movie"]]) {
     const runtimes = items.filter((i) => i.kind === kind).map((i) => i.runtime);
@@ -313,4 +314,62 @@ export function finishEstimate(remainingMinutes, perDay, today = todayParis()) {
   if (perDay <= 0) return null;
   const days = Math.ceil(remainingMinutes / perDay);
   return { days, date: addDays(today, days) };
+}
+
+/** Temps passé sur une série et temps restant pour la finir (stats.show_time). Passé :
+ *  épisodes vus (spéciaux compris) × visionnages ; restant : épisodes diffusés pas vus, hors
+ *  spéciaux. Une durée inconnue vaut la moyenne des durées connues de la série. */
+export function showTime(store, showKey, today = todayParis()) {
+  const episodes = store.episodesOf(showKey);
+  const known = episodes.map((ep) => ep.runtime).filter((r) => r > 0);
+  const average = known.length ? known.reduce((a, b) => a + b, 0) / known.length
+    : DEFAULT_RUNTIMES[EPISODE];
+  let spent = 0;
+  let remaining = 0;
+  const out = { remainingEpisodes: 0, upcomingEpisodes: 0, estimated: 0 };
+  for (const ep of episodes) {
+    const runtime = ep.runtime || average;
+    const w = store.get("watches", `${EPISODE}:${ep.key}`);
+    if (w) {
+      spent += runtime * (w.plays || 1);
+    } else if (ep.is_special) {
+      continue;
+    } else {
+      const day = localDate(ep.airstamp, ep.airdate);
+      if (!day || day > today) {   // à venir ou sans date : pas encore regardable
+        out.upcomingEpisodes += 1;
+        continue;
+      }
+      remaining += runtime;
+      out.remainingEpisodes += 1;
+    }
+    if (!ep.runtime) out.estimated += 1;
+  }
+  return { ...out, spentMinutes: Math.round(spent), remainingMinutes: Math.round(remaining) };
+}
+
+/** Même jour `months` mois plus tard (31 janvier + 1 mois = 28 ou 29 février). */
+function addMonths(day, months) {
+  const [y, m, d] = day.split("-").map(Number);
+  const index = m - 1 + months;
+  const year = y + Math.floor(index / 12);
+  const month = ((index % 12) + 12) % 12 + 1;
+  const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return `${year}-${String(month).padStart(2, "0")}-${String(Math.min(d, last)).padStart(2, "0")}`;
+}
+
+/** Écart exact sur le calendrier (stats.format_span) : « 3 mois et 25 jours »,
+ *  « 1 an, 2 mois et 5 jours ». Mois réels : la durée tombe pile sur la date de fin. */
+export function formatSpan(start, end) {
+  const [ys, ms] = start.split("-").map(Number);
+  const [ye, me] = end.split("-").map(Number);
+  let months = (ye - ys) * 12 + me - ms;
+  if (addMonths(start, months) > end) months -= 1;
+  const days = daysBetween(addMonths(start, months), end);
+  const years = Math.floor(months / 12);
+  months %= 12;
+  const parts = [years ? `${years} an${years > 1 ? "s" : ""}` : "", months ? `${months} mois` : "",
+    days ? `${days} jour${days > 1 ? "s" : ""}` : ""].filter(Boolean);
+  if (!parts.length) return "0 jour";
+  return parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(", ")} et ${parts.at(-1)}`;
 }

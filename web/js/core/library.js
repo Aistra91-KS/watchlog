@@ -70,20 +70,32 @@ export function setWatchDate(store, kind, ref, day) {
   });
 }
 
-/** Un visionnage de plus (revisionnage) : plays + 1, dernier visionnage = maintenant. */
-export function addRewatch(store, kind, ref) {
-  const existing = getWatch(store, kind, ref);
-  if (!existing) return markWatched(store, kind, ref);
-  return store.put("watches", {
-    ...existing, plays: (existing.plays || 1) + 1, last_watched_at: isoUtc(),
-  });
+/** Moment d'un revisionnage : l'heure exacte si c'est aujourd'hui (ou sans date), sinon midi. */
+function rewatchTime(day) {
+  return !day || day === todayParis() ? isoUtc() : localDayToUtc(day);
 }
 
-/** Retire un revisionnage (plays - 1, jamais sous 1). */
+/** Un visionnage de plus (revisionnage, library.add_rewatch) daté de `day` (vide ou
+ *  aujourd'hui : maintenant). Le dernier visionnage n'avance que si la date est plus
+ *  récente (un revisionnage oublié, saisi après coup, ne le recule pas). Pas encore vu :
+ *  vu ce jour-là. */
+export function addRewatch(store, kind, ref, day = null) {
+  const when = rewatchTime(day);
+  const existing = getWatch(store, kind, ref);
+  if (!existing) return markWatched(store, kind, ref, when);
+  const last = [existing.last_watched_at, when].filter(Boolean).sort().at(-1);
+  return store.put("watches", { ...existing, plays: (existing.plays || 1) + 1,
+    last_watched_at: last });
+}
+
+/** Retire un revisionnage (plays - 1, jamais sous 1) ; revenu à un seul visionnage, le dernier
+ *  visionnage redevient le premier. */
 export function removeRewatch(store, kind, ref) {
   const existing = getWatch(store, kind, ref);
   if (!existing || (existing.plays || 1) <= 1) return existing;
-  return store.put("watches", { ...existing, plays: existing.plays - 1 });
+  const plays = existing.plays - 1;
+  return store.put("watches", { ...existing, plays,
+    last_watched_at: plays === 1 ? existing.watched_at : existing.last_watched_at });
 }
 
 /** Épisode déjà diffusé (date française au plus tard aujourd'hui). */
@@ -122,6 +134,43 @@ export function markWatchedUntil(store, episodeKey, includeSpecials = false) {
     if (ep.key === target.key) break;
   }
   return markEpisodes(store, episodes);
+}
+
+/** Change d'un coup la date des épisodes déjà vus d'une série, toutes saisons ou celles
+ *  données (library.set_show_watch_dates). Pour une série vue il y a longtemps, cochée d'un
+ *  bloc : sans ça, tout tombe à la date du jour et fausse les statistiques. day = null : date
+ *  inconnue. Les épisodes pas vus ne sont pas touchés. Renvoie le nombre d'épisodes changés. */
+export function setShowWatchDates(store, showKey, day, seasons = null) {
+  const episodes = store.episodesOf(showKey).filter((ep) => getWatch(store, EPISODE, ep.key)
+    && (!seasons || seasons.includes(ep.season)));
+  for (const ep of episodes) setWatchDate(store, EPISODE, ep.key, day);
+  return episodes.length;
+}
+
+function watchedEpisodes(store, showKey, seasons, includeSpecials) {
+  return store.episodesOf(showKey).filter((ep) => seasons.includes(ep.season)
+    && (includeSpecials || !ep.is_special) && getWatch(store, EPISODE, ep.key));
+}
+
+/** Revisionnage des épisodes déjà vus des saisons données (library.add_season_rewatch) ;
+ *  les non vus sont ignorés. Renvoie le nombre d'épisodes concernés. */
+export function addSeasonRewatch(store, showKey, seasons, day = null, includeSpecials = false) {
+  const episodes = watchedEpisodes(store, showKey, seasons, includeSpecials);
+  for (const ep of episodes) addRewatch(store, EPISODE, ep.key, day);
+  return episodes.length;
+}
+
+/** Retire un revisionnage aux épisodes revus des saisons données
+ *  (library.remove_season_rewatch). Renvoie le nombre d'épisodes qui en avaient un. */
+export function removeSeasonRewatch(store, showKey, seasons, includeSpecials = false) {
+  let count = 0;
+  for (const ep of watchedEpisodes(store, showKey, seasons, includeSpecials)) {
+    if ((getWatch(store, EPISODE, ep.key).plays || 1) > 1) {
+      removeRewatch(store, EPISODE, ep.key);
+      count += 1;
+    }
+  }
+  return count;
 }
 
 /** Retire les visionnages d'une saison. */
@@ -214,6 +263,14 @@ export function setRating(store, kind, ref, { rating = null, note = null, emotio
     key: refKey(kind, ref), kind, ref, rating, note: text, emotions: emotionsText,
     favorite_character: character,
   });
+}
+
+/** Change seulement la note (1 à 5, null = pas de note) : le reste de l'avis est gardé
+ *  (library.set_rating_value, colonne « Note » des tableaux d'épisodes). */
+export function setRatingValue(store, kind, ref, rating) {
+  const existing = getRating(store, kind, ref);
+  return setRating(store, kind, ref, { rating, note: existing?.note ?? null,
+    emotions: splitEmotions(existing?.emotions) });
 }
 
 export function splitEmotions(emotions) {

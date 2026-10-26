@@ -25,10 +25,19 @@ chaque push sur `main`, après ses tests (workflow `.github/workflows/pages.yml`
   [themoviedb.org](https://www.themoviedb.org/settings/api)). Elle reste dans ce navigateur,
   à part des données : jamais dans le fichier exporté. Sans clé, les séries fonctionnent
   (TVMaze), mais pas les films, les suggestions ni les plateformes.
-- **Pages** : À regarder (filtre « Sur mes plateformes », comme dans le logiciel), Bibliothèque, fiches série et film (épisodes à cocher, « J'en suis
-  là », note, plateformes), Calendrier, Suggestions, Statistiques, Ajouter (clic sur un
-  résultat : page **Aperçu**, avec résumé, casting, bande-annonce, plateformes et bouton
-  Ajouter ; une série s'affiche aussi sans clé TMDB, avec les infos TVMaze), Paramètres.
+- **Même aspect que le logiciel** : menu à gauche (replié derrière « Menu » sur téléphone),
+  contenu sur toute la largeur de l'écran, mêmes pages, filtres, compteurs, cartes et couleurs
+  que l'interface Streamlit. Thème clair, sombre ou celui de l'appareil : Paramètres >
+  « Apparence ».
+- **Pages** : les mêmes que le logiciel. À regarder (compteurs, « Vu » / « Vu jusqu'ici »,
+  filtre « Sur mes plateformes »), Bibliothèque, fiches série (tableau des épisodes avec date
+  « Vu le », note et visionnages, dates de plusieurs épisodes d'un coup, revisionnage par
+  saison) et film (revisionnages datés), Calendrier (vues Mois, Semaine, Liste), Suggestions
+  (filtres genres, thèmes, plateformes, années, note) et page Aperçu d'un titre (casting,
+  bande-annonce chargée seulement si tu la lances, titres similaires), Statistiques (onglets
+  Activité, Séries, Films, Notes), Ajouter (recherche séries + films ou saisie manuelle ; « Voir la fiche » ouvre l'Aperçu
+  d'un résultat),
+  Paramètres.
 - **Mise à jour** des séries et films : automatique à l'ouverture si la dernière date de plus
   de 24 h, ou bouton dans Paramètres.
 - **Échange avec le logiciel Python** : dans le logiciel, Paramètres > « App web » >
@@ -329,7 +338,8 @@ d'échange JSON se relit à l'identique dans les deux sens (Python ↔ web).
 
 - Disponibilités en France : JustWatch (via TMDB).
 
-Ces mentions sont aussi affichées dans l'interface (et dans Paramètres de la version web).
+Ces mentions sont aussi affichées en bas de chaque page, dans le logiciel comme dans la
+version web.
 
 ## Dépannage
 

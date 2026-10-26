@@ -2,14 +2,17 @@
 // actions déclarées dans le HTML (data-action, data-change, data-submit, data-input).
 
 import { syncLibrary, syncReportLines } from "./core/adding.js";
-import { isoUtc } from "./core/dates.js";
+import { fmtAgo, isoUtc } from "./core/dates.js";
 import { refreshCompleted } from "./core/library.js";
 import { TMDBClient } from "./api/tmdb.js";
 import { TVMazeClient } from "./api/tvmaze.js";
 import { IdbCache, askPersistent, loadStore, openDb, persist } from "./storage/idb.js";
 import { readSecret } from "./storage/secret.js";
 import { html } from "./views/dom.js";
+import { icon } from "./views/icons.js";
+import { loadPrefs } from "./views/prefs.js";
 import * as shared from "./views/shared.js";
+import * as ui from "./views/ui.js";
 import * as aRegarder from "./views/a-regarder.js";
 import * as bibliotheque from "./views/bibliotheque.js";
 import * as calendrier from "./views/calendrier.js";
@@ -20,9 +23,9 @@ import * as serie from "./views/serie.js";
 const ROUTES = {
   "a-regarder": aRegarder, bibliotheque, calendrier, serie, film,
   suggestions: () => import("./views/suggestions.js"),
+  apercu: () => import("./views/apercu.js"),
   statistiques: () => import("./views/statistiques.js"),
   ajouter: () => import("./views/ajouter.js"),
-  apercu: () => import("./views/apercu.js"),
   parametres: () => import("./views/parametres.js"),
 };
 const DEFAULT_ROUTE = "a-regarder";
@@ -38,6 +41,10 @@ const SAVE_DELAY_MS = 400;
 const AUTO_SYNC_AFTER_MS = 86_400_000;
 // Durée d'affichage des messages (assez longue pour une loupe ou un lecteur d'écran).
 const TOAST_MS = { info: 8000, error: 15000 };
+// Attente après un redimensionnement avant de redessiner les graphiques
+const RESIZE_DELAY_MS = 250;
+// Largeur sous laquelle le menu se replie derrière un bouton (comme la barre de Streamlit).
+const MENU_BREAKPOINT_PX = 900;
 // Contrôles dont on retrouve l'équivalent après un nouveau rendu (pour y remettre le focus).
 const FOCUS_ATTRS = ["data-action", "data-change", "data-input", "data-submit", "name",
   "data-ref", "data-kind", "data-id", "data-season", "data-show"];
@@ -150,13 +157,33 @@ app.runSync = async ({ quiet = false } = {}) => {
   return report;
 };
 
-/** Bandeau visuel seulement (aria-live="off") : début et fin sont annoncés à part. */
+/** État TMDB affiché dans le menu (comme l'app Python). */
+function tmdbLabel() {
+  const tmdb = app.tmdb;
+  if (!tmdb?.configured) return "TMDB : non connecté (voir Paramètres)";
+  if (tmdb.connected === true) return "TMDB : connecté";
+  if (tmdb.connected === false) return "TMDB : clé refusée (voir Paramètres)";
+  return tmdb.lastMessage ? "TMDB : injoignable pour l'instant" : "TMDB : test de la connexion…";
+}
+
+/** Bas du menu : TMDB, date de la dernière mise à jour ou progression de celle en cours.
+ *  Visuel seulement (début et fin de la mise à jour sont annoncés à part). */
 function renderSyncStatus() {
-  const box = document.getElementById("sync-status");
+  const box = document.getElementById("sidebar-status");
+  if (!box) return;
   const { running, done, total, label } = app.sync;
-  box.hidden = !running;
-  box.textContent = running
-    ? `Mise à jour des séries et films… ${total ? `${done}/${total}` : ""} ${label}` : "";
+  const last = app.store?.setting("last_sync_at", null);
+  const report = app.store?.setting("last_sync_report", null);
+  let sync;
+  if (running) {
+    sync = html`${icon("sync")} Mise à jour en cours… ${total ? `${done}/${total}` : ""}
+      <span class="sync-label">${label}</span>`;
+  } else {
+    sync = last ? `Mis à jour ${fmtAgo(last)}` : "Jamais mis à jour";
+  }
+  box.innerHTML = html`<p>${tmdbLabel()}</p><p class="${running ? "is-running" : ""}">${sync}</p>
+    ${!running && report?.problems ? html`<p><a href="#/parametres">${report.problems}
+      problème${report.problems > 1 ? "s" : ""} à la dernière mise à jour</a></p>` : ""}`.text;
 }
 
 // --- Routeur et rendu ----------------------------------------------------------------
@@ -169,15 +196,39 @@ function parseHash() {
 }
 
 function renderNav() {
-  // Fiches : rangées sous « Bibliothèque » ; aperçu (avant ajout) : sous « Ajouter ».
-  const current = { serie: "bibliotheque", film: "bibliotheque", apercu: "ajouter" }[app.route.name]
-    || app.route.name;
+  // Aperçu : rangé sous la page d'où il a été ouvert (suggestions, ou recherche d'Ajouter).
+  const parent = { serie: "bibliotheque", film: "bibliotheque",
+    apercu: app.route.params[2] === "ajouter" ? "ajouter" : "suggestions" };
+  const current = parent[app.route.name] || app.route.name;
   document.getElementById("nav").innerHTML = html`<ul role="list">${NAV.map(([name, label]) => html`
     <li><a href="#/${name}" ${name === current ? html`aria-current="page"` : ""}>${label}</a></li>`)}
     </ul>`.text;
-  document.querySelector('#nav [aria-current="page"]')?.scrollIntoView({ block: "nearest",
-    inline: "nearest" });
 }
+
+// --- Menu repliable (petit écran) -------------------------------------------------------
+
+const narrow = () => window.matchMedia(`(max-width: ${MENU_BREAKPOINT_PX}px)`).matches;
+
+/** Ouvre / ferme le menu par-dessus la page ; le focus va au menu puis revient au bouton. */
+function setMenu(open, { focus = true } = {}) {
+  const toggle = document.getElementById("menu-toggle");
+  const wasOpen = document.body.classList.contains("menu-open");
+  document.body.classList.toggle("menu-open", open);
+  document.getElementById("sidebar-backdrop").hidden = !open;
+  toggle.setAttribute("aria-expanded", String(open));
+  toggle.textContent = open ? "Fermer le menu" : "Menu";
+  if (!focus) return;
+  if (open) document.querySelector('#nav [aria-current="page"], #nav a')?.focus();
+  else if (wasOpen) toggle.focus();
+}
+
+// --- Thème (clair / sombre / celui du système), comme le menu Settings de Streamlit -----
+
+app.applyTheme = () => {
+  const { mode } = loadPrefs("theme", { mode: "system" });
+  if (mode === "light" || mode === "dark") document.documentElement.dataset.theme = mode;
+  else delete document.documentElement.dataset.theme;
+};
 
 /** Signature d'un contrôle, pour retrouver son équivalent après un nouveau rendu. */
 function focusKey(el) {
@@ -210,6 +261,10 @@ app.rerender = async ({ focusHeading = false } = {}) => {
   const rank = action ? [...main.querySelectorAll(`[data-action="${CSS.escape(action)}"]`)].indexOf(active) : -1;
   for (const d of main.querySelectorAll("details[data-keep]")) app.ui.openDetails.set(d.dataset.keep, d.open);
   const scroll = window.scrollY;
+  // Largeur utile du contenu : les graphiques s'y ajustent (comme width="stretch" en Python).
+  const style = getComputedStyle(main);
+  app.ui.contentWidth = main.clientWidth - parseFloat(style.paddingLeft)
+    - parseFloat(style.paddingRight);
   let content;
   try {
     const view = typeof app.view === "function" ? await app.view() : app.view;
@@ -221,6 +276,7 @@ app.rerender = async ({ focusHeading = false } = {}) => {
   }
   if (seq !== renderSeq) return;
   main.innerHTML = content.text;
+  renderSyncStatus();   // l'état TMDB a pu changer (clé enregistrée, test...)
   for (const d of main.querySelectorAll("details[data-keep]")) {
     if (app.ui.openDetails.has(d.dataset.keep)) d.open = app.ui.openDetails.get(d.dataset.keep);
   }
@@ -258,6 +314,7 @@ async function onRoute() {
   app.route = parseHash();
   app.view = ROUTES[app.route.name];
   renderNav();
+  if (document.body.classList.contains("menu-open")) setMenu(false, { focus: false });
   await app.rerender({ focusHeading: true });
 }
 
@@ -270,7 +327,7 @@ app.navigate = (hash) => {
 
 async function dispatch(name, el, event) {
   const view = typeof app.view === "function" ? await app.view() : app.view;
-  const handler = view?.actions?.[name] || shared.actions[name];
+  const handler = view?.actions?.[name] || shared.actions[name] || ui.actions[name];
   if (!handler) {
     console.warn(`Action inconnue : ${name}`);
     return;
@@ -315,6 +372,32 @@ function bindEvents() {
     clearTimeout(inputTimer);
     inputTimer = setTimeout(() => dispatch(el.dataset.input, el, event), 250);
   });
+  // Menu repliable : bouton, clic à côté, Échap ; retour au menu large en agrandissant.
+  document.getElementById("menu-toggle").addEventListener("click", () => {
+    setMenu(!document.body.classList.contains("menu-open"));
+  });
+  document.getElementById("sidebar-backdrop").addEventListener("click", () => setMenu(false));
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && document.body.classList.contains("menu-open")) setMenu(false);
+  });
+  window.matchMedia(`(max-width: ${MENU_BREAKPOINT_PX}px)`).addEventListener("change", () => {
+    if (!narrow()) setMenu(false, { focus: false });
+  });
+  // Onglets (role="tab") : flèches gauche / droite, Début / Fin, comme un menu d'onglets natif.
+  main.addEventListener("keydown", (event) => {
+    const tab = event.target.closest('[role="tab"]');
+    if (!tab) return;
+    const tabs = [...tab.closest('[role="tablist"]').querySelectorAll('[role="tab"]')];
+    const moves = { ArrowRight: 1, ArrowLeft: -1, Home: -Infinity, End: Infinity };
+    if (!(event.key in moves)) return;
+    event.preventDefault();
+    const i = tabs.indexOf(tab);
+    const step = moves[event.key];
+    const next = Number.isFinite(step) ? tabs[(i + step + tabs.length) % tabs.length]
+      : tabs[step < 0 ? 0 : tabs.length - 1];
+    next.focus();
+    next.click();
+  });
   // Lien d'évitement : le routeur utilise le hash, on déplace donc le focus sans y toucher.
   document.querySelector(".skip-link").addEventListener("click", (event) => {
     event.preventDefault();
@@ -322,6 +405,18 @@ function bindEvents() {
   });
   window.addEventListener("hashchange", () => {
     if (location.hash.startsWith("#/") || !location.hash) onRoute();
+  });
+  // Fenêtre redimensionnée : les pages à graphiques sont redessinées à la nouvelle largeur.
+  let resizeTimer = null;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      const width = main.clientWidth;
+      if (app.route.name === "statistiques" && Math.abs(width - (app.ui.lastWidth || 0)) > 40) {
+        app.ui.lastWidth = width;
+        app.rerender();
+      }
+    }, RESIZE_DELAY_MS);
   });
   // Onglet caché ou fermé : on enregistre tout de suite.
   document.addEventListener("visibilitychange", () => {
@@ -350,10 +445,16 @@ async function start() {
   if (refreshCompleted(app.store)) app.save();
   bindEvents();
   await onRoute();
+  // Test de la clé TMDB au démarrage, comme le logiciel : l'état s'affiche dans le menu.
+  if (app.tmdb.configured) {
+    app.tmdb.checkConnection().catch((error) => console.warn("Test TMDB", error))
+      .finally(renderSyncStatus);
+  }
   const last = Date.parse(app.store.setting("last_sync_at", "")) || 0;
   if (app.store.library.size && Date.now() - last > AUTO_SYNC_AFTER_MS && navigator.onLine !== false) {
     app.runSync({ quiet: true });
   }
 }
 
+app.applyTheme();
 start();

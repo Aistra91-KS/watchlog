@@ -3,10 +3,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { EPISODE, MOVIE } from "../js/core/model.js";
+import { EPISODE, FOR_LATER, MOVIE, TO_WATCH, WATCHING } from "../js/core/model.js";
 import {
   bulkDays, finishEstimate, formatDuration, genreCounts, globalCounts, lastMonths, movieDecades,
-  movieRuntimeStats, perMonth, perWeekday, perYear, records, remainingTime, showProgress,
+  formatSpan, movieRuntimeStats, perMonth, perWeekday, perYear, records, remainingTime,
+  showProgress, showTime,
   timeSpent, topShowsByTime, watchPace, watchesFrame, withoutDays,
 } from "../js/core/stats.js";
 import { addEpisode, addMovie, addShow, makeStore, watch } from "./helpers.js";
@@ -91,4 +92,48 @@ test("reste à voir, rythme, jours d'import ignorés", () => {
   assert.deepEqual([...bulk.keys()], ["2026-08-13"]);
   assert.equal(withoutDays(all, bulk.keys()).length, 4);
   assert.equal(watchPace(all, 365, bulk.keys(), TODAY).start, "2026-08-13");
+});
+
+test("écart exact sur le calendrier (comme stats.format_span)", () => {
+  const today = "2026-10-21";
+  assert.equal(formatSpan(today, "2026-10-22"), "1 jour");
+  assert.equal(formatSpan(today, "2026-11-02"), "12 jours");
+  assert.equal(formatSpan(today, "2027-01-21"), "3 mois");
+  assert.equal(formatSpan(today, "2027-02-15"), "3 mois et 25 jours");
+  assert.equal(formatSpan(today, "2027-10-21"), "1 an");
+  assert.equal(formatSpan(today, "2028-12-26"), "2 ans, 2 mois et 5 jours");
+  assert.equal(formatSpan(today, today), "0 jour");
+  // 31 janvier + 1 mois = 28 février : pas de mois sauté ni de jour négatif
+  assert.equal(formatSpan("2026-01-31", "2026-02-28"), "1 mois");
+  assert.equal(formatSpan("2026-01-31", "2026-03-02"), "1 mois et 2 jours");
+});
+
+test("temps passé et restant d'une série (comme stats.show_time)", () => {
+  const store = makeStore();
+  const show = addShow(store, "Silo", { id: 7 });
+  const other = addShow(store, "3%", { id: 8 });
+  const aired = "2026-01-01";
+  const seen = addEpisode(store, show, 1, 1, { airdate: aired, runtime: 60, id: 1 });
+  const special = addEpisode(store, show, 1, null, { airdate: aired, runtime: 20, id: 2 });
+  addEpisode(store, show, 1, 2, { airdate: aired, runtime: null, id: 3 });         // durée estimée
+  addEpisode(store, show, 1, 3, { airdate: aired, runtime: 40, id: 4 });
+  addEpisode(store, show, 1, 4, { airdate: "2027-01-01", runtime: 50, id: 5 });   // à venir
+  addEpisode(store, show, 1, null, { airdate: aired, runtime: 90, id: 6 });       // spécial pas vu
+  watch(store, EPISODE, seen, "2026-02-01T20:00:00Z", 2);
+  watch(store, EPISODE, special);
+  watch(store, EPISODE, addEpisode(store, other, 1, 1, { airdate: aired, id: 9 }));
+  const average = (60 + 20 + 40 + 50 + 90) / 5;
+  assert.deepEqual(showTime(store, show, "2026-10-21"), { spentMinutes: 60 * 2 + 20,
+    remainingMinutes: Math.round(average + 40), remainingEpisodes: 2, upcomingEpisodes: 1,
+    estimated: 1 });
+  const empty = showTime(store, addShow(store, "Vide", { id: 10 }), "2026-10-21");
+  assert.equal(empty.spentMinutes + empty.remainingMinutes, 0);
+});
+
+test("reste à voir : « Plus tard » compté seulement si demandé", () => {
+  const store = makeStore();
+  const later = addShow(store, "Plus tard", { id: 3, status: FOR_LATER });
+  addEpisode(store, later, 1, 1, { airdate: "2026-01-01", runtime: 30, id: 1 });
+  assert.equal(remainingTime(store, "2026-10-21").episodes, 0);
+  assert.equal(remainingTime(store, "2026-10-21", [WATCHING, TO_WATCH, FOR_LATER]).episodes, 1);
 });

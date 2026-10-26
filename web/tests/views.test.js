@@ -8,6 +8,7 @@ import { EPISODE, MOVIE } from "../js/core/model.js";
 import { html, poster, safeUrl } from "../js/views/dom.js";
 import * as aRegarder from "../js/views/a-regarder.js";
 import * as ajouter from "../js/views/ajouter.js";
+import * as apercu from "../js/views/apercu.js";
 import * as bibliotheque from "../js/views/bibliotheque.js";
 import * as calendrier from "../js/views/calendrier.js";
 import * as film from "../js/views/film.js";
@@ -84,4 +85,87 @@ test("« À regarder », « Sur mes plateformes » : recherche, puis liste filtr
   const out = String(await aRegarder.render(app, []));
   assert.match(out, /Le Royaume/);
   assert.ok(!out.includes("Pas vu"), "film seulement en location : masqué");
+});
+
+test("calendrier : vues Mois, Semaine et Liste ; statistiques : chaque onglet", async (t) => {
+  const saved = new Map();
+  globalThis.localStorage = { getItem: (k) => saved.get(k) ?? null, setItem: (k, v) => saved.set(k, v) };
+  t.after(() => { delete globalThis.localStorage; });
+  const app = fakeApp();
+  for (const view of ["mois", "semaine", "liste"]) {
+    saved.set("watchlog.prefs.calendar", JSON.stringify({ view }));
+    const out = String(calendrier.render(app));
+    assert.equal(out.match(/<h1[\s>]/g)?.length, 1);
+    assert.ok(!out.includes(EVIL));
+    assert.ok(view === "liste" ? out.includes("prochains jours") : out.includes("cal-grid"), view);
+  }
+  for (const tab of ["Activité", "Séries", "Films", "Notes"]) {
+    app.ui.tabs = { stats: tab };
+    const out = String(statistiques.render(app));
+    assert.match(out, new RegExp(`aria-selected="true"[^>]*>${tab}<`));
+    assert.ok(!out.includes(EVIL), tab);
+  }
+});
+
+test("ajouter : onglets, résultats séries + films, saisie manuelle", async () => {
+  const app = fakeApp();
+  app.tvmaze = { search: async () => [{ show: { id: 9, name: EVIL, premiered: "2021-01-01",
+    summary: `<p>${EVIL}</p>`, status: "Ended" } }] };
+  const form = { querySelector: () => null };
+  globalThis.FormData = class { get() { return "rives"; } };
+  try {
+    String(ajouter.render(app, []));
+    await ajouter.actions["add-search"](app, form);
+  } finally {
+    delete globalThis.FormData;
+  }
+  const out = String(ajouter.render(app, []));
+  assert.ok(out.includes("1 série(s) et") && out.includes("Films non cherchés"));
+  assert.ok(out.includes("Terminée") && !out.includes(EVIL));
+  app.ui.tabs = { add: "Saisie manuelle" };
+  assert.ok(String(ajouter.render(app, [])).includes("Ajouter la série"));
+});
+
+test("aperçu d'un titre TMDB : rien d'injecté, déjà dans la bibliothèque, titre inconnu", async () => {
+  const app = fakeApp();
+  app.tmdb = { configured: true, details: async (media, id) => (id === 550 ? {
+    id: 550, title: EVIL, overview: EVIL, release_date: "1999-11-10", genres: [{ name: EVIL }],
+    poster_path: "/p.jpg", backdrop_path: "/b.jpg", vote_average: 8.4, vote_count: 30000,
+    credits: { cast: [{ name: EVIL, character: EVIL, profile_path: "/c.jpg" }], crew: [] },
+    videos: { results: [{ site: "YouTube", type: "Trailer", key: "abcdefghijk", iso_639_1: "fr" }] },
+  } : null), recommendations: async () => [{ id: 9, title: EVIL, release_date: "2001-01-01" }],
+  watchProviders: async () => ({}) };
+  const out = String(await apercu.render(app, ["film", "550"]));
+  assert.equal(out.match(/<h1[\s>]/g)?.length, 1);
+  assert.ok(!out.includes(EVIL) && !out.includes("javascript:"));
+  assert.ok(out.includes("Déjà dans ta bibliothèque") && out.includes("Lire la bande-annonce"));
+  assert.ok(out.includes("#/apercu/film/9"));
+  assert.match(String(await apercu.render(app, ["film", "1"])), /introuvable/);
+  assert.match(String(await apercu.render(app, ["rien", "x"])), /Aucun titre/);
+});
+
+test("ajouter : « Voir la fiche » d'un résultat ouvre l'aperçu, retour à la recherche", async () => {
+  const app = fakeApp();
+  app.ui.add = { query: "x", errors: [], manualKind: "show", results: [
+    { kind: "show", id: 9, key: "tvmaze:9", tvdb: 42, title: "Silo" },
+    { kind: "show", id: 8, key: "tvmaze:8", tvdb: null, title: "Sans TVDB" },
+    { kind: "movie", id: 27205, key: "tmdb:27205", title: "Inception" }] };
+  assert.ok(!String(ajouter.render(app, [])).includes("Voir la"), "sans clé TMDB : pas de lien");
+  app.tmdb = { configured: true, findTvByTvdb: async (tvdb) => (tvdb === 42 ? 125988 : null) };
+  const out = String(ajouter.render(app, []));
+  assert.ok(out.includes('href="#/apercu/film/27205/ajouter"'));
+  assert.equal(out.match(/data-action="add-preview"/g)?.length, 1);   // série sans TVDB : rien
+  let target = null;
+  app.navigate = (hash) => { target = hash; };
+  assert.equal(await ajouter.actions["add-preview"](app, { dataset: { tvdb: "42", title: "Silo" } }), false);
+  assert.equal(target, "#/apercu/serie/125988/ajouter");
+  await assert.rejects(ajouter.actions["add-preview"](app, { dataset: { tvdb: "7", title: "Absente" } }),
+    /introuvable sur TMDB/);
+
+  app.tmdb = { configured: true, details: async () => ({ id: 27205, title: "Inception" }),
+    recommendations: async () => [{ id: 9, title: "Autre" }], watchProviders: async () => ({}) };
+  const preview = String(await apercu.render(app, ["film", "27205", "ajouter"]));
+  assert.ok(preview.includes("Retour à la recherche") && !preview.includes("Pas intéressé"));
+  assert.ok(preview.includes("#/apercu/film/9/ajouter"));
+  assert.ok(String(await apercu.render(app, ["film", "27205"])).includes("Pas intéressé"));
 });

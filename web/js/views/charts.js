@@ -36,15 +36,20 @@ function dataTable(caption, headers, rows) {
         : html`<td>${c}</td>`))}</tr>`)}</tbody></table></div></details>`;
 }
 
+// Largeur des graphiques : celle de la colonne qui les reçoit (mesurée par main.js), bornée
+// pour que le texte garde sa taille ; plus étroit, le graphique défile horizontalement.
+const MIN_WIDTH = 480;
+const MAX_WIDTH = 1600;
+const chartWidth = (width) => Math.round(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, width || 640)));
+
 /** Barres empilées par catégorie : rows = [{label, episodes, movies}]. */
-export function stackedBars(rows, { title, unit = "" }) {
-  const width = 640;
-  const height = 220;
+export function stackedBars(rows, { title, unit = "", width: wanted = 640, height = 260 }) {
+  const width = chartWidth(wanted);
   const pad = { top: 12, right: 8, bottom: 28, left: 36 };
   const max = niceMax(Math.max(0, ...rows.map((r) => r.episodes + r.movies)));
   const plotH = height - pad.top - pad.bottom;
   const slot = (width - pad.left - pad.right) / rows.length;
-  const barW = Math.max(4, Math.min(36, slot * 0.6));
+  const barW = Math.max(4, Math.min(56, slot * 0.6));
   const y = (v) => pad.top + plotH - (v / max) * plotH;
   const ticks = [0, max / 2, max];
   // Barres à bouts arrondis seulement côté données ; 2 px d'écart entre les deux segments.
@@ -84,15 +89,16 @@ export function hbars(items, { title, kind = "show" }) {
   </figure>`;
 }
 
-/** Calendrier de chaleur des 12 derniers mois : une case par jour, une colonne par semaine. */
-export function heatmap(days, { title }) {
-  const cell = 11;
+/** Calendrier de chaleur des 12 derniers mois : une case par jour, une colonne par semaine.
+ *  Les cases remplissent la largeur disponible (comme le graphique de l'app Python). */
+export function heatmap(days, { title, width: wanted = 0 }) {
   const gapPx = 2;
   const first = new Date(`${days[0].day}T12:00:00Z`);
   const offset = (first.getUTCDay() + 6) % 7;          // lundi = 0
   const max = Math.max(1, ...days.map((d) => d.count));
   const level = (n) => (n === 0 ? 0 : Math.min(5, Math.ceil((n / max) * 5)));
   const weeks = Math.ceil((days.length + offset) / 7);
+  const cell = Math.max(9, Math.min(22, Math.floor((wanted - 28) / weeks) - gapPx));
   const width = 28 + weeks * (cell + gapPx);
   const height = 7 * (cell + gapPx) + 4;
   const cells = days.map((d, i) => {
@@ -100,10 +106,11 @@ export function heatmap(days, { title }) {
     const x = 28 + Math.floor(pos / 7) * (cell + gapPx);
     const y = (pos % 7) * (cell + gapPx);
     const tip = `${fmtDate(d.day)} : ${d.count} visionnage${d.count > 1 ? "s" : ""}`;
-    return `<rect class="heat-${level(d.count)}" x="${x}" y="${y}" width="${cell}" height="${cell}" rx="2"><title>${tip}</title></rect>`;
+    return `<rect class="heat-${level(d.count)}" x="${x}" y="${y}" width="${cell}" height="${cell}"
+      rx="2"><title>${tip}</title></rect>`;
   }).join("");
   const labels = [[0, "lun."], [2, "mer."], [4, "ven."]]
-    .map(([row, t]) => `<text x="0" y="${row * (cell + gapPx) + 9}">${t}</text>`).join("");
+    .map(([row, t]) => `<text x="0" y="${row * (cell + gapPx) + cell * 0.8}">${t}</text>`).join("");
   const active = days.filter((d) => d.count);
   return html`<figure class="chart-block">
     <div class="chart-wrap" data-scroll-end tabindex="0" role="region" aria-label="${title}"><svg class="chart heatmap" viewBox="0 0 ${width} ${height}" width="${width}"

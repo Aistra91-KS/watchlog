@@ -426,13 +426,15 @@ export const SORT_RELEVANCE = "relevance";
 export const SORT_RATING = "rating";
 export const SORT_RECENT = "recent";
 
-/** Filtres de la page : genres / plateformes / thèmes = au moins un en commun. */
+/** Filtres de la page (suggestions.filter_items) : genres / plateformes / thèmes = au moins un
+ *  en commun ; years = [min, max] inclus (un titre sans année n'est gardé que sans ce filtre). */
 export function filterItems(items, { kinds = [SHOW, MOVIE], genres = [], themes = [], platforms = [],
-  streamingOnly = false, minVote = 0, sort = SORT_RELEVANCE } = {}) {
+  streamingOnly = false, years = null, minVote = 0, sort = SORT_RELEVANCE } = {}) {
   const any = (wanted, have) => !wanted.length || wanted.some((w) => have.includes(w));
+  const inYears = (s) => !years || (s.year != null && years[0] <= s.year && s.year <= years[1]);
   const result = items.filter((s) => kinds.includes(s.kind) && any(genres, s.genres)
     && any(themes, s.themes) && (!platforms.length || any(platforms, s.streaming || []))
-    && (!streamingOnly || (s.streaming || []).length) && s.voteAverage >= minVote);
+    && (!streamingOnly || (s.streaming || []).length) && inYears(s) && s.voteAverage >= minVote);
   if (sort === SORT_RATING) result.sort((a, b) => (b.voteAverage - a.voteAverage) || (b.voteCount - a.voteCount));
   else if (sort === SORT_RECENT) result.sort((a, b) => ((b.year || 0) - (a.year || 0)) || (b.score - a.score));
   else result.sort((a, b) => b.score - a.score);
