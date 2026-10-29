@@ -21,7 +21,7 @@ from sqlmodel import Session, select
 
 from watchlog.core import settings
 from watchlog.core.dates import parse_date, parse_datetime_utc, utcnow
-from watchlog.core.library import upsert_watch
+from watchlog.core.library import clean_rating, plain_rating, upsert_watch
 from watchlog.core.models import (EPISODE, MOVIE, SHOW, STATUSES, CustomList, CustomListItem,
                                   DismissedSuggestion, Episode, LibraryItem, Movie, Rating, Show,
                                   ThemePreference, Watch)
@@ -70,7 +70,7 @@ def _watch(watch: Watch | None) -> dict | None:
 def _rating(rating: Rating | None) -> dict | None:
     if rating is None:
         return None
-    return {"rating": rating.rating, "emotions": rating.emotions,
+    return {"rating": plain_rating(rating.rating), "emotions": rating.emotions,
             "favorite_character": rating.favorite_character, "note": rating.note}
 
 
@@ -257,10 +257,10 @@ def _check_rating(value, where: str) -> None:
         return
     if not isinstance(value, dict):
         raise ValueError(f"avis illisible ({where})")
-    rating = value.get("rating")
-    if rating is not None and (not isinstance(rating, int) or isinstance(rating, bool)
-                               or not 1 <= rating <= 5):
-        raise ValueError(f"note invalide ({where}) : {rating!r}")
+    try:
+        clean_rating(value.get("rating"))
+    except ValueError:
+        raise ValueError(f"note invalide ({where}) : {value.get('rating')!r}") from None
 
 
 def _check_watch(value, where: str) -> None:
@@ -491,9 +491,10 @@ def _import_rating(session: Session, kind: str, ref_id: int, value: dict | None,
                    report: ExchangeReport) -> None:
     if not value:
         return
-    rating = value.get("rating")
-    if rating is not None and not 1 <= int(rating) <= 5:
-        raise ValueError(f"note invalide : {rating!r}")
+    try:
+        rating = clean_rating(value.get("rating"))
+    except ValueError:
+        raise ValueError(f"note invalide : {value.get('rating')!r}") from None
     row = session.exec(select(Rating).where(Rating.kind == kind, Rating.ref_id == ref_id)).first()
     fields = {"rating": rating, "emotions": value.get("emotions"),
               "favorite_character": value.get("favorite_character"), "note": value.get("note")}

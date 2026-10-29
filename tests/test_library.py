@@ -3,11 +3,13 @@
 from datetime import date, datetime
 
 import pytest
+from sqlalchemy import text
 from sqlmodel import Session, select
 
 from conftest import FakeTMDB, FakeTVMaze, load_json
 from watchlog.core import catalog, library
 from watchlog.core.dates import local_day_to_utc
+from watchlog.core.db import make_engine
 from watchlog.core.models import (COMPLETED, EPISODE, MATCH_UNCERTAIN, MOVIE, SHOW, STOPPED,
                                   TO_WATCH, WATCHING, Episode, LibraryItem, Movie, Show, Watch)
 
@@ -310,6 +312,43 @@ def test_set_rating_rejects_invalid_value(session):
         library.set_rating(session, SHOW, 1, 6)
     with pytest.raises(ValueError):
         library.set_rating(session, SHOW, 1, 0)
+
+
+def test_half_ratings(session):
+    assert library.RATING_VALUES == [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5]
+    rating = library.set_rating(session, MOVIE, 7, 4.5)
+    assert rating.rating == 4.5
+    assert library.set_rating_value(session, MOVIE, 7, 2.5).rating == 2.5
+    assert library.clean_rating(4.0) == 4 and isinstance(library.clean_rating(4.0), int)
+    assert library.clean_rating(None) is None
+    for wrong in (4.3, 0.5, 5.5, True, "4", float("nan")):
+        with pytest.raises(ValueError, match="demi-point"):
+            library.clean_rating(wrong)
+    with pytest.raises(ValueError):
+        library.set_rating(session, MOVIE, 7, 3.25)
+
+
+def test_rating_display():
+    assert library.format_rating(4.5) == "4,5" and library.format_rating(4.0) == "4"
+    assert library.rating_stars(4.5) == "★★★★½" and library.rating_stars(1) == "★"
+    assert library.rating_stars(3.0) == "★★★"
+
+
+def test_half_rating_in_a_base_from_before_half_ratings(tmp_path):
+    """Base d'avant les demi-notes (colonne INTEGER) : 4,5 est relu tel quel, sans migration."""
+    engine = make_engine(tmp_path / "old.db")
+    with engine.begin() as conn:
+        conn.execute(text('DROP TABLE "rating"'))
+        conn.execute(text('CREATE TABLE "rating" (id INTEGER PRIMARY KEY, kind VARCHAR NOT NULL, '
+                          'ref_id INTEGER NOT NULL, rating INTEGER, emotions VARCHAR, '
+                          'favorite_character VARCHAR, note VARCHAR, UNIQUE (kind, ref_id))'))
+    with Session(engine) as s:
+        library.set_rating(s, MOVIE, 1, 4.5)
+        library.set_rating(s, MOVIE, 2, 4)
+        s.commit()
+    with Session(engine) as s:
+        assert library.get_rating(s, MOVIE, 1).rating == 4.5
+        assert library.get_rating(s, MOVIE, 2).rating == 4
 
 
 def test_set_favorite(session):

@@ -94,7 +94,9 @@ tests/                 pytest ; conftest.py = faux clients TVMaze/TMDB, faux zip
 - `LibraryItem` (kind + ref_id, statut, favori, added_at). Statuts : `watching` (En cours),
   `to_watch` (À voir), `for_later` (Plus tard), `stopped` (Arrêté), `completed` (Terminé).
 - `Watch` : une ligne par épisode/film vu (`plays` pour les revisionnages), dates en UTC naïf.
-- `Rating` (note 1-5, émotions, personnage préféré), `CustomList(Item)`.
+- `Rating` (note 1 à 5 par demi-point : `library.clean_rating`, `rating_stars` « ★★★★½ » ;
+  colonne INTEGER des vieilles bases gardée, SQLite y stocke 4.5 tel quel), émotions,
+  personnage préféré. `CustomList(Item)`.
 - `PendingWatch` : visionnages Bingers pas encore rattachés (série introuvable, numérotation
   différente) ; `Show.match_status` dit pourquoi (ok, uncertain, not_found, numbering_mismatch,
   remapped).
@@ -174,13 +176,16 @@ suggestions détectent ces « jours d'import » (≥ 50 visionnages le même jou
 Bingers ne lit que son propre format (ou ceux d'autres trackers) : l'export CSV de la base
 lui est illisible. On écrit donc `library.csv`, `watches.csv`, `ratings.csv`, `lists.csv`
 (UTF-8 BOM, CRLF, dates `2026-08-13T17:02:42.346Z`). Statuts séries : watching / following
-(à voir) / for_later / stopped ; films : following. Test d'aller-retour import → export → import.
+(à voir) / for_later / stopped ; films : following. Notes entières : demi-note arrondie à
+l'étoile supérieure (4,5 → 5), comptée dans le rapport. Test d'aller-retour
+import → export → import.
 
 ### Suggestions (`suggestions.py` + `taste.py`)
 Moteur hybride, entièrement local (pas d'IA externe) :
-1. **Signaux** : poids de chaque titre = note (5★ = 3 … 1★ = −2) sinon statut (à voir = 1,
-   plus tard = 0,7, arrêté = −1), + 2 si favori ; × engagement (série : 0,5 → 1,3 selon le
-   nombre d'épisodes vus ; film revu × 1,4) × récence (0,8 → 1,3 ; date inconnue/import = 0,8).
+1. **Signaux** : poids de chaque titre = note (5★ = 3 … 1★ = −2, demi-note entre les deux)
+   sinon statut (à voir = 1, plus tard = 0,7, arrêté = −1), + 2 si favori ; × engagement
+   (série : 0,5 → 1,3 selon le nombre d'épisodes vus ; film revu × 1,4) × récence (0,8 → 1,3 ;
+   date inconnue/import = 0,8).
    Titres écartés = −1.
 2. **Profil** (`taste.build_profile`) : traits = mots-clés TMDB (`k:<id>`) + genres (`g:<nom>`,
    × 0,3). TF-IDF : fréquence pondérée dans les titres aimés × IDF (bibliothèque + candidats).

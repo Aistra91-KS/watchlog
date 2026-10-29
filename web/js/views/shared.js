@@ -2,8 +2,9 @@
 // retrait). Les actions lisent data-kind / data-ref sur l'élément cliqué.
 
 import {
-  addRewatch, getLibraryItem, getRating, markWatched, removeFromLibrary,
-  removeRewatch, setFavorite, setRating, setStatus, setWatchDate, splitEmotions, unmarkWatched,
+  RATING_VALUES, addRewatch, formatRating, getLibraryItem, getRating, markWatched,
+  removeFromLibrary, removeRewatch, setFavorite, setRating, setStatus, setWatchDate,
+  splitEmotions, unmarkWatched,
 } from "../core/library.js";
 import { EMOTION_LABELS, STATUSES, STATUS_LABELS } from "../core/model.js";
 import { html, options, raw } from "./dom.js";
@@ -30,7 +31,8 @@ export function favoriteCheck(store, kind, ref) {
 export function ratingForm(store, kind, ref) {
   const r = getRating(store, kind, ref) || {};
   const emotions = new Set(splitEmotions(r.emotions));
-  const notes = [["", "Pas de note"], ...[1, 2, 3, 4, 5].map((n) => [String(n), `${n} / 5`])];
+  const notes = [["", "Pas de note"],
+    ...RATING_VALUES.map((n) => [String(n), `${formatRating(n)} / 5`])];
   return html`<h2>Mon avis</h2>
   <form class="rating box stack" data-submit="rating" data-kind="${kind}" data-ref="${ref}">
     <label class="field"><span>Note</span><select name="rating">${options(notes,

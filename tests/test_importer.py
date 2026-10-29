@@ -459,3 +459,22 @@ def test_import_report_counts_kept_ratings_and_skipped_watches(engine, make_bing
     assert (first.ratings, first.ratings_kept, first.watches_skipped) == (1, 0, 1)
     assert (again.ratings, again.ratings_kept) == (0, 1)   # note déjà là : gardée, pas « reprise »
     assert any("numéro d'épisode manquant" in line for line in first.lines())
+
+
+def test_import_half_and_invalid_ratings(engine, make_bingers_zip, tvmaze, tmdb):
+    """Demi-note reprise telle quelle ; note hors de 1 à 5 ignorée, comptée et signalée."""
+    source = make_bingers_zip(
+        library=SAMPLE_LIBRARY[:2],
+        ratings=[{"type": "show", "title": "Le Royaume", "tvdb_id": "1001", "rating": "4.5"},
+                 {"type": "show", "title": "Lupin", "tvdb_id": "2002", "rating": "7",
+                  "emotions": "scared"}])
+
+    report = import_bingers(source, engine, tvmaze, tmdb, download_posters=False)
+
+    with Session(engine) as s:
+        ratings = {s.get(Show, r.ref_id).title: (r.rating, r.emotions)
+                   for r in s.exec(select(Rating)).all()}
+    assert ratings == {"Le Royaume": (4.5, None), "Lupin": (None, "scared")}
+    assert (report.ratings, report.ratings_invalid) == (2, 1)
+    assert "Notes illisibles (ignorées) : 1" in report.lines()
+

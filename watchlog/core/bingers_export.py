@@ -12,12 +12,15 @@ d'export de Bingers lui-même, l'inverse de importer.py :
   recalées à la main (signalées dans le rapport). Les visionnages encore « en attente »
   repartent avec leur numérotation Bingers d'origine. Les épisodes spéciaux sont ignorés ;
 - un visionnage sans date reçoit la date d'ajout du titre (Bingers date chaque visionnage) ;
+- notes entières de 1 à 5 (comme dans les exports Bingers) : une demi-note est arrondie à
+  l'étoile supérieure (4,5 -> 5), et le rapport le dit ;
 - titres saisis à la main (sans id TVDB / TMDB) : Bingers ne peut pas les retrouver, ils
   sont ignorés et listés dans le rapport.
 """
 
 import csv
 import io
+import math
 import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -27,6 +30,7 @@ from typing import BinaryIO
 from sqlmodel import Session, select
 
 from watchlog.core.dates import utcnow
+from watchlog.core.library import plain_rating
 from watchlog.core.models import (EPISODE, FOR_LATER, MATCH_REMAPPED, MOVIE, SHOW, STOPPED,
                                   TO_WATCH, CustomList, CustomListItem, Episode, LibraryItem,
                                   Movie, PendingWatch, Rating, Show, Watch)
@@ -51,6 +55,7 @@ class BingersExport:
     episode_watches: int = 0
     movie_watches: int = 0
     ratings: int = 0
+    rounded: int = 0                                      # demi-notes arrondies (4,5 -> 5)
     list_items: int = 0
     undated: int = 0                                      # visionnages datés du jour d'ajout
     skipped: list[str] = field(default_factory=list)      # titres sans id (saisie manuelle)
@@ -60,6 +65,9 @@ class BingersExport:
         lines = [f"Séries : {self.shows} ({self.episode_watches} épisodes vus)",
                  f"Films : {self.movies} ({self.movie_watches} vus)",
                  f"Notes : {self.ratings}, éléments de listes : {self.list_items}"]
+        if self.rounded:
+            lines.append(f"{self.rounded} demi-note(s) arrondie(s) à l'étoile supérieure "
+                         "(Bingers : notes entières).")
         if self.undated:
             lines.append(f"{self.undated} visionnage(s) sans date : datés du jour d'ajout du titre.")
         if self.renumbered:
@@ -184,7 +192,11 @@ def build_rows(session: Session) -> tuple[dict[str, list[list[str]]], BingersExp
             if show is None or episode.is_special or episode.number is None:
                 continue
             ref = [show.title, *show_ids(show), str(episode.season), str(episode.number)]
-        rows["ratings"].append([rating.kind, *ref, _text(rating.rating),
+        value = rating.rating
+        if value is not None and value % 1:
+            value = math.floor(value + 0.5)   # 4,5 -> 5 (round() arrondirait 4,5 à 4)
+            report.rounded += 1
+        rows["ratings"].append([rating.kind, *ref, _text(plain_rating(value)),
                                 rating.favorite_character or "", rating.emotions or ""])
         report.ratings += 1
 

@@ -30,7 +30,8 @@ INFO_COLUMNS = ["Code", "Date", "Titre", COL_RUNTIME]
 # Épisodes pas encore diffusés : texte grisé, contraste ≥ 4,5:1 dans chaque thème.
 UPCOMING_STYLE = {"dark": "color: #9aa5b1", "light": "color: #5f6b7a"}
 COL_RATING = "Note"
-EPISODE_RATINGS = [1, 2, 3, 4, 5]   # colonne « Note » : vide = pas de note
+# Colonne « Note » : textes « 4,5 » (virgule à la française), vide = pas de note.
+EPISODE_RATINGS = [library.format_rating(n) for n in library.RATING_VALUES]
 DATE_UNKNOWN, DATE_CHOSEN = "Date inconnue", "Choisir une date"
 MIN_WATCH_DATE = date(1900, 1, 1)
 
@@ -186,11 +187,11 @@ def current_season(seasons: dict[int, list[Episode]], watched: dict[int, date | 
 
 def season_table(episodes: list[Episode], watched: dict[int, date | None], today,
                  plays: dict[int, int] | None = None,
-                 ratings: dict[int, int] | None = None) -> tuple[pd.DataFrame, list]:
+                 ratings: dict[int, float] | None = None) -> tuple[pd.DataFrame, list]:
     """Tableau d'une saison + liste des épisodes « à venir » (lignes grisées).
 
     Colonne « Visionnages » seulement si un épisode de la saison a été revu.
-    ratings : épisode -> note (1 à 5).
+    ratings : épisode -> note (1 à 5 par demi-point).
     """
     plays, ratings = plays or {}, ratings or {}
     with_plays = any(plays.get(ep.id, 1) > 1 for ep in episodes)
@@ -203,7 +204,8 @@ def season_table(episodes: list[Episode], watched: dict[int, date | None], today
                "Titre": ep.display_title or "",
                COL_RUNTIME: f"{ep.runtime} min" if ep.runtime else "",
                COL_SEEN: ep.id in watched,
-               COL_DATE: watched.get(ep.id), COL_RATING: ratings.get(ep.id),
+               COL_DATE: watched.get(ep.id),
+               COL_RATING: library.format_rating(ratings[ep.id]) if ep.id in ratings else None,
                COL_UNTIL: False}
         if with_plays:
             row[COL_PLAYS] = plays.get(ep.id) if ep.id in watched else None
@@ -212,7 +214,7 @@ def season_table(episodes: list[Episode], watched: dict[int, date | None], today
     columns += [COL_PLAYS] if with_plays else []
     df = pd.DataFrame(rows, columns=[*columns, COL_UNTIL])
     df[COL_DATE] = pd.to_datetime(df[COL_DATE])   # type date : case vide (et non « None ») si pas vu
-    df[COL_RATING] = df[COL_RATING].astype("Int64")   # entier, case vide si pas de note
+    df[COL_RATING] = df[COL_RATING].astype("string")   # texte « 4,5 », vide si pas de note
     if with_plays:
         df[COL_PLAYS] = df[COL_PLAYS].astype("Int64")   # entier, case vide si pas vu
     return df, upcoming
@@ -229,11 +231,11 @@ def cell_date(value) -> date | None:
     return value if isinstance(value, date) else None
 
 
-def cell_rating(value) -> int | None:
-    """Valeur d'une case « Note » (1 à 5, ou vide) -> int ou None."""
+def cell_rating(value) -> float | None:
+    """Valeur d'une case « Note » (« 4,5 », ou vide) -> 4.5 ou None."""
     if value is None or pd.isna(value):
         return None
-    return int(value)
+    return library.clean_rating(float(str(value).replace(",", ".")))
 
 
 def edits_match(df: pd.DataFrame, edited_rows: dict) -> bool:
@@ -528,7 +530,8 @@ for season, season_episodes in seasons.items():
                     help="Date de visionnage, modifiable (vide : date inconnue)"),
                 COL_RATING: st.column_config.SelectboxColumn(
                     width="small", options=EPISODE_RATINGS,
-                    help="Ta note de l'épisode, de 1 à 5 (vide : pas de note)"),
+                    help="Ta note de l'épisode, de 1 à 5, demi-notes comprises "
+                         "(vide : pas de note)"),
                 COL_PLAYS: st.column_config.NumberColumn(
                     width="small", help="Nombre de visionnages (revisionnages compris)"),
                 COL_UNTIL: st.column_config.CheckboxColumn(

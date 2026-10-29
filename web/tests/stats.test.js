@@ -3,12 +3,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { EPISODE, FOR_LATER, MOVIE, TO_WATCH, WATCHING } from "../js/core/model.js";
+import { setRating } from "../js/core/library.js";
+import { EPISODE, FOR_LATER, MOVIE, SHOW, TO_WATCH, WATCHING } from "../js/core/model.js";
 import {
   bulkDays, finishEstimate, formatDuration, genreCounts, globalCounts, lastMonths, movieDecades,
-  formatSpan, movieRuntimeStats, perMonth, perWeekday, perYear, records, remainingTime,
-  showProgress, showTime,
-  timeSpent, topShowsByTime, watchPace, watchesFrame, withoutDays,
+  formatSpan, movieRuntimeStats, perMonth, perWeekday, perYear, ratingDistribution, records,
+  remainingTime, showProgress, showTime, timeSpent, topRatings, topShowsByTime, watchPace,
+  watchesFrame, withoutDays,
 } from "../js/core/stats.js";
 import { addEpisode, addMovie, addShow, makeStore, watch } from "./helpers.js";
 
@@ -136,4 +137,17 @@ test("reste à voir : « Plus tard » compté seulement si demandé", () => {
   addEpisode(store, later, 1, 1, { airdate: "2026-01-01", runtime: 30, id: 1 });
   assert.equal(remainingTime(store, "2026-10-21").episodes, 0);
   assert.equal(remainingTime(store, "2026-10-21", [WATCHING, TO_WATCH, FOR_LATER]).episodes, 1);
+});
+
+test("répartition des notes : une demi-note a sa barre seulement si elle sert", () => {
+  const store = statsStore();
+  setRating(store, MOVIE, "tmdb:550", { rating: 5 });
+  assert.deepEqual(ratingDistribution(store).map((n) => n.count), [0, 0, 0, 0, 1]);
+  setRating(store, SHOW, "tvmaze:1", { rating: 4.5 });
+  setRating(store, EPISODE, "ep:11", { rating: 4 });
+  const dist = ratingDistribution(store);
+  assert.deepEqual(dist.map((n) => n.rating), [1, 2, 3, 4, 4.5, 5]);
+  assert.deepEqual(dist.map((n) => n.count), [0, 0, 0, 1, 1, 1]);
+  assert.equal(dist[4].label, "★★★★½");
+  assert.deepEqual(topRatings(store).map((r) => r.rating), [5, 4.5, 4]);
 });

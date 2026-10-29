@@ -10,7 +10,7 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
-from watchlog.core import stats
+from watchlog.core import library, stats
 from watchlog.core.models import EPISODE, FOR_LATER, MOVIE, TO_WATCH, WATCHING
 from watchlog.core.queue import LOCAL_TZ
 from watchlog.ui import common
@@ -378,7 +378,7 @@ if tab_movies.open:
                 shown = sorted(shown, key=keys[order])
             event = st.dataframe(
                 pd.DataFrame([{"Film": m["title"], "Vu le": m["watched"],
-                               "Note": "★" * m["rating"] if m["rating"] else "",
+                               "Note": library.rating_stars(m["rating"]) if m["rating"] else "",
                                "Durée": stats.format_duration(m["runtime"]) if m["runtime"] else "",
                                "Sortie": str(m["year"]) if m["year"] else "",
                                "Genres": m["genres"] or "",
@@ -400,7 +400,7 @@ if tab_notes.open:
         with left:
             st.subheader("Répartition des notes")
             if rated:
-                notes["libelle"] = notes["note"].map(lambda n: "★" * n)
+                notes["libelle"] = notes["note"].map(library.rating_stars)
                 st.altair_chart(bars(notes, "libelle", "nombre", COLORS["episodes"], y_title="Notes",
                                      sort=None, tooltip=[alt.Tooltip("libelle:N", title="Note"),
                                                          alt.Tooltip("nombre:Q", title="Nombre")]),
@@ -413,7 +413,7 @@ if tab_notes.open:
             if top:
                 st.dataframe(
                     pd.DataFrame([{"Titre": row["title"], "Type": row["kind"],
-                                   "Note": "★" * row["rating"]} for row in top]),
+                                   "Note": library.rating_stars(row["rating"])} for row in top]),
                     hide_index=True, width="stretch")
             else:
                 st.write("Aucune note pour l'instant.")

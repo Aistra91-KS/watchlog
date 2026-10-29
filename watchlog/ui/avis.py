@@ -8,11 +8,11 @@ import streamlit as st
 from watchlog.core import library
 from watchlog.ui import common
 
-RATING_OPTIONS = [0, 1, 2, 3, 4, 5]  # 0 = pas de note
+RATING_OPTIONS = [0, *library.RATING_VALUES]  # 0 = pas de note ; demi-notes comprises
 
 
-def rating_label(value: int) -> str:
-    return "Pas de note" if not value else f"{value} / 5"
+def rating_label(value: float) -> str:
+    return "Pas de note" if not value else f"{library.format_rating(value)} / 5"
 
 
 def emotion_label(code: str) -> str:

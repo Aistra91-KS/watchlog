@@ -13,6 +13,7 @@ from datetime import date, datetime, timedelta
 import pandas as pd
 from sqlmodel import Session, func, select
 
+from watchlog.core.library import RATING_VALUES
 from watchlog.core.models import (COMPLETED, EPISODE, MOVIE, SHOW, WATCHING, Episode, LibraryItem,
                                   Movie, Rating, Show, Watch)
 from watchlog.core.queue import (DEFAULT_STATUSES, LOCAL_TZ, RELEASED, build_queue, episode_code,
@@ -395,11 +396,15 @@ def show_progress(session: Session, today: date | None = None) -> pd.DataFrame:
 
 
 def rating_distribution(session: Session) -> pd.DataFrame:
-    """Nombre de notes par valeur (1 à 5), tous types confondus. Colonnes : note, nombre."""
-    counts = {n: 0 for n in range(1, 6)}
+    """Nombre de notes par valeur (1 à 5), tous types confondus. Colonnes : note, nombre.
+
+    Une demi-note (4,5...) n'a sa ligne que si elle sert : sans demi-note, cinq barres.
+    """
+    counts = {n: 0 for n in RATING_VALUES}
     for value in session.exec(select(Rating.rating).where(Rating.rating != None)):  # noqa: E711
         if value in counts:
             counts[value] += 1
+    counts = {n: c for n, c in counts.items() if c or n == int(n)}
     return pd.DataFrame({"note": list(counts), "nombre": list(counts.values())})
 
 

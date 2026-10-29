@@ -4,7 +4,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { EPISODE, MOVIE } from "../js/core/model.js";
+import { setRating } from "../js/core/library.js";
+import { EPISODE, MOVIE, SHOW } from "../js/core/model.js";
 import { html, poster, safeUrl } from "../js/views/dom.js";
 import * as aRegarder from "../js/views/a-regarder.js";
 import * as ajouter from "../js/views/ajouter.js";
@@ -56,6 +57,18 @@ test("fiches série et film", async () => {
   const moviePage = String(await film.render(app, ["tmdb:550"]));
   assert.ok(moviePage.includes("Fight Club") && moviePage.includes("Vu le"));
   assert.ok(String(await serie.render(app, ["inconnue"])).includes("introuvable"));
+});
+
+test("demi-notes : dans « Mon avis », le tableau des épisodes et les statistiques", async () => {
+  const app = fakeApp();
+  setRating(app.store, SHOW, "tvmaze:1", { rating: 4.5 });
+  setRating(app.store, EPISODE, "ep:11", { rating: 2.5 });
+  const showPage = String(await serie.render(app, ["tvmaze:1"]));
+  assert.match(showPage, /<option value="4.5" selected>4,5 \/ 5<\/option>/);   // Mon avis
+  assert.match(showPage, /<option value="2.5" selected>2,5<\/option>/);         // épisode
+  app.ui.tabs = { stats: "Notes" };
+  const stats = String(statistiques.render(app));
+  assert.ok(stats.includes("★★★★½") && stats.includes("4,5 sur 5"));
 });
 
 test("échappement et URL sûres", () => {

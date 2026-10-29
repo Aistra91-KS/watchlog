@@ -4,7 +4,7 @@
 // La clé TMDB n'est jamais dans le fichier (elle n'est pas dans le Store).
 
 import { isoUtc } from "./dates.js";
-import { upsertWatch } from "./library.js";
+import { cleanRating, upsertWatch } from "./library.js";
 import {
   EPISODE, MOVIE, SHOW, STATUSES, episodeKey, movieKey, newId, refKey, showKey,
 } from "./model.js";
@@ -200,7 +200,9 @@ function importWatch(store, kind, ref, value, report) {
 
 function importRating(store, kind, ref, value, report) {
   if (!value) return;
-  if (value.rating != null && !(value.rating >= 1 && value.rating <= 5)) {
+  try {
+    cleanRating(value.rating);
+  } catch {
     throw new Error(`note invalide : ${JSON.stringify(value.rating)}`);
   }
   const fields = {
@@ -246,7 +248,9 @@ const normInstant = (v) => (v ? isoUtc(Date.parse(v)) : null);
 function checkRating(value, where) {
   if (value == null) return;
   if (!isObject(value)) throw new Error(`avis illisible (${where})`);
-  if (value.rating != null && !(Number.isInteger(value.rating) && value.rating >= 1 && value.rating <= 5)) {
+  try {
+    cleanRating(value.rating);
+  } catch {
     throw new Error(`note invalide (${where}) : ${JSON.stringify(value.rating)}`);
   }
 }

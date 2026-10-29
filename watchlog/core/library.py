@@ -296,6 +296,36 @@ EMOTION_LABELS = {
 # (None voudrait dire « effacer »).
 KEEP = object()
 
+# Notes de 1 à 5 par demi-point (4,5 = quatre étoiles et demie).
+RATING_MIN, RATING_MAX = 1, 5
+RATING_VALUES = [n / 2 if n % 2 else n // 2 for n in range(2 * RATING_MIN, 2 * RATING_MAX + 1)]
+HALF_STAR = "½"   # demi-étoile affichée après les étoiles pleines
+
+
+def plain_rating(value: float | None) -> float | None:
+    """4.0 -> 4 : une note ronde reste un entier (JSON, exports et tests comme avant)."""
+    return int(value) if value is not None and value == int(value) else value
+
+
+def clean_rating(value) -> float | None:
+    """Note valide (1 à 5 par demi-point) ou None ; sinon ValueError (message lisible)."""
+    if value is None:
+        return None
+    if (isinstance(value, bool) or not isinstance(value, (int, float))
+            or not RATING_MIN <= value <= RATING_MAX or (2 * value) % 1):
+        raise ValueError(f"Note invalide : {value!r} (attendu : 1 à 5, par demi-point)")
+    return plain_rating(value)
+
+
+def format_rating(value: float) -> str:
+    """4.5 -> « 4,5 », 4 -> « 4 » (virgule à la française)."""
+    return str(plain_rating(value)).replace(".", ",")
+
+
+def rating_stars(value: float) -> str:
+    """4.5 -> « ★★★★½ »."""
+    return "★" * int(value) + (HALF_STAR if value % 1 else "")
+
 
 def split_emotions(emotions: str | None) -> list[str]:
     """"scared, touched" -> ["scared", "touched"] (chaîne vide ou None -> [])."""
@@ -308,18 +338,17 @@ def get_rating(session: Session, kind: str, ref_id: int) -> Rating | None:
     return session.exec(select(Rating).where(Rating.kind == kind, Rating.ref_id == ref_id)).first()
 
 
-def set_rating(session: Session, kind: str, ref_id: int, rating: int | None,
+def set_rating(session: Session, kind: str, ref_id: int, rating: float | None,
                note: str | None = None, emotions=None,
                favorite_character: str | None | object = KEEP) -> Rating | None:
-    """Enregistre la note (1 à 5, ou None), le commentaire libre et les émotions.
+    """Enregistre la note (1 à 5 par demi-point, ou None), le commentaire et les émotions.
 
     Les trois valeurs remplacent les anciennes (None = vide). `emotions` : liste de
     codes ou chaîne « a, b ». `favorite_character` : KEEP (par défaut) garde celui
     qui existe (import Bingers) ; une chaîne le remplace ; None ou "" l'efface.
     Si tout est vide, la ligne est supprimée et la fonction renvoie None. Pas de commit.
     """
-    if rating is not None and not 1 <= rating <= 5:
-        raise ValueError(f"Note invalide : {rating} (attendu : 1 à 5)")
+    rating = clean_rating(rating)
     if isinstance(emotions, str):
         emotions = split_emotions(emotions)
     emotions_text = ", ".join(emotions) if emotions else None
@@ -345,7 +374,7 @@ def set_rating(session: Session, kind: str, ref_id: int, rating: int | None,
 
 
 def set_rating_value(session: Session, kind: str, ref_id: int,
-                     rating: int | None) -> Rating | None:
+                     rating: float | None) -> Rating | None:
     """Change seulement la note (1 à 5, None = pas de note) : le reste de l'avis est gardé.
 
     Pour la colonne « Note » des tableaux d'épisodes. Pas de commit.

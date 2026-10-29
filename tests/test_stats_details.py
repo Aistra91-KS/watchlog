@@ -10,7 +10,7 @@ from sqlmodel import Session
 from helpers_db import add_episode, add_movie, add_show
 from watchlog.core import catalog, library, stats
 from watchlog.core.db import add_missing_columns, make_engine
-from watchlog.core.models import COMPLETED, EPISODE, MOVIE, WATCHING, Watch
+from watchlog.core.models import COMPLETED, EPISODE, MOVIE, SHOW, WATCHING, Watch
 
 TODAY = date(2026, 10, 13)
 
@@ -135,6 +135,19 @@ def test_show_progress(session):
 def test_rating_distribution(session, data):
     dist = stats.rating_distribution(session)
     assert dist["nombre"].tolist() == [0, 0, 0, 0, 1]
+
+
+def test_rating_distribution_with_half_ratings(session, data):
+    """Une demi-note a sa barre seulement si elle sert."""
+    library.set_rating(session, SHOW, data["drama"].id, 4.5)
+    library.set_rating(session, SHOW, data["comedy"].id, 4.0)
+    session.flush()
+    dist = stats.rating_distribution(session)
+    assert dist["note"].tolist() == [1, 2, 3, 4, 4.5, 5]
+    assert dist["nombre"].tolist() == [0, 0, 0, 1, 1, 1]
+    top = stats.top_ratings(session)
+    assert [(row["title"], row["rating"]) for row in top] == [
+        ("Récent", 5), ("Drama Show", 4.5), ("Comedy Show", 4)]
 
 
 def test_bulk_days(session, data):

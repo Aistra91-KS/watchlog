@@ -78,6 +78,24 @@ def test_export_format_matches_bingers(engine):
     assert report.undated == 1 and report.episode_watches == 1 and report.movie_watches == 1
 
 
+def test_half_ratings_rounded_up_for_bingers(engine):
+    """Bingers : notes entières. 4,5 -> 5 et 2,5 -> 3 (pas l'arrondi au pair de round())."""
+    with Session(engine) as session:
+        a = add_movie(session, "Demi haute", tmdb_id=1)
+        b = add_movie(session, "Demi basse", tmdb_id=2)
+        c = add_movie(session, "Ronde", tmdb_id=3)
+        session.add_all([Rating(kind=MOVIE, ref_id=a.id, rating=4.5),
+                         Rating(kind=MOVIE, ref_id=b.id, rating=2.5),
+                         Rating(kind=MOVIE, ref_id=c.id, rating=4.0)])
+        session.commit()
+        buffer = io.BytesIO()
+        report = bingers_export.export_bingers_zip(session, buffer)
+    ratings = {r["title"]: r["rating"] for r in read_zip(buffer)["ratings.csv"]}
+    assert ratings == {"Demi haute": "5", "Demi basse": "3", "Ronde": "4"}
+    assert report.rounded == 2
+    assert any("2 demi-note(s) arrondie(s)" in line for line in report.lines())
+
+
 def test_for_later_status(engine):
     with Session(engine) as session:
         add_show(session, "Plus tard", status=FOR_LATER, tvdb_id=5)

@@ -155,10 +155,12 @@ la fiche indique « Vu N fois » et propose « Retirer un revisionnage ». Pour 
 le tableau d'une saison revue montre alors une colonne « Visionnages ». Les statistiques et le
 temps passé comptent chaque visionnage.
 
-**Mon avis** (en bas de la fiche d'un film ou d'une série, même formulaire) : note, commentaire,
-émotions et personnage préféré, enregistrés d'un coup avec « Enregistrer ». Le personnage
-préféré repris de Bingers y est modifiable. **Note d'un épisode** : colonne « Note » (1 à 5,
-vide = pas de note) du tableau de chaque saison ; elle est reprise dans l'export pour Bingers.
+**Mon avis** (en bas de la fiche d'un film ou d'une série, même formulaire) : note de 1 à 5,
+demi-notes comprises (4,5 = ★★★★½), commentaire, émotions et personnage préféré, enregistrés
+d'un coup avec « Enregistrer ». Le personnage préféré repris de Bingers y est modifiable.
+**Note d'un épisode** : colonne « Note » (1 à 5 par demi-point, vide = pas de note) du tableau
+de chaque saison ; elle est reprise dans l'export pour Bingers, qui n'a que des notes entières :
+une demi-note y part arrondie à l'étoile supérieure (4,5 → 5), et le rapport d'export le dit.
 Cocher une case, changer une date ou une note ne recharge pas le tableau de la saison (la
 position dans la liste est gardée) ; « Vu jusqu'ici » et les actions en bloc le rechargent.
 

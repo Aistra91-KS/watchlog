@@ -45,6 +45,9 @@ test("profil : support minimal, titre rejeté, plus de / moins de", () => {
 test("poids des titres : note, statut, favori, engagement, récence", () => {
   assert.equal(sourceWeight(STOPPED, false, null), -1);
   assert.equal(sourceWeight(TO_WATCH, false, 5), 3);
+  assert.equal(sourceWeight(TO_WATCH, false, 4.5), 2.5);   // demi-note : entre les deux
+  assert.equal(sourceWeight(STOPPED, false, 2.5), 0);
+  assert.equal(sourceWeight(TO_WATCH, false, 1.5), -1.5);
   assert.equal(sourceWeight(STOPPED, true, null), 2);
   assert.equal(engagementFactor(SHOW, 0), 0.5);
   assert.ok(Math.abs(engagementFactor(SHOW, 50) - 1.3) < 1e-9);

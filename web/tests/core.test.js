@@ -8,9 +8,10 @@ import {
   addDays, fmtAgo, fmtDate, fmtRuntime, localDate, localDayToUtc, weekStart,
 } from "../js/core/dates.js";
 import {
-  addRewatch, addSeasonRewatch, getRating, getWatch, markSeasonWatched, markWatched,
-  markWatchedUntil, refreshCompleted, removeRewatch, removeSeasonRewatch, setRating,
-  setRatingValue, setShowWatchDates, setStatus, unmarkWatched, upsertWatch,
+  RATING_VALUES, addRewatch, addSeasonRewatch, cleanRating, formatRating, getRating, getWatch,
+  markSeasonWatched, markWatched, markWatchedUntil, ratingStars, refreshCompleted, removeRewatch,
+  removeSeasonRewatch, setRating, setRatingValue, setShowWatchDates, setStatus, unmarkWatched,
+  upsertWatch,
 } from "../js/core/library.js";
 import { COMPLETED, EPISODE, MOVIE, SHOW, STOPPED, TO_WATCH, refKey } from "../js/core/model.js";
 import { lastWatchedLabel, libraryOverview, progressLabel, SORT_PAUSED } from "../js/core/progress.js";
@@ -299,6 +300,20 @@ test("revisionnage par saison (comme library.add_season_rewatch / remove_season_
   assert.equal(removeSeasonRewatch(store, show, [1, 2], true), 4);
   assert.equal(removeSeasonRewatch(store, show, [1, 2], true), 2);
   assert.equal(removeSeasonRewatch(store, show, [1, 2], true), 0);
+});
+
+test("demi-notes : de 1 à 5 par demi-point, affichage « 4,5 » et « ★★★★½ »", () => {
+  assert.deepEqual(RATING_VALUES, [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5]);
+  const store = makeStore();
+  assert.equal(setRating(store, MOVIE, "tmdb:7", { rating: 4.5 }).rating, 4.5);
+  assert.equal(setRatingValue(store, MOVIE, "tmdb:7", 2.5).rating, 2.5);
+  assert.equal(cleanRating(null), null);
+  for (const wrong of [4.3, 0.5, 5.5, true, "4", NaN]) {
+    assert.throws(() => cleanRating(wrong), /demi-point/, String(wrong));
+  }
+  assert.throws(() => setRating(store, MOVIE, "tmdb:7", { rating: 3.25 }), /Note invalide/);
+  assert.deepEqual([formatRating(4.5), formatRating(4)], ["4,5", "4"]);
+  assert.deepEqual([ratingStars(4.5), ratingStars(1), ratingStars(3)], ["★★★★½", "★", "★★★"]);
 });
 
 test("note seule d'un épisode : le reste de l'avis est gardé (comme set_rating_value)", () => {

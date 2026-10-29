@@ -72,6 +72,15 @@ test("une entrée invalide n'est jamais importée à moitié", () => {
   assert.equal(report.skipped.length, 5);
 });
 
+test("note : de 1 à 5 par demi-point, sinon le titre est refusé (comme Python)", () => {
+  for (const rating of [4.3, 0.5, "4", true]) {
+    const report = importData(makeStore(), { format: "watchlog", version: 1,
+      movies: [{ title: "Mal noté", tmdb_id: 1, rating: { rating } }] });
+    assert.equal(report.moviesAdded, 0, String(rating));
+    assert.ok(report.skipped[0].includes("note invalide (titre)"), String(rating));
+  }
+});
+
 test("types invalides refusés, dates normalisées, spéciaux sans id idempotents", () => {
   const store = makeStore();
   const special = { season: 1, number: null, title: "Spécial Noël", is_special: true,

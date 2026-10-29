@@ -95,6 +95,11 @@ def test_source_weight():
     # la note remplace le statut
     assert suggestions.source_weight(STOPPED, False, 5) == 3
     assert suggestions.source_weight(COMPLETED, False, 1) == -2
+    # demi-note : entre les deux notes voisines
+    assert suggestions.source_weight(COMPLETED, False, 4.5) == 2.5
+    assert suggestions.source_weight(COMPLETED, False, 2.5) == 0
+    assert suggestions.source_weight(COMPLETED, False, 1.5) == -1.5
+    assert suggestions.source_weight(COMPLETED, False, 4.0) == 2
     # favori : bonus, et un favori n'est jamais négatif
     assert suggestions.source_weight(COMPLETED, True, None) == 3
     assert suggestions.source_weight(STOPPED, True, None) == 2

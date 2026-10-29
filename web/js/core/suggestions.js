@@ -15,8 +15,8 @@ import {
 
 export const TMDB_MEDIA = { [SHOW]: "tv", [MOVIE]: "movie" };
 
-// Poids d'une note (1 à 5) : remplace le poids du statut.
-const RATING_WEIGHTS = { 5: 3, 4: 2, 3: 1, 2: -1, 1: -2 };
+// Poids d'une note (1 à 5) : remplace le poids du statut. Demi-note : entre les deux.
+const RATING_WEIGHTS = { 5: 3, 4.5: 2.5, 4: 2, 3.5: 1.5, 3: 1, 2.5: 0, 2: -1, 1.5: -1.5, 1: -2 };
 const FAVORITE_BONUS = 2;
 // « À voir » : l'envie du moment, aussi parlante qu'un titre vu.
 const STATUS_WEIGHTS = { [STOPPED]: -1, [TO_WATCH]: 1, [FOR_LATER]: 0.7 };

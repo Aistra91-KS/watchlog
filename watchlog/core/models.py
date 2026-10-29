@@ -134,7 +134,9 @@ class Rating(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     kind: str                                 # show / episode / movie
     ref_id: int
-    rating: int | None = None                 # 1 à 5 (None : seulement une émotion)
+    # 1 à 5 par demi-point (None : seulement une émotion). Colonne INTEGER des bases d'avant
+    # les demi-notes : SQLite y garde 4.5 tel quel (typage souple), pas de migration.
+    rating: float | None = None
     emotions: str | None = None
     favorite_character: str | None = None
     note: str | None = None

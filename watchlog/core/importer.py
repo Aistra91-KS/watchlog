@@ -80,6 +80,7 @@ class ImportReport:
     ratings: int = 0
     ratings_kept: int = 0         # note déjà présente dans Watchlog : pas écrasée
     ratings_skipped: int = 0
+    ratings_invalid: int = 0      # note illisible ou hors de 1 à 5 : ignorée (le reste gardé)
     watches_skipped: int = 0      # ligne de visionnage sans numéro d'épisode
     lists: int = 0
     pending_watches: int = 0
@@ -104,6 +105,8 @@ class ImportReport:
             lines.append(f"Notes déjà présentes dans Watchlog (gardées) : {self.ratings_kept}")
         if self.ratings_skipped:
             lines.append(f"Notes non reprises (élément introuvable ou non rattaché) : {self.ratings_skipped}")
+        if self.ratings_invalid:
+            lines.append(f"Notes illisibles (ignorées) : {self.ratings_invalid}")
         if self.watches_skipped:
             lines.append(f"Visionnages ignorés (numéro d'épisode manquant) : {self.watches_skipped}")
         sections = [
@@ -440,10 +443,23 @@ def _find_ref(session: Session, row: dict) -> tuple[str, int] | None:
     return (EPISODE, episode.id) if episode else None
 
 
+def _rating(row: dict, report: ImportReport) -> float | None:
+    """Note d'une ligne de ratings.csv (« 4 », « 4.5 ») ; vide -> None ; illisible -> comptée."""
+    text = (row.get("rating") or "").strip()
+    if not text:
+        return None
+    try:
+        return library.clean_rating(float(text.replace(",", ".")))
+    except ValueError:
+        log.warning("Note Bingers illisible, ignorée (%s) : %r", row.get("title"), text)
+        report.ratings_invalid += 1
+        return None
+
+
 def _import_ratings_and_lists(session: Session, rows: dict, report: ImportReport) -> None:
     for row in rows["ratings"]:
         ref = _find_ref(session, row)
-        rating = _int(row.get("rating"))
+        rating = _rating(row, report)
         has_content = rating is not None or row.get("emotions") or row.get("favorite_character")
         if ref is None or not has_content:
             report.ratings_skipped += 1

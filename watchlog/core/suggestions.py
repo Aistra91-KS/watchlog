@@ -44,8 +44,9 @@ log = logging.getLogger(__name__)
 # Type de média côté TMDB
 TMDB_MEDIA = {SHOW: "tv", MOVIE: "movie"}
 
-# Poids d'une note (1 à 5) : elle remplace le poids du statut.
-RATING_WEIGHTS = {5: 3.0, 4: 2.0, 3: 1.0, 2: -1.0, 1: -2.0}
+# Poids d'une note (1 à 5) : elle remplace le poids du statut. Demi-note : entre les deux.
+RATING_WEIGHTS = {5: 3.0, 4.5: 2.5, 4: 2.0, 3.5: 1.5, 3: 1.0, 2.5: 0.0, 2: -1.0, 1.5: -1.5,
+                  1: -2.0}
 FAVORITE_BONUS = 2.0
 # « À voir » : l'envie du moment, aussi parlante qu'un titre vu.
 STATUS_WEIGHTS = {STOPPED: -1.0, TO_WATCH: 1.0, FOR_LATER: 0.7}  # autres statuts : 1
@@ -148,7 +149,7 @@ class Failures:
 Progress = Callable[[int, int, str], None]
 
 
-def source_weight(status: str, favorite: bool, rating: int | None) -> float:
+def source_weight(status: str, favorite: bool, rating: float | None) -> float:
     """Poids de base d'un titre de la bibliothèque (note, sinon statut ; bonus favori)."""
     if rating in RATING_WEIGHTS:
         weight = RATING_WEIGHTS[rating]

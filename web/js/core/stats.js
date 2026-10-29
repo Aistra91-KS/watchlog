@@ -2,6 +2,7 @@
 // visionnages, une ligne par épisode ou film vu.
 
 import { addDays, daysBetween, localDate, parisDay, today as todayParis } from "./dates.js";
+import { RATING_VALUES, ratingStars } from "./library.js";
 import { buildQueue, RELEASED } from "./queue.js";
 import {
   COMPLETED, EPISODE, MOVIE, SHOW, TO_WATCH, WATCHING, episodeCode, splitGenres,
@@ -240,10 +241,15 @@ export function showProgress(store, today = todayParis()) {
   return rows.sort((a, b) => (b.percent - a.percent) || a.title.localeCompare(b.title, "fr"));
 }
 
+/** Nombre de notes par valeur (1 à 5). Une demi-note (4,5...) n'a sa ligne que si elle sert :
+ *  sans demi-note, cinq barres. */
 export function ratingDistribution(store) {
-  const counts = [0, 0, 0, 0, 0];
-  for (const r of store.ratings.values()) if (r.rating >= 1 && r.rating <= 5) counts[r.rating - 1] += 1;
-  return counts.map((count, i) => ({ rating: i + 1, label: "★".repeat(i + 1), count }));
+  const counts = new Map(RATING_VALUES.map((n) => [n, 0]));
+  for (const r of store.ratings.values()) {
+    if (counts.has(r.rating)) counts.set(r.rating, counts.get(r.rating) + 1);
+  }
+  return [...counts].filter(([rating, count]) => count || Number.isInteger(rating))
+    .map(([rating, count]) => ({ rating, label: ratingStars(rating), count }));
 }
 
 function ratingTitle(store, rating) {

@@ -5,9 +5,9 @@ import { enrichShowFromTmdb, tvmazeStatusLabel } from "../core/adding.js";
 import { upsertShowFromTvmaze } from "../core/catalog.js";
 import { fmtDate, fmtRuntime, localDate, parisDay, today } from "../core/dates.js";
 import {
-  addSeasonRewatch, getLibraryItem, getRating, getWatch, isAired, markSeasonWatched, markWatched,
-  markWatchedUntil, removeSeasonRewatch, setRatingValue, setShowWatchDates, setWatchDate,
-  unmarkSeason, unmarkWatched,
+  RATING_VALUES, addSeasonRewatch, formatRating, getLibraryItem, getRating, getWatch, isAired,
+  markSeasonWatched, markWatched, markWatchedUntil, removeSeasonRewatch, setRatingValue,
+  setShowWatchDates, setWatchDate, unmarkSeason, unmarkWatched,
 } from "../core/library.js";
 import {
   EPISODE, MATCH_TO_CHECK, SHOW, episodeCode, episodeTitle, showSummary,
@@ -25,7 +25,8 @@ const PREFS = "serie";
 const DEFAULTS = { specials: false };
 
 const MIN_DATE = "1900-01-01";
-const NOTES = [["", "—"], ...[1, 2, 3, 4, 5].map((n) => [String(n), String(n)])];
+// Colonne « Note » : demi-notes comprises, « 4,5 » à la française.
+const NOTES = [["", "—"], ...RATING_VALUES.map((n) => [String(n), formatRating(n)])];
 
 /** Une ligne du tableau d'une saison (comme le tableau modifiable de serie.py) : « Vu »,
  *  « Vu le » et « Note » se changent directement ; « Vu jusqu'ici » coche les précédents. */

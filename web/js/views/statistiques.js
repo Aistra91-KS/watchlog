@@ -3,7 +3,7 @@
 // (historique daté du jour de l'import) sont exclus des graphiques par date, et c'est dit.
 
 import { fmtDate, today } from "../core/dates.js";
-import { getRating } from "../core/library.js";
+import { formatRating, getRating, ratingStars } from "../core/library.js";
 import { COMPLETED, EPISODE, FOR_LATER, MOVIE, SHOW, TO_WATCH, WATCHING } from "../core/model.js";
 import {
   PACE_PERIODS, bulkDays, dailyCounts, finishEstimate, formatDuration, formatSpan, genreCounts,
@@ -27,8 +27,6 @@ function hours(minutes) {
   if (minutes < 60) return `${minutes} min`;
   return `${Math.floor(minutes / 60).toLocaleString("fr-FR")} h`;
 }
-
-const stars = (n) => "★".repeat(n);
 
 function table(headers, rows, { label }) {
   return html`<div class="tbl-wrap"><table class="tbl" aria-label="${label}">
@@ -170,7 +168,8 @@ function moviesTab(store, frame) {
       { label: "Durée" }, { label: "Sortie" }, { label: "Genres" }, { label: "Vu" }], movies.map((m) => {
       const rating = getRating(store, MOVIE, m.ref)?.rating;
       return [html`<a href="${movieHref(m.ref)}">${m.title}</a>`, m.day ? fmtDate(m.day) : "",
-        rating ? html`<span aria-hidden="true">${stars(rating)}</span><span class="sr-only">${rating} sur 5</span>` : "",
+        rating ? html`<span aria-hidden="true">${ratingStars(rating)}</span><span
+          class="sr-only">${formatRating(rating)} sur 5</span>` : "",
         m.runtime ? formatDuration(m.runtime) : "", m.releaseYear || "", m.genres || "",
         m.plays > 1 ? `${m.plays} fois` : ""];
     }), { label: "Films vus" })}
@@ -184,13 +183,15 @@ function notesTab(store) {
   return html`<div class="charts-2">
     <div><h2>Répartition des notes</h2>
       ${notes.some((n) => n.count) ? hbars(notes.map((n) => ({ label: html`<span aria-hidden="true">${n.label}</span><span
-        class="sr-only">${n.rating} sur 5</span>`, value: n.count })), { title: "Répartition des notes" })
+        class="sr-only">${formatRating(n.rating)} sur 5</span>`, value: n.count })),
+        { title: "Répartition des notes" })
         : html`<p>Aucune note pour l'instant.</p>`}
       <p class="caption">Noter tes séries et films affine aussi les suggestions.</p></div>
     <div><h2>Meilleures notes</h2>
       ${best.length ? table([{ label: "Titre" }, { label: "Type" }, { label: "Note" }], best.map((b) => [
-        b.title, b.kind, html`<span aria-hidden="true">${stars(b.rating)}</span><span class="sr-only">${b.rating}
-          sur 5</span>`]), { label: "Meilleures notes" }) : html`<p>Aucune note pour l'instant.</p>`}</div>
+        b.title, b.kind, html`<span aria-hidden="true">${ratingStars(b.rating)}</span><span
+          class="sr-only">${formatRating(b.rating)} sur 5</span>`]), { label: "Meilleures notes" })
+        : html`<p>Aucune note pour l'instant.</p>`}</div>
   </div>`;
 }
 

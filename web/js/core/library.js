@@ -235,6 +235,30 @@ export function refreshCompleted(store, day = todayParis()) {
 
 // --- Notes -------------------------------------------------------------------
 
+// Notes de 1 à 5 par demi-point (4,5 = quatre étoiles et demie), comme library.py.
+export const RATING_MIN = 1;
+export const RATING_MAX = 5;
+export const RATING_VALUES = Array.from({ length: 2 * (RATING_MAX - RATING_MIN) + 1 },
+  (_, i) => RATING_MIN + i / 2);
+const HALF_STAR = "½";   // demi-étoile affichée après les étoiles pleines
+
+/** Note valide (1 à 5 par demi-point) ou null ; sinon erreur lisible (library.clean_rating). */
+export function cleanRating(value) {
+  if (value == null) return null;
+  if (typeof value !== "number" || !(value >= RATING_MIN && value <= RATING_MAX)
+    || !Number.isInteger(2 * value)) {
+    const shown = typeof value === "number" ? value : JSON.stringify(value);
+    throw new Error(`Note invalide : ${shown} (attendu : 1 à 5, par demi-point)`);
+  }
+  return value;
+}
+
+/** 4.5 -> « 4,5 », 4 -> « 4 » (virgule à la française). */
+export const formatRating = (value) => String(value).replace(".", ",");
+
+/** 4.5 -> « ★★★★½ ». */
+export const ratingStars = (value) => "★".repeat(Math.floor(value)) + (value % 1 ? HALF_STAR : "");
+
 export function getRating(store, kind, ref) {
   return store.get("ratings", refKey(kind, ref)) || null;
 }
@@ -243,13 +267,11 @@ function cleanText(text) {
   return text && String(text).trim() ? String(text).trim() : null;
 }
 
-/** Note (1 à 5 ou null), commentaire, émotions (liste de codes), personnage préféré.
- *  Tout vide : la note est supprimée. */
+/** Note (1 à 5 par demi-point, ou null), commentaire, émotions (liste de codes), personnage
+ *  préféré. Tout vide : la note est supprimée. */
 export function setRating(store, kind, ref, { rating = null, note = null, emotions = [],
   favoriteCharacter } = {}) {
-  if (rating != null && !(rating >= 1 && rating <= 5)) {
-    throw new Error(`Note invalide : ${rating} (attendu : 1 à 5)`);
-  }
+  rating = cleanRating(rating);
   const existing = getRating(store, kind, ref);
   const character = favoriteCharacter === undefined
     ? existing?.favorite_character ?? null : cleanText(favoriteCharacter);

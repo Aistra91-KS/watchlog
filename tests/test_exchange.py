@@ -38,7 +38,7 @@ def fill(s: Session) -> None:
         Watch(kind=MOVIE, ref_id=movie.id, watched_at=datetime(2023, 5, 1, 20, 0),
               last_watched_at=datetime(2024, 5, 1, 20, 0), plays=2),
         Rating(kind=MOVIE, ref_id=movie.id, rating=5, emotions="thrilled"),
-        Rating(kind=EPISODE, ref_id=e1.id, rating=4),
+        Rating(kind=EPISODE, ref_id=e1.id, rating=4.5),   # demi-note
         DismissedSuggestion(kind=MOVIE, tmdb_id=777, title="Pas pour moi",
                             dismissed_at=datetime(2024, 3, 1)),
         ThemePreference(feature="k:4565", label="Dystopie", weight=1,
@@ -69,7 +69,8 @@ def test_export_format(source):
     assert show["library"] == {"status": WATCHING, "favorite": True,
                                "added_at": "2024-01-01T10:00:00Z"}
     first, second = show["episodes"]
-    assert first["watch"]["watched_at"] == "2024-02-01T21:00:00Z" and first["rating"]["rating"] == 4
+    assert first["watch"]["watched_at"] == "2024-02-01T21:00:00Z"
+    assert first["rating"]["rating"] == 4.5   # demi-note
     assert second["watch"] is None and second["airstamp"] == "2020-01-12T20:00:00Z"
     [movie] = data["movies"]
     assert movie["watch"]["plays"] == 2 and movie["rating"]["emotions"] == "thrilled"
@@ -191,6 +192,15 @@ def test_invalid_entry_is_never_half_imported(engine):
     assert report.shows_added == 0
     assert "note invalide (S1E50)" in report.skipped[0]
     assert len(report.skipped) == 5
+
+
+@pytest.mark.parametrize("value", [4.3, 0.5, "4", True])
+def test_rating_must_be_a_half_step_between_1_and_5(engine, value):
+    data = {"format": FORMAT, "version": 1, "movies": [
+        {"title": "Mal noté", "tmdb_id": 1, "rating": {"rating": value}}]}
+    with Session(engine) as s:
+        report = import_data(s, data)
+    assert report.movies_added == 0 and "note invalide (titre)" in report.skipped[0]
 
 
 def test_types_checked_and_manual_specials_idempotent(engine):
