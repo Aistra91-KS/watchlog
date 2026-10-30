@@ -447,7 +447,7 @@ PACE_PERIODS = {"Au rythme de la semaine dernière": 7, "Au rythme du mois derni
 DEFAULT_RUNTIMES = {EPISODE: 45, MOVIE: 110}
 
 
-def _estimated_minutes(runtimes: list, kind: str) -> tuple[int, int]:
+def estimated_minutes(runtimes: list, kind: str) -> tuple[int, int]:
     """Somme des durées ; une durée inconnue vaut la moyenne des durées connues du lot.
 
     Renvoie (minutes, nombre de durées estimées) : l'estimation doit pouvoir être affichée.
@@ -469,7 +469,7 @@ def remaining_time(session: Session, statuses=DEFAULT_STATUSES,
     result = {"estimated": 0}
     for kind, name in ((EPISODE, "episode"), (MOVIE, "movie")):
         runtimes = [item.runtime for item in items if item.kind == kind]
-        minutes, estimated = _estimated_minutes(runtimes, kind)
+        minutes, estimated = estimated_minutes(runtimes, kind)
         result[f"{name}s"] = len(runtimes)
         result[f"{name}_minutes"] = minutes
         result["estimated"] += estimated
@@ -536,7 +536,7 @@ def watch_pace(frame: pd.DataFrame, days: int, bulk=(), today: date | None = Non
         lambda d: isinstance(d, date) and start <= d <= today and d not in bulk).astype(bool)]
     minutes = estimated = 0
     for kind in (EPISODE, MOVIE):
-        kind_minutes, kind_estimated = _estimated_minutes(
+        kind_minutes, kind_estimated = estimated_minutes(
             list(window.loc[window["kind"] == kind, "runtime"]), kind)
         minutes += kind_minutes
         estimated += kind_estimated

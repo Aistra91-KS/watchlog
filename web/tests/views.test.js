@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { setRating } from "../js/core/library.js";
 import { EPISODE, MOVIE, SHOW } from "../js/core/model.js";
 import { html, poster, safeUrl } from "../js/views/dom.js";
+import * as accueil from "../js/views/accueil.js";
 import * as aRegarder from "../js/views/a-regarder.js";
 import * as ajouter from "../js/views/ajouter.js";
 import * as apercu from "../js/views/apercu.js";
@@ -38,7 +39,7 @@ function fakeApp() {
   };
 }
 
-const PAGES = { aRegarder, ajouter, bibliotheque, calendrier, parametres, statistiques, suggestions };
+const PAGES = { accueil, aRegarder, ajouter, bibliotheque, calendrier, parametres, statistiques, suggestions };
 
 for (const [name, view] of Object.entries(PAGES)) {
   test(`page ${name} : affichage sans erreur, un seul titre h1, rien d'injecté`, async () => {
@@ -181,4 +182,34 @@ test("ajouter : « Voir la fiche » d'un résultat ouvre l'aperçu, retour à la
   assert.ok(preview.includes("Retour à la recherche") && !preview.includes("Pas intéressé"));
   assert.ok(preview.includes("#/apercu/film/9/ajouter"));
   assert.ok(String(await apercu.render(app, ["film", "27205"])).includes("Pas intéressé"));
+});
+
+test("accueil : blocs remplis, « Vu » puis « Annuler », suggestions du dernier calcul", async () => {
+  const app = fakeApp();
+  app.announce = () => {};
+  let out = String(await accueil.render(app, []));
+  for (const text of ["Vus ces 7 jours", "affilée", "À suivre", "Prochaines sorties",
+    "Derniers visionnages", "Films à voir", "ajoute ta clé TMDB"]) {
+    assert.ok(out.includes(text), text);
+  }
+  assert.ok(!out.includes("S01E02"), "épisode pas encore sorti : pas dans « À suivre »");
+  app.store.put("episodes", { ...app.store.get("episodes", "ep:12"), airdate: "2020-02-01" });
+  out = String(await accueil.render(app, []));
+  assert.match(out, /S01E02/);
+  accueil.actions["home-seen"](app, { dataset: { kind: EPISODE, ref: "ep:12", label: "Le Royaume S01E02" } });
+  out = String(await accueil.render(app, []));
+  assert.ok(out.includes("marqué vu") && !out.includes('data-ref="ep:12"'));
+  accueil.actions["home-undo"](app);
+  assert.match(String(await accueil.render(app, [])), /data-ref="ep:12"/);
+
+  app.tmdb = { configured: true };
+  assert.match(String(await accueil.render(app, [])), /Calcule-les sur la page/);
+  app.store.setSetting("suggestions_result", { computedAt: "2026-10-01T00:00:00Z", errors: [], items: [
+    { kind: MOVIE, tmdbId: 550, title: "Fight Club", match: 90, posterUrl: null },   // déjà vu
+    { kind: SHOW, tmdbId: 9, title: EVIL, year: 2020, match: 72, posterUrl: "javascript:alert(1)",
+      streaming: ["Netflix"] }] });
+  out = String(await accueil.render(app, []));
+  assert.ok(out.includes("72 % pour toi") && out.includes("#/apercu/serie/9"));
+  assert.ok(!out.includes("Fight Club (") && !out.includes("90 % pour toi"), "déjà en base : masqué");
+  assert.ok(!out.includes(EVIL) && !out.includes("javascript:"));
 });

@@ -157,7 +157,8 @@ def stop_server() -> None:
     threading.Timer(1.5, os._exit, args=(0,)).start()
 
 pages = [
-    st.Page(common.PAGE_QUEUE, title="À regarder", default=True),
+    st.Page(common.PAGE_HOME, title="Accueil", default=True),
+    st.Page(common.PAGE_QUEUE, title="À regarder"),
     st.Page(common.PAGE_LIBRARY, title="Bibliothèque"),
     st.Page(common.PAGE_CALENDAR, title="Calendrier"),
     st.Page(common.PAGE_SUGGESTIONS, title="Suggestions"),
@@ -169,12 +170,13 @@ pages = [
     st.Page(common.PAGE_MOVIE, title="Fiche film", url_path="film"),
     st.Page(common.PAGE_PREVIEW, title="Aperçu", url_path="apercu"),
 ]
+MENU_PAGES = 8   # pages du menu latéral ; les suivantes (fiches) n'y sont pas
 page = st.navigation(pages, position="hidden")
 
 # Menu latéral : les pages principales seulement.
 with st.sidebar:
     st.markdown("### Watchlog")
-    for p in pages[:7]:
+    for p in pages[:MENU_PAGES]:
         st.page_link(p)
     connected, _message = common.tmdb_status()
     st.caption("TMDB : connecté" if connected else "TMDB : non connecté (voir Paramètres)")

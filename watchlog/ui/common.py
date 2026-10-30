@@ -23,6 +23,7 @@ from watchlog.core.models import STATUS_LABELS, STATUSES
 log = logging.getLogger(__name__)
 
 # Chemins des pages (relatifs à app.py), utilisés pour la navigation entre pages.
+PAGE_HOME = "views/accueil.py"
 PAGE_QUEUE = "views/a_regarder.py"
 PAGE_LIBRARY = "views/bibliotheque.py"
 PAGE_SHOW = "views/serie.py"

@@ -13,18 +13,14 @@ import {
 import { setPreferences } from "../core/taste.js";
 import { html, options, poster, previewHref, raw } from "./dom.js";
 import { loadPrefs, savePrefs } from "./prefs.js";
+import { SAVED_SUGGESTIONS, savedSuggestions } from "./shared.js";
 import { icon } from "./icons.js";
 import { alert, badge, expander, helpTip, multiSelect, segmented, slider } from "./ui.js";
 
-const SAVED = "suggestions_result";   // réglage (IndexedDB) : dernier résultat, sans les traits
 const PREFS = "suggestions";
 const DEFAULTS = { kind: "", genres: [], themes: [], platforms: [], sort: SORT_RELEVANCE, mine: false,
   streaming: false, years: null, minVote: 0 };
 const PAGE_SIZE = 15;   // suggestions affichées, puis « Afficher plus » par tranche
-
-function saved(app) {
-  return app.ui.suggestions || app.store.setting(SAVED, null);
-}
 
 /** Résultat gardé : sans les traits (volumineux), avec les thèmes du profil pour les réglages. */
 function toSaved(result) {
@@ -132,7 +128,7 @@ export function render(app) {
       <a href="#/parametres">ajoute ta clé TMDB dans Paramètres</a>.`)}`;
   }
   const running = app.ui.suggRunning;
-  const result = saved(app);
+  const result = savedSuggestions(app);
   const prefs = loadPrefs(PREFS, DEFAULTS);
   for (const name of ["genres", "themes", "platforms"]) {
     if (!Array.isArray(prefs[name])) prefs[name] = [];   // préférences d'une ancienne version
@@ -243,7 +239,7 @@ async function compute(app) {
       },
     });
     app.ui.suggestions = toSaved(result);
-    app.store.setSetting(SAVED, app.ui.suggestions);
+    app.store.setSetting(SAVED_SUGGESTIONS, app.ui.suggestions);
     app.ui.suggLimit = PAGE_SIZE;
     app.announce(`Suggestions prêtes : ${result.items.length} titres.`);
   } finally {
@@ -253,14 +249,14 @@ async function compute(app) {
 
 /** Retire un titre du dernier résultat (ajouté ou écarté), sans tout recalculer. */
 export function forgetSuggestion(app, kind, tmdbId) {
-  if (!saved(app)) return;
+  if (!savedSuggestions(app)) return;
   updateItems(app, (items) => items.filter((s) => !(s.kind === kind && s.tmdbId === tmdbId)));
 }
 
 function updateItems(app, change) {
-  const result = saved(app);
+  const result = savedSuggestions(app);
   app.ui.suggestions = { ...result, items: change(result.items) };
-  app.store.setSetting(SAVED, app.ui.suggestions);
+  app.store.setSetting(SAVED_SUGGESTIONS, app.ui.suggestions);
 }
 
 export const actions = {
@@ -283,7 +279,7 @@ export const actions = {
   async "sugg-platforms"(app, el) {
     el.disabled = true;
     let failed = 0;
-    const items = saved(app).items;
+    const items = savedSuggestions(app).items;
     const updated = [];
     for (const [i, s] of items.entries()) {
       el.textContent = `Lecture… ${i + 1}/${items.length}`;

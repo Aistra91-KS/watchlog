@@ -1,9 +1,9 @@
 # Watchlog
 
-Suivi de séries et de films, épisode par épisode : liste « À regarder », calendrier des
-sorties, statistiques et suggestions personnalisées. Les fiches des séries viennent de
-TVMaze, celles des films de TMDB. L'historique peut être importé depuis un export de
-l'application Bingers.
+Suivi de séries et de films, épisode par épisode : page d'accueil qui résume l'essentiel,
+liste « À regarder », calendrier des sorties, statistiques et suggestions personnalisées.
+Les fiches des séries viennent de TVMaze, celles des films de TMDB. L'historique peut être
+importé depuis un export de l'application Bingers.
 
 Deux façons de l'utiliser, qui s'échangent leurs données par un fichier JSON :
 
@@ -29,7 +29,9 @@ chaque push sur `main`, après ses tests (workflow `.github/workflows/pages.yml`
   contenu sur toute la largeur de l'écran, mêmes pages, filtres, compteurs, cartes et couleurs
   que l'interface Streamlit. Thème clair, sombre ou celui de l'appareil : Paramètres >
   « Apparence ».
-- **Pages** : les mêmes que le logiciel. À regarder (compteurs, « Vu » / « Vu jusqu'ici »,
+- **Pages** : les mêmes que le logiciel. Accueil (chiffres de la semaine, à suivre, sorties,
+  derniers visionnages, films à voir, meilleures suggestions du dernier calcul), À regarder
+  (compteurs, « Vu » / « Vu jusqu'ici »,
   filtre « Sur mes plateformes »), Bibliothèque, fiches série (tableau des épisodes avec date
   « Vu le », note et visionnages, dates de plusieurs épisodes d'un coup, revisionnage par
   saison) et film (revisionnages datés), Calendrier (vues Mois, Semaine, Liste), Suggestions
@@ -121,6 +123,7 @@ mémorisé par le navigateur.
 
 | Page | Rôle |
 | --- | --- |
+| Accueil | page d'ouverture, l'essentiel d'un coup d'œil. **Chiffres clés** : vus ces 7 jours et ce mois-ci (avec le temps passé), jours d'affilée, temps à rattraper, temps total. **À suivre** : le prochain épisode sorti de chaque série en cours ou à voir, celles regardées le plus récemment d'abord (épisodes restants, « Vu » puis « Annuler »). **Prochaines sorties** des 7 jours à venir et **derniers visionnages** (un par titre). **Films à voir** : les derniers ajoutés d'abord. **Suggestions pour toi** : les six meilleures (même calcul que la page Suggestions ; sur le web, celles du dernier calcul). Les jours d'import Bingers ne comptent dans aucun chiffre ni dans « vu récemment » |
 | À regarder | épisodes et films non vus, en cartes avec affiche, triés par date de sortie, ou au choix par dernier visionnage de la série (sections Disponibles / À venir / Sans date, badge « Nouveau », compteurs et temps à rattraper) ; filtres (type, série, disponibilité, statut, prochain épisode seulement, spéciaux, **sur mes plateformes** : titres dispo en abonnement ou gratuitement chez toi ; ceux dont on ne connaît pas les plateformes sont masqués et signalés sous la liste) ; boutons « Vu » et « Vu jusqu'ici » |
 | Bibliothèque | toutes les séries et tous les films suivis, avec leur statut et leur progression. Tris : titre, derniers ajouts, **vu récemment**, **en pause depuis le plus longtemps** (séries « En cours » dont le dernier visionnage est le plus ancien : de quoi en reprendre une). Dates inconnues (ou jour d'import Bingers) à la fin |
 | Calendrier | sorties des séries et films suivis avec leurs affiches, en vue **Mois** (grille de calendrier, épisodes vus en grisé), **Semaine** (grandes affiches) ou **Liste** (sorties non vues des 60 prochains jours, par semaine) ; résumé en chiffres, filtre séries / films, épisodes d'une même série sortis le même jour regroupés (ex. S01E01–E08). Clic sur un titre : sa fiche, sans recharger l'application (les filtres des autres pages sont gardés) |

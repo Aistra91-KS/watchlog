@@ -25,7 +25,8 @@ export function availability(day, today) {
   return day <= today ? RELEASED : UPCOMING;
 }
 
-function compareDefault(a, b) {
+/** Ordre habituel : par date (sans date à la fin), puis titre, puis ordre des épisodes. */
+export function compareDefault(a, b) {
   return (Number(!a.releaseDate) - Number(!b.releaseDate))
     || (a.releaseDate || "").localeCompare(b.releaseDate || "")
     || a.title.toLowerCase().localeCompare(b.title.toLowerCase())

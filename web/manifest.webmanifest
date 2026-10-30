@@ -3,7 +3,7 @@
   "short_name": "Watchlog",
   "description": "Suivi de séries et de films, épisode par épisode.",
   "lang": "fr",
-  "start_url": "./#/a-regarder",
+  "start_url": "./#/accueil",
   "scope": "./",
   "display": "standalone",
   "background_color": "#14181d",

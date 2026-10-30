@@ -13,6 +13,7 @@ import { icon } from "./views/icons.js";
 import { loadPrefs } from "./views/prefs.js";
 import * as shared from "./views/shared.js";
 import * as ui from "./views/ui.js";
+import * as accueil from "./views/accueil.js";
 import * as aRegarder from "./views/a-regarder.js";
 import * as bibliotheque from "./views/bibliotheque.js";
 import * as calendrier from "./views/calendrier.js";
@@ -21,17 +22,17 @@ import * as serie from "./views/serie.js";
 
 // Pages courantes chargées tout de suite ; les autres à la première visite (page plus légère).
 const ROUTES = {
-  "a-regarder": aRegarder, bibliotheque, calendrier, serie, film,
+  accueil, "a-regarder": aRegarder, bibliotheque, calendrier, serie, film,
   suggestions: () => import("./views/suggestions.js"),
   apercu: () => import("./views/apercu.js"),
   statistiques: () => import("./views/statistiques.js"),
   ajouter: () => import("./views/ajouter.js"),
   parametres: () => import("./views/parametres.js"),
 };
-const DEFAULT_ROUTE = "a-regarder";
+const DEFAULT_ROUTE = "accueil";
 // Menu principal (les fiches série / film n'y sont pas).
 const NAV = [
-  ["a-regarder", "À regarder"], ["bibliotheque", "Bibliothèque"], ["calendrier", "Calendrier"],
+  ["accueil", "Accueil"], ["a-regarder", "À regarder"], ["bibliotheque", "Bibliothèque"], ["calendrier", "Calendrier"],
   ["suggestions", "Suggestions"], ["statistiques", "Statistiques"], ["ajouter", "Ajouter"],
   ["parametres", "Paramètres"],
 ];

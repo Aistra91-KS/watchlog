@@ -128,7 +128,12 @@ export function lastWatchedLabel(entry, today = todayParis()) {
     const seen = entry.kind === MOVIE ? entry.watched : entry.lastWatchedCode != null;
     return seen ? "Date de visionnage inconnue" : "";
   }
-  const days = daysBetween(parisDay(entry.lastWatched), today);
+  return watchedAgo(entry.lastWatched, today);
+}
+
+/** « Vu aujourd'hui », « Vu hier », « Vu il y a 3 mois »... pour un instant ISO. */
+export function watchedAgo(when, today = todayParis()) {
+  const days = daysBetween(parisDay(when), today);
   if (days <= 0) return "Vu aujourd'hui";
   if (days === 1) return "Vu hier";
   if (days < DAYS_PER_MONTH) return `Vu il y a ${days} jours`;

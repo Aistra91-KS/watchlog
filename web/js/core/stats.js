@@ -269,7 +269,7 @@ export function topRatings(store, limit = 10) {
 }
 
 /** Somme des durées ; une durée inconnue vaut la moyenne des durées connues du lot. */
-function estimatedMinutes(runtimes, kind) {
+export function estimatedMinutes(runtimes, kind) {
   const known = runtimes.filter((r) => r > 0);
   const missing = runtimes.length - known.length;
   const average = known.length ? known.reduce((s, r) => s + r, 0) / known.length : DEFAULT_RUNTIMES[kind];

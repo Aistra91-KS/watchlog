@@ -9,6 +9,14 @@ import {
 import { EMOTION_LABELS, STATUSES, STATUS_LABELS } from "../core/model.js";
 import { html, options, raw } from "./dom.js";
 
+// Réglage (IndexedDB) du dernier calcul de suggestions : page Suggestions, lu par l'accueil.
+export const SAVED_SUGGESTIONS = "suggestions_result";
+
+/** Dernier calcul des suggestions (sans les traits), ou null s'il n'y en a pas encore. */
+export function savedSuggestions(app) {
+  return app.ui.suggestions || app.store.setting(SAVED_SUGGESTIONS, null);
+}
+
 /** Sélecteur de statut (ajoute à la bibliothèque si besoin). */
 export function statusSelect(store, kind, ref, id) {
   const item = getLibraryItem(store, kind, ref);

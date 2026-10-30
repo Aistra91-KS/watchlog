@@ -59,6 +59,7 @@ watchlog/
     library.py         actions : vu, statut, favori, note...
     queue.py           liste « À regarder » + calendrier
     progress.py        vue d'ensemble de la bibliothèque
+    home.py            page d'accueil (activité récente, à suivre, films à voir, sorties)
     stats.py           statistiques (pandas)
     sync.py            mise à jour TVMaze / TMDB (auto au lancement si > 24 h, thread à part)
     settings.py        réglages et états gardés en base (table Setting, valeurs JSON)
@@ -71,13 +72,16 @@ watchlog/
   ui/
     app.py             point d'entrée Streamlit, navigation, bannière « redémarrer »
     common.py          helpers partagés (clients en cache, affiches, plateformes, chemins des pages)
-    views/*.py         une page par fichier (a_regarder, bibliotheque, calendrier, suggestions,
-                       apercu, ajouter, statistiques, parametres, serie, film)
+    suggestions_cache.py dernier calcul des suggestions, partagé par Accueil et Suggestions
+    views/*.py         une page par fichier (accueil = page par défaut, a_regarder, bibliotheque,
+                       calendrier, suggestions, apercu, ajouter, statistiques, parametres, serie,
+                       film)
 launcher/              lanceur Windows + install.ps1 (raccourcis)
 web/                   app web (GitHub Pages), modules ES sans compilation ni dépendance
   index.html, css/     page unique (routes #/page), thèmes clair / sombre, aspect Streamlit
   js/core/             logique pure, testée sous Node (port de core/ : library, queue,
-                       progress, stats, taste, suggestions, preview, exchange, catalog, adding)
+                       progress, stats, home, taste, suggestions, preview, exchange,
+                       catalog, adding)
   js/core/taste-data.js GÉNÉRÉ depuis taste.py (tests/test_web_sync.py)
   js/api/              clients TVMaze / TMDB (cache IndexedDB, débit limité, réessais)
   js/storage/          IndexedDB (idb.js), clé TMDB en localStorage (secret.js)

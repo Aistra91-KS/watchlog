@@ -214,8 +214,13 @@ def last_watched_label(entry: LibraryEntry, today: date | None = None) -> str:
             return "Date inconnue (import)"
         seen = entry.watched if entry.kind == MOVIE else entry.last_watched_code is not None
         return "Date de visionnage inconnue" if seen else ""
+    return watched_ago(entry.last_watched, today)
+
+
+def watched_ago(when: datetime, today: date | None = None) -> str:
+    """« Vu aujourd'hui », « Vu hier », « Vu il y a 3 mois »... pour un instant UTC naïf."""
     today = today or datetime.now(LOCAL_TZ).date()
-    days = (today - local_date(entry.last_watched, None)).days
+    days = (today - local_date(when, None)).days
     if days <= 0:
         return "Vu aujourd'hui"
     if days == 1:

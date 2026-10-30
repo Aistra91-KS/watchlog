@@ -1,6 +1,5 @@
 """Page « Suggestions » : séries et films à découvrir, d'après la bibliothèque (TMDB)."""
 
-import time
 from collections import Counter
 from datetime import date
 
@@ -10,61 +9,17 @@ from watchlog.core import settings, suggestions, taste
 from watchlog.core.http import ApiError
 from watchlog.core.models import COMPLETED, MOVIE, SHOW, TO_WATCH
 from watchlog.ui import common
+from watchlog.ui.suggestions_cache import hidden, load, recompute
 
 PAGE_SIZE = 15  # suggestions affichées, puis « Afficher plus » par tranche
 TYPE_ALL, TYPE_SHOWS, TYPE_MOVIES = "Tout", "Séries", "Films"
 TYPE_KINDS = {TYPE_ALL: (SHOW, MOVIE), TYPE_SHOWS: (SHOW,), TYPE_MOVIES: (MOVIE,)}
 MIN_DATE = date(1900, 1, 1)
-MAX_AGE = 3600          # secondes : résultat gardé une heure (ou jusqu'à « Recalculer »)
-MAX_AGE_INCOMPLETE = 120  # résultat incomplet (TMDB a mal répondu) : recalculé vite
 PROFILE_THEMES = 15     # thèmes affichés dans « Ton profil de goûts »
 # Infobulle du « % pour toi » : valeur absolue, qui ne décide pas seule de l'ordre
 MATCH_HELP = ("% pour toi : ressemblance à tes thèmes préférés et recommandations par des "
               "titres que tu as aimés (70 % et plus : très proche de tes goûts). L'ordre tient "
               "aussi compte de la note TMDB et de la variété de la liste.")
-
-
-@st.cache_resource
-def shared() -> dict:
-    """Dernier calcul, partagé entre les onglets du navigateur : {"at": horodatage, "result": ...}.
-
-    Pas st.cache_data : le calcul affiche une barre de progression, ce que les fonctions
-    en cache de Streamlit n'acceptent pas.
-    """
-    return {}
-
-
-def load() -> suggestions.Result:
-    """Profil de goûts, séries et films suggérés, avec leurs plateformes."""
-    cache = shared()
-    if cache.get("result"):
-        max_age = MAX_AGE_INCOMPLETE if cache["result"].errors else MAX_AGE
-        if time.time() - cache["at"] < max_age:
-            return cache["result"]
-    tmdb = common.tmdb_client()
-    bar = st.progress(0.0, text="Analyse de tes goûts… La première fois, cela peut prendre "
-                                "une à deux minutes.")
-
-    def progress(done: int, total: int, label: str) -> None:
-        bar.progress(min(done / total, 1.0) if total else 1.0, text=label)
-
-    with common.db() as session:
-        suggestions.resolve_show_tmdb_ids(session, tmdb)
-        session.commit()
-        result = suggestions.compute_all(session, tmdb, progress=progress)
-    failed = suggestions.attach_availability(tmdb, result.items, progress)
-    if failed:
-        result.errors.append(f"Plateformes non lues pour {failed} suggestion(s) (TMDB) : les "
-                             "filtres de plateformes (« Dispo en streaming », « Sur mes "
-                             "plateformes »…) sont incomplets.")
-    bar.empty()
-    cache.update(at=time.time(), result=result)
-    return result
-
-
-def hidden() -> set[tuple[str, int]]:
-    """Titres ajoutés ou écartés pendant la session : masqués sans tout recalculer."""
-    return st.session_state.setdefault("sugg_hidden", set())
 
 
 def add_suggestion(item: suggestions.Suggestion, status_key: str, date_key: str) -> None:
@@ -84,11 +39,6 @@ def dismiss_suggestion(item: suggestions.Suggestion) -> None:
         suggestions.dismiss(session, item.kind, item.tmdb_id, item.title)
         session.commit()
     hidden().add((item.kind, item.tmdb_id))
-
-
-def recompute() -> None:
-    shared().clear()
-    hidden().clear()
 
 
 def save_preferences(more_key: str, less_key: str, labels: dict[str, str]) -> None:
