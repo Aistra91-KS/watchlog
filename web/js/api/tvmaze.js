@@ -42,6 +42,12 @@ export class TVMazeClient {
       { ttl: showTtl(status), force })) || [];
   }
 
+  /** Distribution principale : [{person, character, self, voice}] ; photo du personnage
+   *  (character.image) quand TVMaze en a une. Gardée 30 jours. */
+  async getCast(id) {
+    return (await this.http.getJson(`/shows/${id}/cast`, null, { ttl: 30 * DAY_MS })) || [];
+  }
+
   /** {id TVMaze: horodatage de dernière modification} pour since = day, week ou month. */
   async updatedSince(since = "week") {
     const data = (await this.http.getJson("/updates/shows", { since }, { ttl: 3_600_000 })) || {};

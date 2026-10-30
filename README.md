@@ -161,6 +161,12 @@ temps passé comptent chaque visionnage.
 **Mon avis** (en bas de la fiche d'un film ou d'une série, même formulaire) : note de 1 à 5,
 demi-notes comprises (4,5 = ★★★★½), commentaire, émotions et personnage préféré, enregistrés
 d'un coup avec « Enregistrer ». Le personnage préféré repris de Bingers y est modifiable.
+**Personnage préféré** : une liste propose les personnages du titre sous la forme
+« Walter White (Bryan Cranston) » (séries : distribution principale TVMaze et rôles récurrents
+TMDB, les plus présents d'abord ; films : casting TMDB), et **Revoir les personnages (photos)**
+les montre en photo pour retrouver un nom oublié (sur le web, un clic sur une photo remplit le
+champ). Un autre nom reste possible : il suffit de le taper. Seul le nom du personnage est
+enregistré. Si TVMaze ou TMDB ne répond pas, la liste est signalée incomplète.
 **Note d'un épisode** : colonne « Note » (1 à 5 par demi-point, vide = pas de note) du tableau
 de chaque saison ; elle est reprise dans l'export pour Bingers, qui n'a que des notes entières :
 une demi-note y part arrondie à l'étoile supérieure (4,5 → 5), et le rapport d'export le dit.

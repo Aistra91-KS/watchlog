@@ -204,6 +204,13 @@ class TMDBClient:
             return {}
         return self.http.get_json(f"/tv/{tmdb_id}/external_ids", ttl=timedelta(days=30)) or {}
 
+    def tv_aggregate_credits(self, tmdb_id: int) -> dict | None:
+        """Casting de toute une série (rôles récurrents compris), avec le nombre d'épisodes
+        de chaque rôle. Gardé 30 jours. None si inconnue ou TMDB indisponible."""
+        if not self.available:
+            return None
+        return self.http.get_json(f"/tv/{tmdb_id}/aggregate_credits", ttl=timedelta(days=30))
+
     def tv_season(self, tmdb_id: int, season: int) -> dict | None:
         """Saison d'une série TMDB avec ses épisodes (numéro, date, durée réelle, titre).
 

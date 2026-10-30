@@ -18,7 +18,7 @@ import { externalLink, html, options, poster, raw } from "./dom.js";
 import { icon } from "./icons.js";
 import { loadPrefs, savePrefs } from "./prefs.js";
 import { providersBlock } from "./providers.js";
-import { favoriteCheck, ratingForm, removeButton, statusSelect } from "./shared.js";
+import { favoriteCheck, loadCast, ratingForm, removeButton, statusSelect } from "./shared.js";
 import { alert, expander, metric, metrics, segmented } from "./ui.js";
 
 const PREFS = "serie";
@@ -215,7 +215,7 @@ export async function render(app, [key]) {
     ${seasons.size ? [...seasons].sort((a, b) => (a[0] || 999) - (b[0] || 999))
       .map(([season, list]) => seasonBlock(app.store, show, season, list, day))
       : html`<p>Aucun épisode connu pour cette série.</p>`}
-    ${ratingForm(app.store, SHOW, key)}
+    ${ratingForm(app.store, SHOW, key, await loadCast(app, SHOW, key))}
     ${inLibrary ? removeButton(SHOW, key) : ""}
     ${show.tvmaze_id ? html`<p class="credit">Données de la série :
       ${externalLink(`https://www.tvmaze.com/shows/${show.tvmaze_id}`, "TVMaze")} (CC BY-SA).</p>` : ""}

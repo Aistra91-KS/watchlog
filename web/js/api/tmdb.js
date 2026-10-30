@@ -138,6 +138,11 @@ export class TMDBClient {
     return (await this.#get(`/tv/${id}/external_ids`, null, 30 * DAY_MS)) || {};
   }
 
+  /** Casting de toute une série (rôles récurrents compris, nombre d'épisodes par rôle). */
+  tvAggregateCredits(id) {
+    return this.#get(`/tv/${id}/aggregate_credits`, null, 30 * DAY_MS);
+  }
+
   tvSeason(id, season) {
     return this.#get(`/tv/${id}/season/${season}`, { language: "fr-FR" }, 7 * DAY_MS);
   }

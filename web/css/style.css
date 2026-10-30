@@ -767,3 +767,16 @@ details:not(.expander) > summary { cursor: pointer; color: var(--primary); font-
 .home-list .caption { white-space: nowrap; }
 .more-link a { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; }
 .card .btn { align-self: flex-start; }
+
+/* Mon avis : photos des personnages (un clic remplit « Personnage préféré ») */
+.cast-grid { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
+.cast-pick { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 100%;
+  padding: 4px; border: 1px solid transparent; border-radius: var(--radius); background: none;
+  color: var(--text); font: inherit; font-size: 0.8rem; line-height: 1.3; text-align: center;
+  cursor: pointer; }
+.cast-pick:hover { border-color: var(--border); background: var(--hover); }
+.cast-pick:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.cast-pick img { width: 80px; aspect-ratio: 2 / 3; object-fit: cover; border-radius: 4px;
+  margin-bottom: 4px; }
+.cast-pick .cast-actor { color: var(--muted); }

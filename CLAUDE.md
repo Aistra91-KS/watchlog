@@ -65,6 +65,7 @@ watchlog/
     settings.py        réglages et états gardés en base (table Setting, valeurs JSON)
     providers.py       plateformes en France (JustWatch via TMDB)
     preview.py         page Aperçu d'un titre TMDB hors bibliothèque
+    cast.py            personnages d'un titre (TVMaze + TMDB) pour « Personnage préféré »
     taste.py           profil de goûts (thèmes TMDB, TF-IDF) + préférences de thèmes
     suggestions.py     moteur de suggestions hybride
     export.py          Excel « À regarder », CSV de la base
@@ -72,6 +73,7 @@ watchlog/
   ui/
     app.py             point d'entrée Streamlit, navigation, bannière « redémarrer »
     common.py          helpers partagés (clients en cache, affiches, plateformes, chemins des pages)
+    avis.py            formulaire « Mon avis » (fiches série et film), personnages proposés
     suggestions_cache.py dernier calcul des suggestions, partagé par Accueil et Suggestions
     views/*.py         une page par fichier (accueil = page par défaut, a_regarder, bibliotheque,
                        calendrier, suggestions, apercu, ajouter, statistiques, parametres, serie,
@@ -80,7 +82,7 @@ launcher/              lanceur Windows + install.ps1 (raccourcis)
 web/                   app web (GitHub Pages), modules ES sans compilation ni dépendance
   index.html, css/     page unique (routes #/page), thèmes clair / sombre, aspect Streamlit
   js/core/             logique pure, testée sous Node (port de core/ : library, queue,
-                       progress, stats, home, taste, suggestions, preview, exchange,
+                       progress, stats, home, taste, suggestions, preview, cast, exchange,
                        catalog, adding)
   js/core/taste-data.js GÉNÉRÉ depuis taste.py (tests/test_web_sync.py)
   js/api/              clients TVMaze / TMDB (cache IndexedDB, débit limité, réessais)

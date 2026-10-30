@@ -9,7 +9,7 @@ import {
 import { MOVIE } from "../core/model.js";
 import { html, poster, raw } from "./dom.js";
 import { providersBlock } from "./providers.js";
-import { favoriteCheck, ratingForm, removeButton, statusSelect } from "./shared.js";
+import { favoriteCheck, loadCast, ratingForm, removeButton, statusSelect } from "./shared.js";
 import { alert } from "./ui.js";
 
 const MIN_DATE = "1900-01-01";
@@ -94,7 +94,7 @@ export async function render(app, [key]) {
           data-ref="${key}">Mettre à jour</button>` : ""}
       </div>
     </div>
-    ${ratingForm(app.store, MOVIE, key)}
+    ${ratingForm(app.store, MOVIE, key, await loadCast(app, MOVIE, key))}
     ${inLibrary ? removeButton(MOVIE, key) : ""}
   </article>`;
 }

@@ -54,6 +54,13 @@ class TVMazeClient:
         return self.http.get_json(f"/shows/{tvmaze_id}/episodes", {"specials": 1},
                                   ttl=show_ttl(status), force=force) or []
 
+    def get_cast(self, tvmaze_id: int) -> list[dict]:
+        """Distribution principale : [{"person": {...}, "character": {...}, "self", "voice"}].
+
+        Photo du personnage (character.image) quand TVMaze en a une. Gardée 30 jours.
+        """
+        return self.http.get_json(f"/shows/{tvmaze_id}/cast", ttl=timedelta(days=30)) or []
+
     def get_akas(self, tvmaze_id: int) -> list[dict]:
         """Titres alternatifs (pour trouver un titre français : country.code == "FR")."""
         return self.http.get_json(f"/shows/{tvmaze_id}/akas", ttl=timedelta(days=30)) or []

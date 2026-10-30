@@ -8,7 +8,7 @@ import { shortText } from "./suggestions.js";
 
 export const TMDB_MEDIA = { [SHOW]: "tv", [MOVIE]: "movie" };
 const BACKDROP_BASE = "https://image.tmdb.org/t/p/w1280";
-const PROFILE_BASE = "https://image.tmdb.org/t/p/w185";
+export const PROFILE_BASE = "https://image.tmdb.org/t/p/w185";
 const MAX_CAST = 10;
 const OVERVIEW_LENGTH = 2000;   // résumé complet (adding.short_text(length=2000))
 

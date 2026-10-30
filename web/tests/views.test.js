@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { setRating } from "../js/core/library.js";
 import { EPISODE, MOVIE, SHOW } from "../js/core/model.js";
 import { html, poster, safeUrl } from "../js/views/dom.js";
+import * as shared from "../js/views/shared.js";
 import * as accueil from "../js/views/accueil.js";
 import * as aRegarder from "../js/views/a-regarder.js";
 import * as ajouter from "../js/views/ajouter.js";
@@ -35,7 +36,7 @@ function fakeApp() {
   return {
     store, ui: {}, sync: { running: false }, persistent: true,
     tmdb: { configured: false, available: unavailable },
-    tvmaze: {},
+    tvmaze: { getCast: async () => [] },
   };
 }
 
@@ -212,4 +213,40 @@ test("accueil : blocs remplis, « Vu » puis « Annuler », suggestions du derni
   assert.ok(out.includes("72 % pour toi") && out.includes("#/apercu/serie/9"));
   assert.ok(!out.includes("Fight Club (") && !out.includes("90 % pour toi"), "déjà en base : masqué");
   assert.ok(!out.includes(EVIL) && !out.includes("javascript:"));
+});
+
+test("« Mon avis » : personnages proposés (liste et photos), rien d'injecté", async () => {
+  const app = fakeApp();
+  app.tvmaze = { getCast: async () => [
+    { person: { name: EVIL, image: { medium: "https://static.tvmaze.com/p.jpg" } },
+      character: { name: "Walter White", image: { medium: "javascript:alert(1)" } } },
+    { person: { name: "Aaron Paul", image: { medium: "https://static.tvmaze.com/p2.jpg" } },
+      character: { name: EVIL } }] };
+  const out = String(await serie.render(app, ["tvmaze:1"]));
+  assert.ok(out.includes('list="cast-tvmaze:1"') && out.includes('value="Walter White"'));
+  assert.match(out, />Walter White \(&lt;img/);   // « Personnage (Acteur) », échappé
+  assert.ok(out.includes("Revoir les personnages") && out.includes('data-action="pick-character"'));
+  assert.ok(out.includes('src="https://static.tvmaze.com/p2.jpg"'));
+  assert.equal(out.match(/class="cast-pick"/g)?.length, 1, "photo dangereuse : pas affichée");
+  assert.ok(!out.includes(EVIL) && !out.includes("javascript:"));
+  const input = { value: "", focus() {} };
+  const form = { querySelector: () => input };
+  let said = "";
+  app.announce = (text) => { said = text; };
+  const result = shared.actions["pick-character"](app, { closest: () => form,
+    dataset: { name: "Walter White" } });
+  assert.equal(result, false);   // pas de nouveau rendu : le reste du formulaire est gardé
+  assert.equal(input.value, "Walter White");
+  assert.match(said, /Walter White/);
+  // Une panne : liste incomplète signalée, nouvel essai au prochain affichage.
+  const app2 = fakeApp();
+  app2.tvmaze = { getCast: async () => { throw new Error("injoignable"); } };
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    assert.match(String(await serie.render(app2, ["tvmaze:1"])), /TVMaze n'a pas répondu/);
+  } finally {
+    console.warn = warn;
+  }
+  assert.ok(!app2.ui.cast.size);
 });

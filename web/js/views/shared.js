@@ -6,8 +6,10 @@ import {
   removeFromLibrary, removeRewatch, setFavorite, setRating, setStatus, setWatchDate,
   splitEmotions, unmarkWatched,
 } from "../core/library.js";
-import { EMOTION_LABELS, STATUSES, STATUS_LABELS } from "../core/model.js";
-import { html, options, raw } from "./dom.js";
+import { characterLabel, movieCast, showCast } from "../core/cast.js";
+import { EMOTION_LABELS, SHOW, STATUSES, STATUS_LABELS, refKey } from "../core/model.js";
+import { html, options, raw, safeImageUrl } from "./dom.js";
+import { expander } from "./ui.js";
 
 // Réglage (IndexedDB) du dernier calcul de suggestions : page Suggestions, lu par l'accueil.
 export const SAVED_SUGGESTIONS = "suggestions_result";
@@ -35,8 +37,47 @@ export function favoriteCheck(store, kind, ref) {
     Favori</label>`;
 }
 
-/** « Mon avis » (avis.review_form) : note, commentaire, émotions, personnage préféré. */
-export function ratingForm(store, kind, ref) {
+/** Personnages du titre pour « Personnage préféré » : {characters, errors}. Gardés pour la
+ *  session (les clients d'API ont aussi leur cache) ; après une panne, nouvel essai au
+ *  prochain affichage. */
+export async function loadCast(app, kind, ref) {
+  app.ui.cast ??= new Map();
+  const key = refKey(kind, ref);
+  if (app.ui.cast.has(key)) return app.ui.cast.get(key);
+  const record = app.store.get(kind === SHOW ? "shows" : "movies", ref);
+  if (!record) return { characters: [], errors: [] };
+  const found = kind === SHOW ? await showCast(app.tvmaze, app.tmdb, record)
+    : await movieCast(app.tmdb, record);
+  if (!found.errors.length) app.ui.cast.set(key, found);
+  return found;
+}
+
+/** « Personnage préféré » : saisie libre avec la liste « Personnage (Acteur) », et les
+ *  photos des personnages (un clic remplit le champ), pour retrouver un nom oublié. */
+function characterField(ref, value, cast) {
+  const characters = cast?.characters || [];
+  const withPhoto = characters.filter((c) => safeImageUrl(c.photoUrl));
+  const listId = `cast-${ref}`;
+  return html`<label class="field"><span>Personnage préféré</span>
+      <input name="character" value="${value}" autocomplete="off"
+        ${characters.length ? html`list="${listId}"` : ""}></label>
+    ${characters.length ? html`<datalist id="${listId}">${characters.map((c) => html`<option
+      value="${c.name}">${characterLabel(c)}</option>`)}</datalist>` : ""}
+    ${withPhoto.length ? expander("Revoir les personnages (photos)", html`
+      <p class="caption">Touche un personnage pour le choisir (puis « Enregistrer »).</p>
+      <ul class="cast-grid" role="list">${withPhoto.map((c) => html`<li><button type="button"
+        class="cast-pick" data-action="pick-character" data-name="${c.name}"
+        aria-label="${`Choisir ${characterLabel(c)}`}"><img src="${c.photoUrl}" alt="" loading="lazy"
+        referrerpolicy="no-referrer"><span class="cast-name">${c.name}</span>${c.actor
+        ? html`<span class="cast-actor">(${c.actor})</span>` : ""}</button></li>`)}</ul>`,
+    { keep: "cast-photos", iconName: "photo_library" }) : ""}
+    ${cast?.errors?.length ? html`<p class="caption">Liste des personnages incomplète :
+      ${cast.errors.join(" et ")} n'a pas répondu.</p>` : ""}`;
+}
+
+/** « Mon avis » (avis.review_form) : note, commentaire, émotions, personnage préféré.
+ *  `cast` : personnages proposés (loadCast), facultatif. */
+export function ratingForm(store, kind, ref, cast = null) {
   const r = getRating(store, kind, ref) || {};
   const emotions = new Set(splitEmotions(r.emotions));
   const notes = [["", "Pas de note"],
@@ -52,8 +93,7 @@ export function ratingForm(store, kind, ref) {
         <input type="checkbox" name="emotions" value="${code}" ${emotions.has(code) ? raw("checked") : ""}>
         ${label}</label>`)}
     </fieldset>
-    <label class="field"><span>Personnage préféré</span>
-      <input name="character" value="${r.favorite_character || ""}" autocomplete="off"></label>
+    ${characterField(ref, r.favorite_character || "", cast)}
     <button class="btn">Enregistrer</button>
   </form>`;
 }
@@ -116,6 +156,14 @@ export const actions = {
     const box = el.closest("[data-confirm]");
     box?.classList.remove("confirming");
     box?.querySelector("button")?.focus();   // retour au bouton qui a ouvert la confirmation
+    return false;
+  },
+  "pick-character"(app, el) {
+    // Remplit le champ sans redessiner la page : le reste du formulaire n'est pas enregistré.
+    const input = el.closest("form").querySelector('input[name="character"]');
+    input.value = el.dataset.name;
+    input.focus();
+    app.announce(`Personnage préféré : ${el.dataset.name}. Enregistre pour le garder.`);
     return false;
   },
   rating(app, form) {
