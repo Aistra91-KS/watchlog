@@ -174,7 +174,10 @@ Cocher une case, changer une date ou une note ne recharge pas le tableau de la s
 position dans la liste est gardée) ; « Vu jusqu'ici » et les actions en bloc le rechargent.
 
 Statuts possibles : En cours, À voir, Plus tard, Arrêté, Terminé. Une série finie dont tous
-les épisodes sont vus passe toute seule en « Terminé ».
+les épisodes sont vus passe toute seule en « Terminé ». Un film marqué vu (fiche, À regarder ou
+Accueil) passe en « Terminé » ; marqué non vu, il revient en « À voir » (« Annuler » remet son
+statut d'avant). Les films vus restés « À voir » (anciennes versions) sont corrigés au
+démarrage et à chaque mise à jour.
 
 ### Ajout manuel
 

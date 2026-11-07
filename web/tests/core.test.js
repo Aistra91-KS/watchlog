@@ -8,12 +8,14 @@ import {
   addDays, fmtAgo, fmtDate, fmtRuntime, localDate, localDayToUtc, weekStart,
 } from "../js/core/dates.js";
 import {
-  RATING_VALUES, addRewatch, addSeasonRewatch, cleanRating, formatRating, getRating, getWatch,
-  markSeasonWatched, markWatched, markWatchedUntil, ratingStars, refreshCompleted, removeRewatch,
-  removeSeasonRewatch, setRating, setRatingValue, setShowWatchDates, setStatus, unmarkWatched,
-  upsertWatch,
+  RATING_VALUES, addRewatch, addSeasonRewatch, cleanRating, completeWatchedMovies, formatRating,
+  getRating, getWatch, markSeasonWatched, markWatched, markWatchedUntil, ratingStars,
+  refreshCompleted, removeRewatch, removeSeasonRewatch, setRating, setRatingValue,
+  setShowWatchDates, setStatus, setWatchDate, unmarkWatched, upsertWatch,
 } from "../js/core/library.js";
-import { COMPLETED, EPISODE, MOVIE, SHOW, STOPPED, TO_WATCH, refKey } from "../js/core/model.js";
+import {
+  COMPLETED, EPISODE, MOVIE, SHOW, STOPPED, TO_WATCH, WATCHING, refKey,
+} from "../js/core/model.js";
 import { lastWatchedLabel, libraryOverview, progressLabel, SORT_PAUSED } from "../js/core/progress.js";
 import { ApiError } from "../js/api/http.js";
 import {
@@ -102,6 +104,58 @@ test("statut, note et passage automatique en « Terminé »", () => {
   assert.throws(() => setRating(store, SHOW, show, { rating: 6 }), /Note invalide/);
   assert.equal(setRating(store, SHOW, show, {}), null);
   assert.equal(store.get("ratings", refKey(SHOW, show)), undefined);
+});
+
+test("film vu : « Terminé » ; plus vu : « À voir » ou le statut d'avant (« Annuler »)", () => {
+  const store = makeStore();
+  const status = (ref) => store.get("library", refKey(MOVIE, ref))?.status;
+  const a = addMovie(store, "A", { id: 1, status: TO_WATCH });
+  const b = addMovie(store, "B", { id: 2, status: WATCHING });
+  const c = addMovie(store, "C", { id: 3, status: STOPPED });
+  const out = addMovie(store, "Hors bibliothèque", { id: 4, status: null });
+  markWatched(store, MOVIE, a);
+  setWatchDate(store, MOVIE, b, null);            // vu, date inconnue
+  addRewatch(store, MOVIE, c);                    // pas encore vu : premier visionnage
+  markWatched(store, MOVIE, out);
+  assert.deepEqual([a, b, c].map(status), [COMPLETED, COMPLETED, COMPLETED]);
+  assert.equal(status(out), undefined);
+
+  setStatus(store, MOVIE, a, WATCHING);           // déjà vu : statut choisi gardé
+  setWatchDate(store, MOVIE, a, "2024-06-01");
+  addRewatch(store, MOVIE, a);
+  assert.equal(status(a), WATCHING);
+
+  assert.ok(unmarkWatched(store, MOVIE, b));
+  assert.equal(status(b), TO_WATCH);
+  markWatched(store, MOVIE, b);
+  unmarkWatched(store, MOVIE, b, WATCHING);
+  assert.equal(status(b), WATCHING);
+  setStatus(store, MOVIE, c, COMPLETED);
+  unmarkWatched(store, MOVIE, c, "inconnu");      // statut invalide : À voir
+  assert.equal(status(c), TO_WATCH);
+  setStatus(store, MOVIE, c, STOPPED);            // pas « Terminé » : gardé
+  unmarkWatched(store, MOVIE, c);
+  assert.equal(status(c), STOPPED);
+
+  const show = addShow(store, "Série", { id: 1, status: TO_WATCH });
+  const ep = addEpisode(store, show, 1, 1, { id: 11 });
+  markWatched(store, EPISODE, ep);
+  assert.equal(store.get("library", refKey(SHOW, show)).status, TO_WATCH);
+});
+
+test("réparation : films vus restés « À voir » passés en « Terminé »", () => {
+  const store = makeStore();
+  const status = (ref) => store.get("library", refKey(MOVIE, ref)).status;
+  const seen = addMovie(store, "Vu", { id: 1, status: TO_WATCH });
+  const notSeen = addMovie(store, "Pas vu", { id: 2, status: TO_WATCH });
+  const watching = addMovie(store, "En cours", { id: 3, status: WATCHING });
+  for (const ref of [seen, watching]) watch(store, MOVIE, ref);
+  const show = addShow(store, "Série", { id: 1, status: TO_WATCH });
+  watch(store, EPISODE, addEpisode(store, show, 1, 1, { id: 11 }));
+  assert.equal(completeWatchedMovies(store), 1);
+  assert.deepEqual([seen, notSeen, watching].map(status), [COMPLETED, TO_WATCH, WATCHING]);
+  assert.equal(store.get("library", refKey(SHOW, show)).status, TO_WATCH);
+  assert.equal(completeWatchedMovies(store), 0);
 });
 
 function queueStore() {

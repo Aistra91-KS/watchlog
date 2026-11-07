@@ -8,7 +8,7 @@ from datetime import date, datetime
 from sqlmodel import Session, select
 
 from watchlog.core.dates import LOCAL_TZ, local_day_to_utc, utcnow
-from watchlog.core.models import (COMPLETED, EPISODE, SHOW, STATUSES, TO_WATCH, Episode,
+from watchlog.core.models import (COMPLETED, EPISODE, MOVIE, SHOW, STATUSES, TO_WATCH, Episode,
                                   LibraryItem, Rating, Show, Watch)
 from watchlog.core.tvmaze import ENDED
 
@@ -50,33 +50,49 @@ def upsert_watch(session: Session, kind: str, ref_id: int, watched_at: datetime 
     return watch
 
 
+def _first_watch(session: Session, kind: str, ref_id: int, when: datetime | None) -> Watch:
+    """Crée le visionnage d'un titre pas encore vu ; un film passe alors en « Terminé ».
+
+    Un film vu n'a plus rien « à voir » : sans ça, il garderait un statut qui ne veut plus
+    rien dire (« À voir », mais absent de la liste À regarder). Pas de commit.
+    """
+    watch = Watch(kind=kind, ref_id=ref_id, watched_at=when, last_watched_at=when)
+    session.add(watch)
+    if kind == MOVIE:
+        item = get_library_item(session, MOVIE, ref_id)
+        if item is not None and item.status != COMPLETED:
+            item.status = COMPLETED
+            session.add(item)
+    return watch
+
+
 def mark_watched(session: Session, kind: str, ref_id: int, when: datetime | None = None) -> Watch:
-    """Marque un épisode ou un film comme vu (ne fait rien s'il l'est déjà)."""
+    """Marque un épisode ou un film comme vu (ne fait rien s'il l'est déjà).
+
+    Un film de la bibliothèque passe en « Terminé ». Pas de commit.
+    """
     watch = get_watch(session, kind, ref_id)
     if watch is not None:
         return watch
-    when = when or utcnow()
-    watch = Watch(kind=kind, ref_id=ref_id, watched_at=when, last_watched_at=when)
-    session.add(watch)
-    return watch
+    return _first_watch(session, kind, ref_id, when or utcnow())
 
 
 def set_watch_date(session: Session, kind: str, ref_id: int, day: date | None) -> Watch:
     """Change la date du (premier) visionnage, et marque vu si ce n'était pas le cas.
 
     day=None : vu, date inconnue. Vu une seule fois : le dernier visionnage suit la même date ;
-    vu plusieurs fois, il n'est avancé que si la nouvelle date est plus récente.
+    vu plusieurs fois, il n'est avancé que si la nouvelle date est plus récente. Un film qui
+    n'était pas vu passe en « Terminé ». Pas de commit.
     """
     when = local_day_to_utc(day) if day is not None else None
     watch = get_watch(session, kind, ref_id)
     if watch is None:
-        watch = Watch(kind=kind, ref_id=ref_id, watched_at=when, last_watched_at=when)
-    else:
-        watch.watched_at = when
-        if watch.plays <= 1 or watch.last_watched_at is None:
-            watch.last_watched_at = when
-        elif when is not None and watch.last_watched_at < when:
-            watch.last_watched_at = when
+        return _first_watch(session, kind, ref_id, when)
+    watch.watched_at = when
+    if watch.plays <= 1 or watch.last_watched_at is None:
+        watch.last_watched_at = when
+    elif when is not None and watch.last_watched_at < when:
+        watch.last_watched_at = when
     session.add(watch)
     return watch
 
@@ -101,11 +117,20 @@ def set_show_watch_dates(session: Session, show_id: int, day: date | None,
     return len(episode_ids)
 
 
-def unmark_watched(session: Session, kind: str, ref_id: int) -> None:
-    """Retire le visionnage d'un épisode ou d'un film."""
+def unmark_watched(session: Session, kind: str, ref_id: int, back_to: str | None = None) -> None:
+    """Retire le visionnage d'un épisode ou d'un film.
+
+    Un film « Terminé » n'est plus vu : il repasse en `back_to` (« Annuler » remet le statut
+    d'avant), « À voir » par défaut. Pas de commit.
+    """
     watch = get_watch(session, kind, ref_id)
     if watch is not None:
         session.delete(watch)
+    if kind == MOVIE:
+        item = get_library_item(session, MOVIE, ref_id)
+        if item is not None and item.status == COMPLETED:
+            item.status = back_to if back_to in STATUSES else TO_WATCH
+            session.add(item)
 
 
 def _rewatch_time(day: date | None) -> datetime:
@@ -126,10 +151,9 @@ def add_rewatch(session: Session, kind: str, ref_id: int, day: date | None = Non
     when = _rewatch_time(day)
     watch = get_watch(session, kind, ref_id)
     if watch is None:
-        watch = Watch(kind=kind, ref_id=ref_id, watched_at=when, last_watched_at=when)
-    else:
-        watch.plays = (watch.plays or 1) + 1
-        watch.last_watched_at = _latest(watch.last_watched_at, when)
+        return _first_watch(session, kind, ref_id, when)
+    watch.plays = (watch.plays or 1) + 1
+    watch.last_watched_at = _latest(watch.last_watched_at, when)
     session.add(watch)
     return watch
 
@@ -415,3 +439,20 @@ def refresh_completed(session: Session, today: date | None = None) -> int:
             session.add(item)
             count += 1
     return count
+
+
+def complete_watched_movies(session: Session) -> int:
+    """Passe en « Terminé » les films vus restés « À voir » (réparation).
+
+    Avant, « Vu » depuis À regarder ou l'Accueil ne changeait pas le statut d'un film. Seul
+    « À voir » est corrigé : un film vu « En cours », « Plus tard » ou « Arrêté » vient de
+    Bingers ou d'un choix à la main. Renvoie le nombre de films changés. Pas de commit.
+    """
+    query = (select(LibraryItem)
+             .join(Watch, (Watch.kind == MOVIE) & (Watch.ref_id == LibraryItem.ref_id))
+             .where(LibraryItem.kind == MOVIE, LibraryItem.status == TO_WATCH))
+    items = session.exec(query).all()
+    for item in items:
+        item.status = COMPLETED
+        session.add(item)
+    return len(items)

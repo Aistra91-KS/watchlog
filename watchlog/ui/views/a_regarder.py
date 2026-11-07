@@ -119,7 +119,7 @@ def mark_one(item: queue.QueueItem) -> None:
         session.commit()
     name = f"{item.title} {item.code}".strip()
     st.session_state["aq_last_action"] = {"text": f"« {name} » marqué vu.",
-                                          "undo": (item.kind, item.ref_id)}
+                                          "undo": (item.kind, item.ref_id, item.status)}
     st.rerun()
 
 
@@ -134,9 +134,10 @@ def mark_until(item: queue.QueueItem, include_specials: bool) -> None:
     st.rerun()
 
 
-def undo_last(kind: str, ref_id: int) -> None:
+def undo_last(kind: str, ref_id: int, status: str | None = None) -> None:
+    """« Annuler » : plus vu, et un film retrouve son statut d'avant (vu = « Terminé »)."""
     with common.db() as session:
-        library.unmark_watched(session, kind, ref_id)
+        library.unmark_watched(session, kind, ref_id, back_to=status)
         session.commit()
     st.session_state.pop("aq_last_action", None)
     st.rerun()

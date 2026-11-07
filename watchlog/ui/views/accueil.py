@@ -50,12 +50,13 @@ def mark_seen(item: QueueItem) -> None:
         session.commit()
     name = f"{item.title} {item.code}".strip()
     st.session_state["home_last_action"] = {"text": f"« {name} » marqué vu.",
-                                            "undo": (item.kind, item.ref_id)}
+                                            "undo": (item.kind, item.ref_id, item.status)}
 
 
-def undo_seen(kind: str, ref_id: int) -> None:
+def undo_seen(kind: str, ref_id: int, status: str | None = None) -> None:
+    """« Annuler » : plus vu, et un film retrouve son statut d'avant (vu = « Terminé »)."""
     with common.db() as session:
-        library.unmark_watched(session, kind, ref_id)
+        library.unmark_watched(session, kind, ref_id, back_to=status)
         session.commit()
     st.session_state.pop("home_last_action", None)
 

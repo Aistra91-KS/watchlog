@@ -3,7 +3,7 @@
 
 import { isoUtc, localDayToUtc, today as todayParis, localDate } from "./dates.js";
 import {
-  COMPLETED, ENDED, EPISODE, SHOW, STATUSES, TO_WATCH, refKey,
+  COMPLETED, ENDED, EPISODE, MOVIE, SHOW, STATUSES, TO_WATCH, refKey,
 } from "./model.js";
 
 function earliest(a, b) {
@@ -46,27 +46,45 @@ export function upsertWatch(store, kind, ref, watchedAt = null, lastWatchedAt = 
   return { watch: next, changed };
 }
 
-/** Marque un épisode ou un film comme vu (rien si c'est déjà le cas). */
+/** Premier visionnage d'un titre ; un film de la bibliothèque passe alors en « Terminé »
+ *  (vu, il n'a plus rien « à voir » : library._first_watch). `at` : null = date inconnue. */
+function firstWatch(store, kind, ref, at) {
+  const watch = store.put("watches", {
+    key: refKey(kind, ref), kind, ref, watched_at: at, last_watched_at: at, plays: 1,
+  });
+  const item = kind === MOVIE ? getLibraryItem(store, MOVIE, ref) : null;
+  if (item && item.status !== COMPLETED) store.put("library", { ...item, status: COMPLETED });
+  return watch;
+}
+
+/** Marque un épisode ou un film comme vu (rien si c'est déjà le cas) ; un film de la
+ *  bibliothèque passe en « Terminé ». */
 export function markWatched(store, kind, ref, when = null) {
   const existing = getWatch(store, kind, ref);
   if (existing) return existing;
-  const at = when || isoUtc();
-  return store.put("watches", {
-    key: refKey(kind, ref), kind, ref, watched_at: at, last_watched_at: at, plays: 1,
-  });
+  return firstWatch(store, kind, ref, when || isoUtc());
 }
 
-export function unmarkWatched(store, kind, ref) {
-  return store.remove("watches", refKey(kind, ref));
+/** Retire le visionnage. Un film « Terminé » n'est plus vu : il repasse en `backTo`
+ *  (« Annuler » remet le statut d'avant), « À voir » par défaut. */
+export function unmarkWatched(store, kind, ref, backTo = null) {
+  const removed = store.remove("watches", refKey(kind, ref));
+  const item = kind === MOVIE ? getLibraryItem(store, MOVIE, ref) : null;
+  if (item && item.status === COMPLETED) {
+    store.put("library", { ...item, status: STATUSES.includes(backTo) ? backTo : TO_WATCH });
+  }
+  return removed;
 }
 
-/** Date de visionnage choisie par l'utilisateur (un jour, midi heure de Paris). */
+/** Date de visionnage choisie par l'utilisateur (un jour, midi heure de Paris) ; marque vu
+ *  si ce n'était pas le cas (un film passe alors en « Terminé »). */
 export function setWatchDate(store, kind, ref, day) {
   const at = day ? localDayToUtc(day) : null;
   const existing = getWatch(store, kind, ref);
+  if (!existing) return firstWatch(store, kind, ref, at);
   return store.put("watches", {
-    ...(existing || { key: refKey(kind, ref), kind, ref, plays: 1 }),
-    watched_at: at, last_watched_at: existing && existing.plays > 1 ? existing.last_watched_at : at,
+    ...existing,
+    watched_at: at, last_watched_at: existing.plays > 1 ? existing.last_watched_at : at,
   });
 }
 
@@ -229,6 +247,21 @@ export function refreshCompleted(store, day = todayParis()) {
       store.put("library", { ...item, status: COMPLETED });
       count += 1;
     }
+  }
+  return count;
+}
+
+/** Passe en « Terminé » les films vus restés « À voir » (réparation : avant, « Vu » depuis
+ *  À regarder ou l'Accueil ne changeait pas le statut). Seul « À voir » est corrigé : les
+ *  autres statuts viennent de Bingers ou d'un choix à la main. Renvoie le nombre de films. */
+export function completeWatchedMovies(store) {
+  let count = 0;
+  for (const item of store.library.values()) {
+    if (item.kind !== MOVIE || item.status !== TO_WATCH || !getWatch(store, MOVIE, item.ref)) {
+      continue;
+    }
+    store.put("library", { ...item, status: COMPLETED });
+    count += 1;
   }
   return count;
 }

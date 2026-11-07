@@ -2,7 +2,7 @@
 // Même présentation que la page Python (a_regarder.py) : filtres, compteurs, cartes.
 
 import { daysBetween, fmtDate, fmtRuntime, today } from "../core/dates.js";
-import { markWatched, markWatchedUntil, unmarkWatched } from "../core/library.js";
+import { getLibraryItem, markWatched, markWatchedUntil, unmarkWatched } from "../core/library.js";
 import {
   EPISODE, MATCH_TO_CHECK, MOVIE, SHOW, STATUSES, STATUS_LABELS, TO_WATCH, WATCHING, normalize,
   refKey,
@@ -277,9 +277,11 @@ export const actions = {
   "queue-availability"(app, el) { update({ availabilities: checked(el) }); },
   "queue-more"(app) { app.ui.queueLimit = (app.ui.queueLimit || PAGE_SIZE) + PAGE_SIZE; },
   "aq-seen"(app, el) {
+    // Statut d'avant gardé pour « Annuler » : un film vu passe en « Terminé ».
+    const before = getLibraryItem(app.store, el.dataset.kind, el.dataset.ref)?.status;
     markWatched(app.store, el.dataset.kind, el.dataset.ref);
     app.ui.queueLastAction = { text: `« ${el.dataset.label} » marqué vu.`,
-      undo: [el.dataset.kind, el.dataset.ref] };
+      undo: [el.dataset.kind, el.dataset.ref, before] };
     app.announce(app.ui.queueLastAction.text);
   },
   "aq-until"(app, el) {
@@ -291,8 +293,8 @@ export const actions = {
     app.announce(app.ui.queueLastAction.text);
   },
   "aq-undo"(app) {
-    const [kind, ref] = app.ui.queueLastAction?.undo || [];
-    if (kind) unmarkWatched(app.store, kind, ref);
+    const [kind, ref, before] = app.ui.queueLastAction?.undo || [];
+    if (kind) unmarkWatched(app.store, kind, ref, before);
     app.ui.queueLastAction = null;
   },
 };

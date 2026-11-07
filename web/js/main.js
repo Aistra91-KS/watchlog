@@ -3,7 +3,7 @@
 
 import { syncLibrary, syncReportLines } from "./core/adding.js";
 import { fmtAgo, isoUtc } from "./core/dates.js";
-import { refreshCompleted } from "./core/library.js";
+import { completeWatchedMovies, refreshCompleted } from "./core/library.js";
 import { TMDBClient } from "./api/tmdb.js";
 import { TVMazeClient } from "./api/tvmaze.js";
 import { IdbCache, askPersistent, loadStore, openDb, persist } from "./storage/idb.js";
@@ -443,7 +443,8 @@ async function start() {
   app.cache.prune().catch((error) => console.warn("Nettoyage du cache", error));
   app.resetClients();
   app.persistent = await askPersistent();
-  if (refreshCompleted(app.store)) app.save();
+  // Séries finies toutes vues, films vus restés « À voir » : passés en « Terminé ».
+  if (refreshCompleted(app.store) + completeWatchedMovies(app.store)) app.save();
   bindEvents();
   await onRoute();
   // Test de la clé TMDB au démarrage, comme le logiciel : l'état s'affiche dans le menu.

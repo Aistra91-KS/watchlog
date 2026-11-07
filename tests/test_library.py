@@ -124,6 +124,74 @@ def test_mark_and_unmark_watched(session):
     assert session.exec(select(Watch)).all() == []
 
 
+def test_watched_movie_becomes_completed(session):
+    """Vu d'où qu'on le marque (À regarder, Accueil, fiche) : le film passe en « Terminé »."""
+    for movie_id, status in ((1, TO_WATCH), (2, WATCHING), (3, STOPPED)):
+        library.set_status(session, MOVIE, movie_id, status)
+    library.mark_watched(session, MOVIE, 1)
+    library.set_watch_date(session, MOVIE, 2, None)     # vu, date inconnue
+    library.add_rewatch(session, MOVIE, 3)              # pas encore vu : premier visionnage
+    library.mark_watched(session, MOVIE, 4)             # hors bibliothèque : pas ajouté
+    for movie_id in (1, 2, 3):
+        assert library.get_library_item(session, MOVIE, movie_id).status == COMPLETED
+    assert library.get_library_item(session, MOVIE, 4) is None
+
+
+def test_watched_movie_keeps_status_chosen_later(session):
+    """Déjà vu : changer la date ou ajouter un revisionnage ne touche pas au statut choisi."""
+    library.set_status(session, MOVIE, 1, TO_WATCH)
+    library.mark_watched(session, MOVIE, 1, when=datetime(2024, 5, 1))
+    library.set_status(session, MOVIE, 1, WATCHING)
+    library.set_watch_date(session, MOVIE, 1, date(2024, 6, 1))
+    library.add_rewatch(session, MOVIE, 1)
+    assert library.get_library_item(session, MOVIE, 1).status == WATCHING
+
+
+def test_marking_episode_leaves_show_status(session, kingdom):
+    library.set_status(session, SHOW, kingdom.id, TO_WATCH)
+    library.mark_watched(session, EPISODE, ep(session, 1011).id)
+    assert library.get_library_item(session, SHOW, kingdom.id).status == TO_WATCH
+
+
+def test_unwatched_movie_goes_back(session):
+    """Plus vu : un film « Terminé » revient en « À voir », ou au statut d'avant (« Annuler »)."""
+    library.set_status(session, MOVIE, 1, TO_WATCH)
+    library.mark_watched(session, MOVIE, 1)
+    library.unmark_watched(session, MOVIE, 1)
+    assert library.get_library_item(session, MOVIE, 1).status == TO_WATCH
+
+    library.set_status(session, MOVIE, 2, WATCHING)
+    library.mark_watched(session, MOVIE, 2)
+    library.unmark_watched(session, MOVIE, 2, back_to=WATCHING)
+    assert library.get_library_item(session, MOVIE, 2).status == WATCHING
+
+    library.set_status(session, MOVIE, 3, COMPLETED)
+    library.unmark_watched(session, MOVIE, 3, back_to="inconnu")   # statut invalide : À voir
+    assert library.get_library_item(session, MOVIE, 3).status == TO_WATCH
+
+    library.set_status(session, MOVIE, 4, STOPPED)                 # pas « Terminé » : gardé
+    library.unmark_watched(session, MOVIE, 4)
+    assert library.get_library_item(session, MOVIE, 4).status == STOPPED
+
+
+def test_complete_watched_movies(session):
+    """Réparation : films vus restés « À voir » -> « Terminé » ; les autres statuts gardés."""
+    statuses = {1: TO_WATCH, 2: TO_WATCH, 3: WATCHING, 4: STOPPED}
+    for movie_id, status in statuses.items():
+        session.add(LibraryItem(kind=MOVIE, ref_id=movie_id, status=status))
+    for movie_id in (1, 3, 4):
+        library.upsert_watch(session, MOVIE, movie_id, datetime(2024, 5, 1))
+    session.add(LibraryItem(kind=SHOW, ref_id=1, status=TO_WATCH))     # même id, série
+    library.upsert_watch(session, EPISODE, 1, datetime(2024, 5, 1))
+    session.flush()
+    assert library.complete_watched_movies(session) == 1
+    session.flush()
+    assert {movie_id: library.get_library_item(session, MOVIE, movie_id).status
+            for movie_id in statuses} == {1: COMPLETED, 2: TO_WATCH, 3: WATCHING, 4: STOPPED}
+    assert library.get_library_item(session, SHOW, 1).status == TO_WATCH
+    assert library.complete_watched_movies(session) == 0
+
+
 def test_mark_season_watched(session, kingdom):
     assert library.mark_season_watched(session, kingdom.id, 1) == 3
     assert watched_tvmaze_ids(session) == [1011, 1012, 1013]

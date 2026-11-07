@@ -3,7 +3,7 @@
 
 import { fmtDate } from "../core/dates.js";
 import { exportData, importData, readJson } from "../core/exchange.js";
-import { refreshCompleted } from "../core/library.js";
+import { completeWatchedMovies, refreshCompleted } from "../core/library.js";
 import { platformChoices } from "../core/providers.js";
 import { clearAll, storageEstimate } from "../storage/idb.js";
 import { maskSecret, readSecret, saveSecret } from "../storage/secret.js";
@@ -184,6 +184,7 @@ export const actions = {
     if (!file || !file.size) throw new Error("Choisis un fichier.");
     const report = importData(app.store, readJson(await file.text()));
     refreshCompleted(app.store);
+    completeWatchedMovies(app.store);
     const saved = await app.flush();
     app.ui.importReport = report.lines();
     if (!saved) {

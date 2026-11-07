@@ -6,7 +6,7 @@ import { daysBetween, fmtRuntime, today } from "../core/dates.js";
 import {
   UPCOMING_DAYS, activity, continueWatching, moviesToWatch, recentWatches, upcoming,
 } from "../core/home.js";
-import { markWatched, unmarkWatched } from "../core/library.js";
+import { getLibraryItem, markWatched, unmarkWatched } from "../core/library.js";
 import { EPISODE, MATCH_TO_CHECK, MOVIE, SHOW, refKey } from "../core/model.js";
 import { watchedAgo } from "../core/progress.js";
 import { dayEntryLabel } from "../core/queue.js";
@@ -228,14 +228,16 @@ export function render(app) {
 
 export const actions = {
   "home-seen"(app, el) {
+    // Statut d'avant gardé pour « Annuler » : un film vu passe en « Terminé ».
+    const before = getLibraryItem(app.store, el.dataset.kind, el.dataset.ref)?.status;
     markWatched(app.store, el.dataset.kind, el.dataset.ref);
     app.ui.homeLastAction = { text: `« ${el.dataset.label} » marqué vu.`,
-      undo: [el.dataset.kind, el.dataset.ref] };
+      undo: [el.dataset.kind, el.dataset.ref, before] };
     app.announce(app.ui.homeLastAction.text);
   },
   "home-undo"(app) {
-    const [kind, ref] = app.ui.homeLastAction?.undo || [];
-    if (kind) unmarkWatched(app.store, kind, ref);
+    const [kind, ref, before] = app.ui.homeLastAction?.undo || [];
+    if (kind) unmarkWatched(app.store, kind, ref, before);
     app.ui.homeLastAction = null;
   },
 };

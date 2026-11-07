@@ -114,7 +114,20 @@ def startup_genres() -> None:
         session.commit()
 
 
+@st.cache_resource
+def startup_movie_statuses() -> None:
+    """Films vus restés « À voir » (ancien « Vu » d'À regarder) passés en « Terminé »."""
+    import logging
+    from watchlog.core import library
+    with common.db() as session:
+        count = library.complete_watched_movies(session)
+        session.commit()
+    if count:
+        logging.getLogger(__name__).info("Films vus passés en « Terminé » : %d", count)
+
+
 startup_genres()
+startup_movie_statuses()
 common.auto_sync()   # après la sauvegarde du démarrage
 
 SYNC_POLL_SECONDS = 3   # pendant la synchro automatique : vérifie toutes les 3 s si elle est finie

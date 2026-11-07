@@ -6,7 +6,7 @@ import streamlit as st
 
 from watchlog.core import library
 from watchlog.core.dates import fmt_date
-from watchlog.core.models import COMPLETED, MOVIE, TO_WATCH, Movie
+from watchlog.core.models import MOVIE, Movie
 from watchlog.core.queue import LOCAL_TZ, local_date
 from watchlog.ui import avis, common
 
@@ -39,8 +39,7 @@ def set_watched(movie_id: int, watched: bool, day_key: str | None = None,
     day_key : clé du champ « Date de visionnage » (aujourd'hui par défaut) ; unknown_key : clé
     de la case « Date inconnue », qui l'emporte sur le champ.
     """
-    with common.db() as session:
-        item = library.get_library_item(session, MOVIE, movie_id)
+    with common.db() as session:   # library change aussi le statut (Terminé / À voir)
         if watched:
             day = st.session_state.get(day_key) if day_key else datetime.now(LOCAL_TZ).date()
             if unknown_key and st.session_state.get(unknown_key):
@@ -49,12 +48,8 @@ def set_watched(movie_id: int, watched: bool, day_key: str | None = None,
                 library.mark_watched(session, MOVIE, movie_id)  # heure exacte
             else:
                 library.set_watch_date(session, MOVIE, movie_id, day)  # None : date inconnue
-            if item is not None:
-                item.status = COMPLETED
         else:
             library.unmark_watched(session, MOVIE, movie_id)
-            if item is not None and item.status == COMPLETED:
-                item.status = TO_WATCH
         session.commit()
 
 
