@@ -3,8 +3,14 @@
 
 import { isoUtc, localDayToUtc, today as todayParis, localDate } from "./dates.js";
 import {
-  COMPLETED, ENDED, EPISODE, MOVIE, SHOW, STATUSES, TO_WATCH, refKey,
+  COMPLETED, ENDED, EPISODE, FOR_LATER, MATCH_OK, MATCH_REMAPPED, MOVIE, SHOW, STATUSES, STOPPED,
+  TO_WATCH, WATCHING, refKey,
 } from "./model.js";
+
+// Statuts d'une série choisis à la main : jamais remplacés par le statut automatique
+// (« À voir », « En cours », « Terminé », déduits des épisodes vus), sauf série finie et
+// entièrement vue.
+export const MANUAL_SHOW_STATUSES = [FOR_LATER, STOPPED];
 
 function earliest(a, b) {
   if (!a) return b || null;
@@ -47,13 +53,15 @@ export function upsertWatch(store, kind, ref, watchedAt = null, lastWatchedAt = 
 }
 
 /** Premier visionnage d'un titre ; un film de la bibliothèque passe alors en « Terminé »
- *  (vu, il n'a plus rien « à voir » : library._first_watch). `at` : null = date inconnue. */
+ *  (vu, il n'a plus rien « à voir » : library._first_watch), le statut de la série d'un
+ *  épisode est recalculé. `at` : null = date inconnue. */
 function firstWatch(store, kind, ref, at) {
   const watch = store.put("watches", {
     key: refKey(kind, ref), kind, ref, watched_at: at, last_watched_at: at, plays: 1,
   });
   const item = kind === MOVIE ? getLibraryItem(store, MOVIE, ref) : null;
   if (item && item.status !== COMPLETED) store.put("library", { ...item, status: COMPLETED });
+  if (kind === EPISODE) refreshEpisodeShow(store, ref);
   return watch;
 }
 
@@ -66,13 +74,15 @@ export function markWatched(store, kind, ref, when = null) {
 }
 
 /** Retire le visionnage. Un film « Terminé » n'est plus vu : il repasse en `backTo`
- *  (« Annuler » remet le statut d'avant), « À voir » par défaut. */
+ *  (« Annuler » remet le statut d'avant), « À voir » par défaut ; le statut de la série
+ *  d'un épisode est recalculé. */
 export function unmarkWatched(store, kind, ref, backTo = null) {
   const removed = store.remove("watches", refKey(kind, ref));
   const item = kind === MOVIE ? getLibraryItem(store, MOVIE, ref) : null;
   if (item && item.status === COMPLETED) {
     store.put("library", { ...item, status: STATUSES.includes(backTo) ? backTo : TO_WATCH });
   }
+  if (removed && kind === EPISODE) refreshEpisodeShow(store, ref);
   return removed;
 }
 
@@ -216,11 +226,15 @@ export function ensureLibraryItem(store, kind, ref, status = TO_WATCH, favorite 
   });
 }
 
+/** Change le statut (ajoute à la bibliothèque si besoin). Série : seuls « Plus tard » et
+ *  « Arrêté » se choisissent ; tout autre statut est remplacé par celui que donnent les
+ *  épisodes vus (refreshShowStatuses). */
 export function setStatus(store, kind, ref, status) {
   if (!STATUSES.includes(status)) throw new Error(`Statut inconnu : ${status}`);
   const item = ensureLibraryItem(store, kind, ref, status);
-  if (item.status === status) return item;
-  return store.put("library", { ...item, status });
+  if (item.status !== status) store.put("library", { ...item, status });
+  if (kind === SHOW) refreshShowStatuses(store, todayParis(), ref);
+  return getLibraryItem(store, kind, ref);
 }
 
 export function setFavorite(store, kind, ref, favorite) {
@@ -233,22 +247,52 @@ export function removeFromLibrary(store, kind, ref) {
   return store.remove("library", refKey(kind, ref));
 }
 
-/** Passe en « Terminé » les séries finies (TVMaze : Ended) dont tous les épisodes réguliers
- *  diffusés sont vus. Renvoie le nombre de séries changées. */
-export function refreshCompleted(store, day = todayParis()) {
-  let count = 0;
-  for (const item of store.library.values()) {
-    if (item.kind !== SHOW || item.status === COMPLETED) continue;
+/** Statut d'une série d'après ses épisodes (library.auto_show_status) : rien vu = « À voir » ;
+ *  commencée avec des épisodes sortis à voir = « En cours » ; à jour = « Terminé » (elle
+ *  repassera « En cours » à la sortie d'un nouvel épisode). */
+export function autoShowStatus(watched, remaining) {
+  if (!watched) return TO_WATCH;
+  return remaining ? WATCHING : COMPLETED;
+}
+
+/** Remet le statut des séries de la bibliothèque (ou d'une seule, `showKey`) d'accord avec
+ *  les épisodes vus (library.refresh_show_statuses). Épisodes réguliers seulement ; « sorti »
+ *  = date française au plus tard aujourd'hui (sans date : seulement pour une série saisie à
+ *  la main). « Plus tard » et « Arrêté » sont des choix : gardés, sauf série finie (Ended)
+ *  entièrement vue. Séries à la correspondance TVMaze à vérifier : pas touchées.
+ *  Renvoie le nombre de séries dont le statut a changé. */
+export function refreshShowStatuses(store, day = todayParis(), showKey = null) {
+  const items = showKey === null ? [...store.library.values()]
+    : [getLibraryItem(store, SHOW, showKey)].filter(Boolean);
+  let changed = 0;
+  for (const item of items) {
+    if (item.kind !== SHOW) continue;
     const show = store.get("shows", item.ref);
-    if (!show || show.status !== ENDED) continue;
-    const aired = store.episodesOf(item.ref).filter((ep) => !ep.is_special && ep.airdate
-      && ep.airdate <= day);
-    if (aired.length && aired.every((ep) => getWatch(store, EPISODE, ep.key))) {
-      store.put("library", { ...item, status: COMPLETED });
-      count += 1;
+    if (!show || ![MATCH_OK, MATCH_REMAPPED].includes(show.match_status || MATCH_OK)) continue;
+    let watched = 0;
+    let remaining = 0;
+    for (const ep of store.episodesOf(item.ref)) {
+      if (ep.is_special) continue;
+      if (getWatch(store, EPISODE, ep.key)) watched += 1;
+      else if (isAired(ep, day) || (show.is_manual && !localDate(ep.airstamp, ep.airdate))) {
+        remaining += 1;
+      }
+    }
+    const status = autoShowStatus(watched, remaining);
+    if (MANUAL_SHOW_STATUSES.includes(item.status)
+      && !(status === COMPLETED && show.status === ENDED)) continue;
+    if (item.status !== status) {
+      store.put("library", { ...item, status });
+      changed += 1;
     }
   }
-  return count;
+  return changed;
+}
+
+/** Statut de la série d'un épisode qui vient d'être vu (ou de ne plus l'être). */
+function refreshEpisodeShow(store, episodeKey) {
+  const ep = store.get("episodes", episodeKey);
+  if (ep) refreshShowStatuses(store, todayParis(), ep.show);
 }
 
 /** Passe en « Terminé » les films vus restés « À voir » (réparation : avant, « Vu » depuis

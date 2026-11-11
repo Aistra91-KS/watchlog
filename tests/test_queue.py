@@ -115,6 +115,21 @@ def test_statuses_filter(session):
     assert {i.status for i in later} == {FOR_LATER}
 
 
+def test_upcoming_episodes_of_up_to_date_show_stay_with_watching(session):
+    """Série à jour (« Terminé ») : son prochain épisode reste dans À regarder et le
+    calendrier, pas ses épisodes sortis ou sans date."""
+    show = add_show(session, "À jour", status="completed")
+    add_episode(session, show, 1, 1, airdate=TODAY - timedelta(days=7))
+    add_episode(session, show, 1, 2, airdate=TODAY + timedelta(days=7))
+    add_episode(session, show, 1, 3)
+    session.commit()
+
+    assert codes(build(session)) == ["À jour S01E02"]
+    assert codes(build(session, statuses=(TO_WATCH,))) == []
+    assert codes(queue.calendar(session, today=TODAY)) == ["À jour S01E02"]
+    assert len(build(session, statuses=("completed",))) == 3   # demandé : pas de doublon
+
+
 def test_kinds_and_show_filter(session):
     alpha = add_show(session, "Alpha")
     beta = add_show(session, "Beta")

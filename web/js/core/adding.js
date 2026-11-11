@@ -4,7 +4,7 @@
 import { applyTmdbSeason, upsertMovieFromTmdb, upsertShowFromTvmaze } from "./catalog.js";
 import { isoUtc } from "./dates.js";
 import {
-  completeWatchedMovies, ensureLibraryItem, getWatch, markWatchedUntil, refreshCompleted,
+  completeWatchedMovies, ensureLibraryItem, getWatch, markWatchedUntil, refreshShowStatuses,
   setStatus, setWatchDate,
 } from "./library.js";
 import { COMPLETED, MOVIE, SHOW, episodeKey, newId } from "./model.js";
@@ -223,7 +223,7 @@ export async function syncLibrary(store, tvmaze, tmdb, { progress = () => {}, no
     }
   }
   progress(total, total, "");
-  refreshCompleted(store);
+  refreshShowStatuses(store);
   completeWatchedMovies(store);   // films vus restés « À voir » (sync.py, étape 7)
   if (!report.tvmazeDown) {
     store.setSetting("last_sync_at", isoUtc(now));

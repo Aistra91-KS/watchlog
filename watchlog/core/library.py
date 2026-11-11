@@ -8,9 +8,16 @@ from datetime import date, datetime
 from sqlmodel import Session, select
 
 from watchlog.core.dates import LOCAL_TZ, local_day_to_utc, utcnow
-from watchlog.core.models import (COMPLETED, EPISODE, MOVIE, SHOW, STATUSES, TO_WATCH, Episode,
+from watchlog.core.models import (COMPLETED, EPISODE, FOR_LATER, MATCH_OK, MATCH_REMAPPED, MOVIE,
+                                  SHOW, STATUSES, STOPPED, TO_WATCH, WATCHING, Episode,
                                   LibraryItem, Rating, Show, Watch)
+from watchlog.core.queue import local_date
 from watchlog.core.tvmaze import ENDED
+
+# Statuts d'une série choisis à la main : jamais remplacés par le statut automatique
+# (« À voir », « En cours », « Terminé », déduits des épisodes vus), sauf série finie et
+# entièrement vue.
+MANUAL_SHOW_STATUSES = (FOR_LATER, STOPPED)
 
 
 def _earliest(a: datetime | None, b: datetime | None) -> datetime | None:
@@ -66,28 +73,46 @@ def _first_watch(session: Session, kind: str, ref_id: int, when: datetime | None
     return watch
 
 
-def mark_watched(session: Session, kind: str, ref_id: int, when: datetime | None = None) -> Watch:
+def _refresh_episode_show(session: Session, episode_id: int) -> None:
+    """Recalcule le statut de la série d'un épisode qui vient d'être vu (ou de ne plus l'être)."""
+    episode = session.get(Episode, episode_id)
+    if episode is not None:
+        refresh_show_statuses(session, show_id=episode.show_id)
+
+
+def mark_watched(session: Session, kind: str, ref_id: int, when: datetime | None = None,
+                 refresh_status: bool = True) -> Watch:
     """Marque un épisode ou un film comme vu (ne fait rien s'il l'est déjà).
 
-    Un film de la bibliothèque passe en « Terminé ». Pas de commit.
+    Un film de la bibliothèque passe en « Terminé » ; le statut de la série d'un épisode est
+    recalculé (`refresh_status=False` : l'appelant le fait une fois, après un lot). Pas de
+    commit.
     """
     watch = get_watch(session, kind, ref_id)
     if watch is not None:
         return watch
-    return _first_watch(session, kind, ref_id, when or utcnow())
+    watch = _first_watch(session, kind, ref_id, when or utcnow())
+    if kind == EPISODE and refresh_status:
+        _refresh_episode_show(session, ref_id)
+    return watch
 
 
-def set_watch_date(session: Session, kind: str, ref_id: int, day: date | None) -> Watch:
+def set_watch_date(session: Session, kind: str, ref_id: int, day: date | None,
+                   refresh_status: bool = True) -> Watch:
     """Change la date du (premier) visionnage, et marque vu si ce n'était pas le cas.
 
     day=None : vu, date inconnue. Vu une seule fois : le dernier visionnage suit la même date ;
     vu plusieurs fois, il n'est avancé que si la nouvelle date est plus récente. Un film qui
-    n'était pas vu passe en « Terminé ». Pas de commit.
+    n'était pas vu passe en « Terminé », le statut de la série d'un épisode est recalculé
+    (`refresh_status`, comme mark_watched). Pas de commit.
     """
     when = local_day_to_utc(day) if day is not None else None
     watch = get_watch(session, kind, ref_id)
     if watch is None:
-        return _first_watch(session, kind, ref_id, when)
+        watch = _first_watch(session, kind, ref_id, when)
+        if kind == EPISODE and refresh_status:
+            _refresh_episode_show(session, ref_id)
+        return watch
     watch.watched_at = when
     if watch.plays <= 1 or watch.last_watched_at is None:
         watch.last_watched_at = when
@@ -121,11 +146,15 @@ def unmark_watched(session: Session, kind: str, ref_id: int, back_to: str | None
     """Retire le visionnage d'un épisode ou d'un film.
 
     Un film « Terminé » n'est plus vu : il repasse en `back_to` (« Annuler » remet le statut
-    d'avant), « À voir » par défaut. Pas de commit.
+    d'avant), « À voir » par défaut. Le statut de la série d'un épisode est recalculé.
+    Pas de commit.
     """
     watch = get_watch(session, kind, ref_id)
     if watch is not None:
         session.delete(watch)
+        if kind == EPISODE:
+            session.flush()
+            _refresh_episode_show(session, ref_id)
     if kind == MOVIE:
         item = get_library_item(session, MOVIE, ref_id)
         if item is not None and item.status == COMPLETED:
@@ -151,7 +180,7 @@ def add_rewatch(session: Session, kind: str, ref_id: int, day: date | None = Non
     when = _rewatch_time(day)
     watch = get_watch(session, kind, ref_id)
     if watch is None:
-        return _first_watch(session, kind, ref_id, when)
+        return mark_watched(session, kind, ref_id, when)
     watch.plays = (watch.plays or 1) + 1
     watch.last_watched_at = _latest(watch.last_watched_at, when)
     session.add(watch)
@@ -214,9 +243,11 @@ def _mark_episodes(session: Session, episodes: list[Episode]) -> int:
     count = 0
     for episode in episodes:
         if get_watch(session, EPISODE, episode.id) is None:
-            mark_watched(session, EPISODE, episode.id)
+            mark_watched(session, EPISODE, episode.id, refresh_status=False)
             count += 1
     session.flush()
+    for show_id in {episode.show_id for episode in episodes}:
+        refresh_show_statuses(session, show_id=show_id)
     return count
 
 
@@ -276,12 +307,19 @@ def ensure_library_item(session: Session, kind: str, ref_id: int, status: str,
 
 
 def set_status(session: Session, kind: str, ref_id: int, status: str) -> LibraryItem:
-    """Change le statut (ajoute l'élément à la bibliothèque s'il n'y est pas)."""
+    """Change le statut (ajoute l'élément à la bibliothèque s'il n'y est pas).
+
+    Série : seuls « Plus tard » et « Arrêté » se choisissent ; tout autre statut est remplacé
+    par celui que donnent les épisodes vus (refresh_show_statuses). Pas de commit.
+    """
     if status not in STATUSES:
         raise ValueError(f"Statut inconnu : {status}")
     item = ensure_library_item(session, kind, ref_id, status)
     item.status = status
     session.add(item)
+    if kind == SHOW:
+        session.flush()
+        refresh_show_statuses(session, show_id=ref_id)
     return item
 
 
@@ -414,31 +452,67 @@ def _clean_text(text: str | None) -> str | None:
     return text.strip() if text and text.strip() else None
 
 
-def refresh_completed(session: Session, today: date | None = None) -> int:
-    """Passe en « Terminé » les séries finies (TVMaze : Ended) dont tout est vu.
+def auto_show_status(watched: int, remaining: int) -> str:
+    """Statut d'une série d'après ses épisodes : `watched` vus, `remaining` sortis pas vus.
 
-    « Tout » = tous les épisodes réguliers (hors spéciaux) déjà diffusés.
-    Renvoie le nombre de séries passées en « Terminé ».
+    Rien vu : « À voir » ; commencée avec des épisodes sortis à voir : « En cours » ; à jour :
+    « Terminé » (elle repassera « En cours » à la sortie d'un nouvel épisode).
     """
-    today = today or date.today()
+    if not watched:
+        return TO_WATCH
+    return WATCHING if remaining else COMPLETED
+
+
+def refresh_show_statuses(session: Session, today: date | None = None,
+                          show_id: int | None = None) -> int:
+    """Remet le statut des séries de la bibliothèque (ou d'une seule) d'accord avec les
+    épisodes vus : « À voir », « En cours » ou « Terminé » (auto_show_status).
+
+    Épisodes réguliers seulement (hors spéciaux) ; « sorti » = date française au plus tard
+    aujourd'hui (sans date : seulement pour une série saisie à la main, qui n'en a jamais).
+    « Plus tard » et « Arrêté » sont des choix : gardés, sauf série finie (TVMaze : Ended)
+    entièrement vue, qui passe en « Terminé ». Séries à la correspondance TVMaze à vérifier :
+    pas touchées (leurs visionnages sont en attente, tout semblerait non vu).
+    Renvoie le nombre de séries dont le statut a changé. Pas de commit.
+    """
+    today = today or datetime.now(LOCAL_TZ).date()
     query = (select(LibraryItem, Show)
              .join(Show, Show.id == LibraryItem.ref_id)
-             .where(LibraryItem.kind == SHOW, LibraryItem.status != COMPLETED,
-                    Show.status == ENDED))
-    count = 0
-    for item, show in session.exec(query).all():
-        aired = session.exec(select(Episode).where(
-            Episode.show_id == show.id, Episode.is_special == False,  # noqa: E712
-            Episode.airdate.is_not(None), Episode.airdate <= today)).all()
-        if not aired:
+             .where(LibraryItem.kind == SHOW,
+                    Show.match_status.in_([MATCH_OK, MATCH_REMAPPED])))
+    episodes = select(Episode.id, Episode.show_id, Episode.airstamp, Episode.airdate).where(
+        Episode.is_special == False)  # noqa: E712 (syntaxe SQLAlchemy)
+    watched_query = select(Watch.ref_id).where(Watch.kind == EPISODE)
+    if show_id is not None:
+        query = query.where(Show.id == show_id)
+        episodes = episodes.where(Episode.show_id == show_id)
+        watched_query = watched_query.where(Watch.ref_id.in_(
+            select(Episode.id).where(Episode.show_id == show_id)))
+    rows = session.exec(query).all()
+    if not rows:
+        return 0
+    manual = {show.id for _, show in rows if show.is_manual}
+    watched_ids = set(session.exec(watched_query).all())
+    counts: dict[int, list[int]] = {}   # série -> [épisodes vus, épisodes sortis pas vus]
+    for episode_id, episode_show, airstamp, airdate in session.exec(episodes):
+        count = counts.setdefault(episode_show, [0, 0])
+        if episode_id in watched_ids:
+            count[0] += 1
             continue
-        watched_ids = set(session.exec(select(Watch.ref_id).where(
-            Watch.kind == EPISODE, Watch.ref_id.in_([ep.id for ep in aired]))).all())
-        if len(watched_ids) == len(aired):
-            item.status = COMPLETED
+        day = local_date(airstamp, airdate)
+        if day <= today if day is not None else episode_show in manual:
+            count[1] += 1
+    changed = 0
+    for item, show in rows:
+        status = auto_show_status(*counts.get(show.id, (0, 0)))
+        if item.status in MANUAL_SHOW_STATUSES and not (
+                status == COMPLETED and show.status == ENDED):
+            continue
+        if item.status != status:
+            item.status = status
             session.add(item)
-            count += 1
-    return count
+            changed += 1
+    return changed
 
 
 def complete_watched_movies(session: Session) -> int:

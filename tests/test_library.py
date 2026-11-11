@@ -10,8 +10,8 @@ from conftest import FakeTMDB, FakeTVMaze, load_json
 from watchlog.core import catalog, library
 from watchlog.core.dates import local_day_to_utc
 from watchlog.core.db import make_engine
-from watchlog.core.models import (COMPLETED, EPISODE, MATCH_UNCERTAIN, MOVIE, SHOW, STOPPED,
-                                  TO_WATCH, WATCHING, Episode, LibraryItem, Movie, Show, Watch)
+from watchlog.core.models import (COMPLETED, EPISODE, FOR_LATER, MATCH_UNCERTAIN, MOVIE, SHOW,
+                                  STOPPED, TO_WATCH, WATCHING, Episode, LibraryItem, Movie, Show, Watch)
 
 
 @pytest.fixture
@@ -32,6 +32,10 @@ def kingdom(session) -> Show:
 
 def ep(session, tvmaze_episode_id) -> Episode:
     return session.exec(select(Episode).where(Episode.tvmaze_episode_id == tvmaze_episode_id)).one()
+
+
+def _status(session, show) -> str:
+    return library.get_library_item(session, SHOW, show.id).status
 
 
 def watched_tvmaze_ids(session) -> list[int]:
@@ -147,10 +151,29 @@ def test_watched_movie_keeps_status_chosen_later(session):
     assert library.get_library_item(session, MOVIE, 1).status == WATCHING
 
 
-def test_marking_episode_leaves_show_status(session, kingdom):
-    library.set_status(session, SHOW, kingdom.id, TO_WATCH)
+def test_marking_episode_updates_show_status(session, kingdom):
+    """À voir -> En cours au premier épisode vu, -> Terminé au dernier, et retour."""
+    library.set_status(session, SHOW, kingdom.id, WATCHING)
+    assert _status(session, kingdom) == TO_WATCH          # rien vu : jamais « En cours »
     library.mark_watched(session, EPISODE, ep(session, 1011).id)
-    assert library.get_library_item(session, SHOW, kingdom.id).status == TO_WATCH
+    assert _status(session, kingdom) == WATCHING
+    library.mark_season_watched(session, kingdom.id, 1)
+    library.mark_season_watched(session, kingdom.id, 2)
+    assert _status(session, kingdom) == COMPLETED
+    library.unmark_watched(session, EPISODE, ep(session, 1022).id)
+    assert _status(session, kingdom) == WATCHING
+    for episode in session.exec(select(Episode).where(Episode.show_id == kingdom.id)).all():
+        library.unmark_watched(session, EPISODE, episode.id)
+    assert _status(session, kingdom) == TO_WATCH
+
+
+def test_show_status_follows_first_watch_by_date_or_rewatch(session, kingdom):
+    library.set_status(session, SHOW, kingdom.id, TO_WATCH)
+    library.set_watch_date(session, EPISODE, ep(session, 1011).id, None)
+    assert _status(session, kingdom) == WATCHING
+    library.unmark_watched(session, EPISODE, ep(session, 1011).id)
+    library.add_rewatch(session, EPISODE, ep(session, 1012).id)
+    assert _status(session, kingdom) == WATCHING
 
 
 def test_unwatched_movie_goes_back(session):
@@ -295,29 +318,86 @@ def test_set_status(session):
         library.set_status(session, SHOW, 5, "n'importe quoi")
 
 
-def test_refresh_completed(session, kingdom):
-    library.ensure_library_item(session, SHOW, kingdom.id, WATCHING)
-    library.mark_season_watched(session, kingdom.id, 1)
-    library.mark_watched(session, EPISODE, ep(session, 1021).id)
-    assert library.refresh_completed(session) == 0   # S02E02 pas vu
+def test_auto_show_status():
+    assert library.auto_show_status(0, 0) == TO_WATCH
+    assert library.auto_show_status(0, 5) == TO_WATCH
+    assert library.auto_show_status(2, 5) == WATCHING
+    assert library.auto_show_status(7, 0) == COMPLETED
+
+
+def test_refresh_show_statuses_repairs_library(session, kingdom):
+    """Bibliothèque mal rangée : chaque série reprend le statut de ses épisodes vus."""
+    library.ensure_library_item(session, SHOW, kingdom.id, WATCHING)   # en cours, rien vu
+    assert library.refresh_show_statuses(session) == 1
+    assert _status(session, kingdom) == TO_WATCH
+
+    library.upsert_watch(session, EPISODE, ep(session, 1011).id)        # import : pas de calcul
+    assert library.refresh_show_statuses(session) == 1
+    assert _status(session, kingdom) == WATCHING
 
     # S02E03 n'a pas de date de diffusion et le spécial n'est pas vu : pas bloquant.
-    library.mark_watched(session, EPISODE, ep(session, 1022).id)
-    assert library.refresh_completed(session) == 1
-    assert library.get_library_item(session, SHOW, kingdom.id).status == COMPLETED
-    assert library.refresh_completed(session) == 0   # déjà terminée
+    for tvmaze_id in (1012, 1013, 1021, 1022):
+        library.upsert_watch(session, EPISODE, ep(session, tvmaze_id).id)
+    library.get_library_item(session, SHOW, kingdom.id).status = TO_WATCH   # vue, « à voir »
+    assert library.refresh_show_statuses(session) == 1
+    assert _status(session, kingdom) == COMPLETED
+    assert library.refresh_show_statuses(session) == 0   # déjà d'accord
 
 
-def test_refresh_completed_ignores_running_and_future(session, kingdom):
-    library.ensure_library_item(session, SHOW, kingdom.id, WATCHING)
-    library.mark_season_watched(session, kingdom.id, 1)
-    library.mark_season_watched(session, kingdom.id, 2)
-    # Avant la diffusion de la saison 2 : tout ce qui était diffusé était vu -> terminée
-    assert library.refresh_completed(session, today=date(2020, 6, 1)) == 1
-    library.set_status(session, SHOW, kingdom.id, WATCHING)
+def test_completed_show_is_watching_again_when_an_episode_airs(session, kingdom):
     kingdom.status = "Running"
     session.add(kingdom)
-    assert library.refresh_completed(session) == 0
+    library.ensure_library_item(session, SHOW, kingdom.id, WATCHING)
+    library.mark_season_watched(session, kingdom.id, 1)
+    # Avant la saison 2 : tout ce qui est sorti est vu -> terminée, même si la série continue
+    assert library.refresh_show_statuses(session, today=date(2020, 6, 1)) == 1
+    assert _status(session, kingdom) == COMPLETED
+    # La saison 2 sort : de nouveau en cours
+    assert library.refresh_show_statuses(session) == 1
+    assert _status(session, kingdom) == WATCHING
+
+
+def test_refresh_show_statuses_keeps_manual_choices(session, kingdom):
+    """« Plus tard » et « Arrêté » restent, sauf série finie entièrement vue."""
+    library.set_status(session, SHOW, kingdom.id, STOPPED)
+    library.mark_watched(session, EPISODE, ep(session, 1011).id)
+    assert _status(session, kingdom) == STOPPED
+    library.set_status(session, SHOW, kingdom.id, FOR_LATER)
+    assert library.refresh_show_statuses(session) == 0
+    assert _status(session, kingdom) == FOR_LATER
+    library.mark_season_watched(session, kingdom.id, 1)
+    library.mark_season_watched(session, kingdom.id, 2)
+    assert _status(session, kingdom) == COMPLETED          # série finie (Ended), tout vu
+
+    kingdom.status = "Running"
+    session.add(kingdom)
+    library.set_status(session, SHOW, kingdom.id, STOPPED)
+    assert library.refresh_show_statuses(session) == 0     # série qui continue : choix gardé
+    assert _status(session, kingdom) == STOPPED
+
+
+def test_refresh_show_statuses_skips_unchecked_match(session, kingdom):
+    """Correspondance TVMaze à vérifier : visionnages en attente, statut pas touché."""
+    kingdom.match_status = MATCH_UNCERTAIN
+    session.add(kingdom)
+    library.set_status(session, SHOW, kingdom.id, WATCHING)
+    assert library.refresh_show_statuses(session) == 0
+    assert _status(session, kingdom) == WATCHING
+
+
+def test_manual_show_undated_episodes_count_as_released(session):
+    """Série saisie à la main : épisodes sans date = disponibles (sinon « Terminé » trop tôt)."""
+    show = Show(title="Ma série", is_manual=True)
+    session.add(show)
+    session.flush()
+    episodes = [Episode(show_id=show.id, season=1, number=n) for n in (1, 2)]
+    session.add_all(episodes)
+    session.flush()
+    library.set_status(session, SHOW, show.id, TO_WATCH)
+    library.mark_watched(session, EPISODE, episodes[0].id)
+    assert _status(session, show) == WATCHING
+    library.mark_watched(session, EPISODE, episodes[1].id)
+    assert _status(session, show) == COMPLETED
 
 
 # --- Notes, favoris, retrait ---------------------------------------------------------

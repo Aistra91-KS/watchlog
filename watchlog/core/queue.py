@@ -177,7 +177,9 @@ def build_queue(session: Session, kinds=(EPISODE, MOVIE), statuses=DEFAULT_STATU
     """Construit la liste « À regarder ».
 
     - kinds : types affichés ("episode", "movie")
-    - statuses : statuts de bibliothèque retenus (par défaut : en cours + à voir)
+    - statuses : statuts de bibliothèque retenus (par défaut : en cours + à voir) ; avec
+      « En cours », les épisodes à venir des séries à jour (« Terminé ») sont aussi listés,
+      sinon une série suivie disparaîtrait entre deux épisodes
     - availabilities : sorti / à venir / sans date
     - show_id : une seule série (les films sont alors exclus)
     - include_specials : inclure les épisodes spéciaux
@@ -188,6 +190,11 @@ def build_queue(session: Session, kinds=(EPISODE, MOVIE), statuses=DEFAULT_STATU
     items = []
     if EPISODE in kinds:
         episodes = _episode_items(session, statuses, show_id, include_specials, today)
+        if statuses is not None and WATCHING in statuses and COMPLETED not in statuses:
+            # Série à jour (« Terminé ») : ses épisodes annoncés restent avec les « En cours ».
+            episodes += [item for item in _episode_items(session, (COMPLETED,), show_id,
+                                                         include_specials, today)
+                         if item.availability == UPCOMING]
         if next_only:
             episodes = _first_per_show(episodes)
         items += episodes
@@ -231,7 +238,7 @@ def calendar(session: Session, days: int = 60, today: date | None = None,
              include_specials: bool = False) -> list[QueueItem]:
     """Sorties non vues des `days` prochains jours (aujourd'hui compris), séries et films.
 
-    Toutes les séries/films suivis, sauf ceux arrêtés ou terminés.
+    Toutes les séries/films suivis, sauf ceux arrêtés (et les films terminés).
     """
     today = today or datetime.now(LOCAL_TZ).date()
     end = today + timedelta(days=days)

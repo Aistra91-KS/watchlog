@@ -537,7 +537,7 @@ def import_bingers(source, engine: Engine, tvmaze, tmdb, progress: Progress | No
 
         progress(done, total, "Notes et listes")
         _import_ratings_and_lists(session, rows, report)
-        library.refresh_completed(session)
+        library.refresh_show_statuses(session)
         session.commit()
         progress(total, total, "Terminé")
     log.info("Import Bingers terminé : %s", " | ".join(report.lines()[:7]))
@@ -601,7 +601,7 @@ def confirm_match(engine: Engine, tvmaze, show_id: int, tvmaze_id: int) -> str:
         show.match_status, show.match_note, show.candidate_tvmaze_id = MATCH_OK, None, None
 
         applied, pending = place_watches(session, show, _pending_views(session, show.id))
-        library.refresh_completed(session)
+        library.refresh_show_statuses(session)
         session.commit()
         message = f"« {show.title} » rattachée à TVMaze (« {data.get('name')} »)"
         if show.match_status == MATCH_NUMBERING:
@@ -688,7 +688,7 @@ def _apply_pairs(session: Session, show: Show, pairs, method: str) -> str:
     show.match_status = MATCH_REMAPPED
     show.match_note = f"Correspondance « {method} » appliquée ({applied} visionnages)"
     session.add(show)
-    library.refresh_completed(session)
+    library.refresh_show_statuses(session)
     session.commit()
     message = f"« {show.title} » : {applied} visionnage(s) recalé(s)"
     if left:

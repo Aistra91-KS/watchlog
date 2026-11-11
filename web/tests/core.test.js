@@ -10,11 +10,11 @@ import {
 import {
   RATING_VALUES, addRewatch, addSeasonRewatch, cleanRating, completeWatchedMovies, formatRating,
   getRating, getWatch, markSeasonWatched, markWatched, markWatchedUntil, ratingStars,
-  refreshCompleted, removeRewatch, removeSeasonRewatch, setRating, setRatingValue,
+  autoShowStatus, refreshShowStatuses, removeRewatch, removeSeasonRewatch, setRating, setRatingValue,
   setShowWatchDates, setStatus, setWatchDate, unmarkWatched, upsertWatch,
 } from "../js/core/library.js";
 import {
-  COMPLETED, EPISODE, MOVIE, SHOW, STOPPED, TO_WATCH, WATCHING, refKey,
+  COMPLETED, EPISODE, FOR_LATER, MOVIE, SHOW, STOPPED, TO_WATCH, WATCHING, refKey,
 } from "../js/core/model.js";
 import { lastWatchedLabel, libraryOverview, progressLabel, SORT_PAUSED } from "../js/core/progress.js";
 import { ApiError } from "../js/api/http.js";
@@ -87,17 +87,75 @@ test("visionnages : fusion idempotente, revisionnage, saison, « j'en suis là �
   assert.equal(markWatched(store, EPISODE, e2).plays, 1);
 });
 
-test("statut, note et passage automatique en « Terminé »", () => {
+test("statut d'une série : suit les épisodes vus (à voir, en cours, terminé)", () => {
   const store = makeStore();
-  const show = addShow(store, "Fini", { status: "watching", status_tvmaze: null });
-  store.put("shows", { ...store.get("shows", show), status: "Ended" });
-  const e1 = addEpisode(store, show, 1, 1, { id: 1, airdate: "2020-01-01" });
-  addEpisode(store, show, 1, null, { id: 2, airdate: "2020-01-02" });  // spécial : ignoré
-  assert.equal(refreshCompleted(store, TODAY), 0);
-  watch(store, EPISODE, e1);
-  assert.equal(refreshCompleted(store, TODAY), 1);
-  assert.equal(store.get("library", refKey(SHOW, show)).status, COMPLETED);
+  const status = (ref) => store.get("library", refKey(SHOW, ref)).status;
+  assert.deepEqual([autoShowStatus(0, 0), autoShowStatus(0, 3), autoShowStatus(1, 3),
+    autoShowStatus(4, 0)], [TO_WATCH, TO_WATCH, WATCHING, COMPLETED]);
 
+  const show = addShow(store, "Suivie", { status: WATCHING });
+  store.put("shows", { ...store.get("shows", show), status: "Running" });
+  const e1 = addEpisode(store, show, 1, 1, { id: 1, airdate: "2020-01-01" });
+  const e2 = addEpisode(store, show, 1, 2, { id: 2, airdate: "2020-01-08" });
+  addEpisode(store, show, 1, null, { id: 3, airdate: "2020-01-02" });  // spécial : ignoré
+  addEpisode(store, show, 1, 3, { id: 4 });                            // sans date : ignoré
+  const next = addEpisode(store, show, 2, 1, { id: 5, airdate: "2999-01-01" });
+
+  // Bibliothèque mal rangée : « En cours » sans épisode vu -> « À voir »
+  assert.equal(refreshShowStatuses(store, TODAY), 1);
+  assert.equal(status(show), TO_WATCH);
+  watch(store, EPISODE, e1);                       // import : pas de calcul
+  assert.equal(refreshShowStatuses(store, TODAY), 1);
+  assert.equal(status(show), WATCHING);
+  markWatched(store, EPISODE, e2);                 // à jour : terminé, même si elle continue
+  assert.equal(status(show), COMPLETED);
+  assert.equal(refreshShowStatuses(store, TODAY), 0);
+  // Le nouvel épisode sort : de nouveau en cours
+  assert.equal(refreshShowStatuses(store, "2999-01-01"), 1);
+  assert.equal(status(show), WATCHING);
+  refreshShowStatuses(store, TODAY);
+  unmarkWatched(store, EPISODE, e2);
+  assert.equal(status(show), WATCHING);
+  unmarkWatched(store, EPISODE, e1);
+  assert.equal(status(show), TO_WATCH);
+  assert.equal(setStatus(store, SHOW, show, COMPLETED).status, TO_WATCH);   // pas un choix
+
+  // « Plus tard » et « Arrêté » : gardés, sauf série finie entièrement vue
+  assert.equal(setStatus(store, SHOW, show, FOR_LATER).status, FOR_LATER);
+  markWatched(store, EPISODE, e1);
+  markWatched(store, EPISODE, e2);
+  assert.equal(status(show), FOR_LATER);
+  store.put("shows", { ...store.get("shows", show), status: "Ended" });
+  assert.equal(refreshShowStatuses(store, TODAY), 1);
+  assert.equal(status(show), COMPLETED);
+  assert.ok(next);
+
+  // Correspondance TVMaze à vérifier : pas touchée ; saisie manuelle : sans date = sorti
+  const unsure = addShow(store, "À vérifier", { id: 2, match_status: "uncertain" });
+  const manual = addShow(store, "Manuelle", { id: 3, is_manual: true, status: TO_WATCH });
+  const m1 = addEpisode(store, manual, 1, 1);
+  addEpisode(store, manual, 1, 2);
+  markWatched(store, EPISODE, m1);
+  assert.equal(refreshShowStatuses(store, TODAY), 0);
+  assert.equal(status(unsure), WATCHING);
+  assert.equal(status(manual), WATCHING);
+});
+
+test("série à jour (« Terminé ») : son prochain épisode reste dans À regarder", () => {
+  const store = makeStore();
+  const show = addShow(store, "À jour", { status: COMPLETED });
+  addEpisode(store, show, 1, 1, { id: 1, airdate: "2020-01-01" });
+  addEpisode(store, show, 1, 2, { id: 2, airdate: "2999-01-01" });
+  addEpisode(store, show, 1, 3, { id: 3 });
+  const codes = (options) => buildQueue(store, { today: TODAY, ...options }).map((i) => i.code);
+  assert.deepEqual(codes(), ["S01E02"]);
+  assert.deepEqual(codes({ statuses: [TO_WATCH] }), []);
+  assert.equal(codes({ statuses: [COMPLETED] }).length, 3);
+});
+
+test("statut inconnu, note", () => {
+  const store = makeStore();
+  const show = addShow(store, "Fini", { status: "watching" });
   assert.throws(() => setStatus(store, SHOW, show, "regardé"), /Statut inconnu/);
   assert.equal(setStatus(store, SHOW, show, STOPPED).status, STOPPED);
   assert.equal(setRating(store, SHOW, show, { rating: 4, emotions: ["thrilled"] }).emotions, "thrilled");
@@ -136,11 +194,6 @@ test("film vu : « Terminé » ; plus vu : « À voir » ou le statut d'avant (�
   setStatus(store, MOVIE, c, STOPPED);            // pas « Terminé » : gardé
   unmarkWatched(store, MOVIE, c);
   assert.equal(status(c), STOPPED);
-
-  const show = addShow(store, "Série", { id: 1, status: TO_WATCH });
-  const ep = addEpisode(store, show, 1, 1, { id: 11 });
-  markWatched(store, EPISODE, ep);
-  assert.equal(store.get("library", refKey(SHOW, show)).status, TO_WATCH);
 });
 
 test("réparation : films vus restés « À voir » passés en « Terminé »", () => {

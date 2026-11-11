@@ -259,6 +259,34 @@ def status_options() -> list[str]:
     return list(STATUSES)
 
 
+# Série : premier choix de la liste « Statut » quand elle est en « Plus tard » ou « Arrêté ».
+AUTO_STATUS_LABEL = "Suivie (statut automatique)"
+SHOW_STATUS_HELP = ("« À voir », « En cours » et « Terminé » se règlent tout seuls d'après tes "
+                    "épisodes vus : rien vu, des épisodes sortis à voir, ou à jour (la série "
+                    "repasse « En cours » quand un nouvel épisode sort). « Plus tard » et "
+                    "« Arrêté » restent tant que tu ne les changes pas.")
+
+
+def show_status_options(current: str | None) -> list[str]:
+    """Statuts proposés pour une série : son statut automatique actuel (« À voir » si elle est
+    en « Plus tard », « Arrêté » ou hors bibliothèque), puis les deux choix à la main."""
+    from watchlog.core.models import FOR_LATER, STOPPED, TO_WATCH
+    automatic = current in STATUSES and current not in (FOR_LATER, STOPPED)
+    return [current if automatic else TO_WATCH, FOR_LATER, STOPPED]
+
+
+def show_status_label(current: str | None):
+    """format_func de show_status_options : le choix automatique s'appelle par son statut
+    quand la série y est déjà, sinon « Suivie (statut automatique) »."""
+    from watchlog.core.models import FOR_LATER, STOPPED
+
+    def label(status: str) -> str:
+        if status in (FOR_LATER, STOPPED) or status == current:
+            return status_label(status)
+        return AUTO_STATUS_LABEL
+    return label
+
+
 def open_show(show_id: int) -> None:
     """Ouvre la fiche d'une série."""
     st.session_state["show_id"] = show_id

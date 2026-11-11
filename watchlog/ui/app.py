@@ -126,8 +126,22 @@ def startup_movie_statuses() -> None:
         logging.getLogger(__name__).info("Films vus passés en « Terminé » : %d", count)
 
 
+@st.cache_resource
+def daily_show_statuses(day: str) -> None:
+    """Statuts des séries recalculés une fois par jour (`day`) : un épisode sorti ce matin
+    repasse sa série de « Terminé » à « En cours », même sans synchro."""
+    import logging
+    from watchlog.core import library
+    with common.db() as session:
+        count = library.refresh_show_statuses(session)
+        session.commit()
+    if count:
+        logging.getLogger(__name__).info("Statuts de séries mis à jour (%s) : %d", day, count)
+
+
 startup_genres()
 startup_movie_statuses()
+daily_show_statuses(time.strftime("%Y-%m-%d"))
 common.auto_sync()   # après la sauvegarde du démarrage
 
 SYNC_POLL_SECONDS = 3   # pendant la synchro automatique : vérifie toutes les 3 s si elle est finie

@@ -58,7 +58,7 @@ class SyncReport:
     titles_fr_missing: int = 0   # épisodes sans titre français sur TMDB (anglais gardé)
     summaries_fr: int = 0        # séries avec un résumé français (parmi celles relues)
     summaries_fr_missing: int = 0  # séries relues sans résumé français sur TMDB
-    completed: int = 0          # séries passées en « Terminé »
+    completed: int = 0          # séries au statut recalculé (à voir / en cours / terminé)
     movies_completed: int = 0    # films vus restés « À voir », passés en « Terminé »
     posters: int = 0             # affiches téléchargées
     tvmaze_down: bool = False    # TVMaze injoignable : séries non mises à jour
@@ -97,7 +97,8 @@ class SyncReport:
             lines.append(f"Résumés de séries en français (TMDB) : {self.summaries_fr} lus, "
                          f"{self.summaries_fr_missing} sans traduction (anglais gardé).")
         if self.completed:
-            lines.append(f"Séries passées en « Terminé » : {self.completed}.")
+            lines.append(f"Statuts de séries mis à jour (à voir / en cours / terminé) : "
+                         f"{self.completed}.")
         if self.movies_completed:
             lines.append(f"Films vus passés en « Terminé » : {self.movies_completed}.")
         if self.posters:
@@ -297,8 +298,8 @@ def sync(engine: Engine, tvmaze, tmdb, progress: Progress | None = None,
             done += 1
         progress(total, total, "Terminé")
 
-        # 7. Séries terminées (tous les épisodes vus et série finie), films vus.
-        report.completed = library.refresh_completed(session)
+        # 7. Statuts des séries d'après les épisodes vus et sortis, films vus.
+        report.completed = library.refresh_show_statuses(session)
         report.movies_completed = library.complete_watched_movies(session)
         session.commit()
 

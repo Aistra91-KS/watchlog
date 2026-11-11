@@ -2,14 +2,16 @@
 // retrait). Les actions lisent data-kind / data-ref sur l'élément cliqué.
 
 import {
-  RATING_VALUES, addRewatch, formatRating, getLibraryItem, getRating, markWatched,
+  MANUAL_SHOW_STATUSES, RATING_VALUES, addRewatch, formatRating, getLibraryItem, getRating, markWatched,
   removeFromLibrary, removeRewatch, setFavorite, setRating, setStatus, setWatchDate,
   splitEmotions, unmarkWatched,
 } from "../core/library.js";
 import { characterLabel, movieCast, showCast } from "../core/cast.js";
-import { EMOTION_LABELS, SHOW, STATUSES, STATUS_LABELS, refKey } from "../core/model.js";
+import {
+  EMOTION_LABELS, SHOW, STATUSES, STATUS_LABELS, TO_WATCH, refKey,
+} from "../core/model.js";
 import { html, options, raw, safeImageUrl } from "./dom.js";
-import { expander } from "./ui.js";
+import { expander, helpTip } from "./ui.js";
 
 // Réglage (IndexedDB) du dernier calcul de suggestions : page Suggestions, lu par l'accueil.
 export const SAVED_SUGGESTIONS = "suggestions_result";
@@ -19,12 +21,28 @@ export function savedSuggestions(app) {
   return app.ui.suggestions || app.store.setting(SAVED_SUGGESTIONS, null);
 }
 
+// Série : premier choix de la liste « Statut » quand elle est en « Plus tard » ou « Arrêté ».
+const AUTO_STATUS_LABEL = "Suivie (statut automatique)";
+const SHOW_STATUS_HELP = "« À voir », « En cours » et « Terminé » se règlent tout seuls d'après "
+  + "tes épisodes vus (la série repasse « En cours » quand un nouvel épisode sort). "
+  + "« Plus tard » et « Arrêté » restent tant que tu ne les changes pas.";
+
+/** Statuts proposés pour une série (common.show_status_options) : son statut automatique
+ *  actuel (« À voir » sous le nom « Suivie » si elle est en « Plus tard », « Arrêté » ou hors
+ *  bibliothèque), puis les deux choix à la main. */
+export function showStatusPairs(current) {
+  const automatic = STATUSES.includes(current) && !MANUAL_SHOW_STATUSES.includes(current);
+  return [automatic ? [current, STATUS_LABELS[current]] : [TO_WATCH, AUTO_STATUS_LABEL],
+    ...MANUAL_SHOW_STATUSES.map((s) => [s, STATUS_LABELS[s]])];
+}
+
 /** Sélecteur de statut (ajoute à la bibliothèque si besoin). */
 export function statusSelect(store, kind, ref, id) {
   const item = getLibraryItem(store, kind, ref);
-  const pairs = [...(item ? [] : [["", "Pas dans ma bibliothèque"]]),
-    ...STATUSES.map((s) => [s, STATUS_LABELS[s]])];
-  return html`<label class="field"><span>Statut</span>
+  const statuses = kind === SHOW ? showStatusPairs(item?.status)
+    : STATUSES.map((s) => [s, STATUS_LABELS[s]]);
+  const pairs = [...(item ? [] : [["", "Pas dans ma bibliothèque"]]), ...statuses];
+  return html`<label class="field"><span>Statut ${kind === SHOW ? helpTip(SHOW_STATUS_HELP) : ""}</span>
     <select id="${id}" data-change="status" data-kind="${kind}" data-ref="${ref}">
       ${options(pairs, item?.status || "")}</select></label>`;
 }
@@ -131,8 +149,8 @@ export const actions = {
   },
   status(app, el) {
     if (!el.value) return false;
-    setStatus(app.store, ...target(el), el.value);
-    app.toast(`Statut : ${STATUS_LABELS[el.value]}.`);
+    const item = setStatus(app.store, ...target(el), el.value);
+    app.toast(`Statut : ${STATUS_LABELS[item.status]}.`);
     return true;
   },
   "favorite-check"(app, el) {

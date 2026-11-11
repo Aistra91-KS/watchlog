@@ -21,6 +21,20 @@ import * as statistiques from "../js/views/statistiques.js";
 import * as suggestions from "../js/views/suggestions.js";
 import { addEpisode, addMovie, addShow, makeStore, watch } from "./helpers.js";
 
+test("statut d'une série : statut automatique actuel, « Plus tard » et « Arrêté »", () => {
+  assert.deepEqual(shared.showStatusPairs("completed").map((pair) => pair[0]),
+    ["completed", "for_later", "stopped"]);
+  assert.deepEqual(shared.showStatusPairs("stopped")[0],
+    ["to_watch", "Suivie (statut automatique)"]);
+  const store = makeStore();
+  const show = addShow(store, "Série", { status: "watching" });
+  const select = shared.statusSelect(store, SHOW, show, "show-status").text;
+  assert.ok(select.includes("En cours") && select.includes("Arrêté"));
+  assert.ok(!select.includes(">Terminé<") && !select.includes(">À voir<"));
+  const movie = addMovie(store, "Film", { id: 9 });
+  assert.ok(shared.statusSelect(store, MOVIE, movie, "movie-status").text.includes("Terminé"));
+});
+
 const EVIL = `<img src=x onerror="alert(1)">`;
 
 function fakeApp() {

@@ -116,6 +116,11 @@ export function buildQueue(store, {
   let items = [];
   if (kinds.includes(EPISODE)) {
     let episodes = episodeItems(store, statuses, showKey, includeSpecials, today);
+    if (statuses && statuses.includes(WATCHING) && !statuses.includes(COMPLETED)) {
+      // Série à jour (« Terminé ») : ses épisodes annoncés restent avec les « En cours ».
+      episodes.push(...episodeItems(store, [COMPLETED], showKey, includeSpecials, today)
+        .filter((item) => item.availability === UPCOMING));
+    }
     if (nextOnly) episodes = firstPerShow(episodes);
     items.push(...episodes);
   }

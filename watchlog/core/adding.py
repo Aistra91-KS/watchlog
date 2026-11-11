@@ -300,8 +300,9 @@ def mark_progress(session: Session, show_id: int, season: int, number: int,
 
     Hors spéciaux (leur place dans l'ordre est incertaine). Date `day` pour tous ; None =
     date inconnue, car ils ont été vus dans le passé et la date du jour fausserait les
-    statistiques. Un épisode déjà vu garde sa date. `status` (« En cours » par défaut,
-    None : inchangé) est aussi appliqué. Renvoie le nombre d'épisodes nouvellement vus.
+    statistiques. Un épisode déjà vu garde sa date. `status` (None : inchangé) est aussi
+    appliqué, puis le statut suit les épisodes vus (library.set_status : seuls « Plus tard »
+    et « Arrêté » sont gardés tels quels). Renvoie le nombre d'épisodes nouvellement vus.
     ValueError si l'épisode n'existe pas. Pas de commit.
     """
     if status is not None:
@@ -314,10 +315,13 @@ def mark_progress(session: Session, show_id: int, season: int, number: int,
         if (ep.season, ep.number) > (season, number):
             break
         if library.get_watch(session, EPISODE, ep.id) is None:
-            library.set_watch_date(session, EPISODE, ep.id, day)
+            library.set_watch_date(session, EPISODE, ep.id, day, refresh_status=False)
             count += 1
+    session.flush()
     if status is not None:
         library.set_status(session, SHOW, show_id, status)
+    else:
+        library.refresh_show_statuses(session, show_id=show_id)
     session.flush()
     return count
 

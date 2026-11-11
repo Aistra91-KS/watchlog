@@ -184,7 +184,8 @@ def test_add_show_uses_french_title(session):
     assert show.title == "Le Royaume" and show.original_title == "The Kingdom"
     assert show.tvmaze_id == 101 and show.match_status == MATCH_OK
     assert len(session.exec(select(Episode).where(Episode.show_id == show.id)).all()) == 7
-    assert library.get_library_item(session, SHOW, show.id).status == WATCHING
+    # Aucun épisode vu : « À voir », même ajoutée en « En cours »
+    assert library.get_library_item(session, SHOW, show.id).status == TO_WATCH
 
 
 def test_add_show_without_french_title(session):
@@ -208,7 +209,7 @@ def test_add_show_twice_does_not_duplicate(session):
     assert again.id == first.id and again.title == "Mon titre"
     assert len(tvmaze.calls) == calls  # rien n'est retéléchargé
     assert len(session.exec(select(Show)).all()) == 1
-    assert library.get_library_item(session, SHOW, first.id).status == WATCHING
+    assert library.get_library_item(session, SHOW, first.id).status == TO_WATCH
 
 
 def test_add_show_reuses_unmatched_import(session):
@@ -260,7 +261,7 @@ def test_add_manual_show(session):
                             .order_by(Episode.season, Episode.number)).all()
     assert [(e.season, e.number) for e in episodes] == [(1, 1), (1, 2), (1, 3), (2, 1), (2, 2)]
     assert all(e.airdate is None and not e.is_special for e in episodes)
-    assert library.get_library_item(session, SHOW, show.id).status == WATCHING
+    assert library.get_library_item(session, SHOW, show.id).status == TO_WATCH
 
 
 def test_add_manual_show_errors(session):
@@ -331,7 +332,8 @@ def test_mark_progress_with_date_keeps_existing(session):
     # Date choisie (stockée en UTC naïf : la veille au soir possible selon le fuseau)
     assert {watched[k].date() for k in watched if k != (1, 1)} <= {date(2024, 3, 9),
                                                                    date(2024, 3, 10)}
-    assert library.get_library_item(session, SHOW, show.id).status == TO_WATCH
+    # status=None : pas de statut imposé, il suit les épisodes (commencée, S2E3 pas vu)
+    assert library.get_library_item(session, SHOW, show.id).status == WATCHING
     assert adding.mark_progress(session, show.id, 2, 2) == 0   # relancer : rien de plus
 
 

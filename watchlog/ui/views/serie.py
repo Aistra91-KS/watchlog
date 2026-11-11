@@ -404,10 +404,13 @@ if show.match_status not in (MATCH_OK, MATCH_REMAPPED):
 status_key = f"serie_status_{show.id}"
 if item is None:
     st.info("Cette série n'est pas dans ta bibliothèque.")
+    if st.session_state.get(status_key) not in common.show_status_options(None):
+        st.session_state.pop(status_key, None)   # statut d'avant le retrait : plus proposé
     col_status, col_button = st.columns([2, 1], vertical_alignment="bottom")
     with col_status:
-        st.selectbox("Statut", common.status_options(), format_func=common.status_label,
-                     key=status_key)
+        st.selectbox("Statut", common.show_status_options(None),
+                     format_func=common.show_status_label(None), key=status_key,
+                     help=common.SHOW_STATUS_HELP)
     with col_button:
         st.button("Ajouter à la bibliothèque", on_click=add_to_library,
                   args=(show.id, status_key))
@@ -418,8 +421,10 @@ else:
     st.session_state[favorite_key] = item.favorite
     col_status, col_favorite = st.columns([2, 1], vertical_alignment="bottom")
     with col_status:
-        st.selectbox("Statut", common.status_options(), format_func=common.status_label,
-                     key=status_key, on_change=save_status, args=(show.id, status_key))
+        st.selectbox("Statut", common.show_status_options(item.status),
+                     format_func=common.show_status_label(item.status), key=status_key,
+                     help=common.SHOW_STATUS_HELP,
+                     on_change=save_status, args=(show.id, status_key))
     with col_favorite:
         st.checkbox("Favori", key=favorite_key, on_change=save_favorite,
                     args=(show.id, favorite_key))

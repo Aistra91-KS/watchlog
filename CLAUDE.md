@@ -99,6 +99,12 @@ tests/                 pytest ; conftest.py = faux clients TVMaze/TMDB, faux zip
   `show.display_summary` / `episode.display_title` (français, sinon TVMaze).
 - `LibraryItem` (kind + ref_id, statut, favori, added_at). Statuts : `watching` (En cours),
   `to_watch` (À voir), `for_later` (Plus tard), `stopped` (Arrêté), `completed` (Terminé).
+  **Série : statut automatique** (`library.refresh_show_statuses`, appelé par chaque action
+  sur un épisode, `set_status`, l'import, la synchro et une fois par jour au démarrage) : rien
+  vu = à voir, épisodes sortis à voir = en cours, à jour = terminé (redevient en cours quand
+  un épisode sort) ; `for_later` / `stopped` sont les seuls choix à la main. Une série
+  « Terminé » peut donc avoir des épisodes à venir : `queue.build_queue` les garde avec
+  « En cours ».
 - `Watch` : une ligne par épisode/film vu (`plays` pour les revisionnages), dates en UTC naïf.
 - `Rating` (note 1 à 5 par demi-point : `library.clean_rating`, `rating_stars` « ★★★★½ » ;
   colonne INTEGER des vieilles bases gardée, SQLite y stocke 4.5 tel quel), émotions,

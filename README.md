@@ -173,8 +173,15 @@ une demi-note y part arrondie à l'étoile supérieure (4,5 → 5), et le rappor
 Cocher une case, changer une date ou une note ne recharge pas le tableau de la saison (la
 position dans la liste est gardée) ; « Vu jusqu'ici » et les actions en bloc le rechargent.
 
-Statuts possibles : En cours, À voir, Plus tard, Arrêté, Terminé. Une série finie dont tous
-les épisodes sont vus passe toute seule en « Terminé ». Un film marqué vu (fiche, À regarder ou
+Statuts possibles : En cours, À voir, Plus tard, Arrêté, Terminé. **Le statut d'une série se
+règle tout seul** d'après ses épisodes (hors spéciaux) : aucun vu = « À voir » ; commencée, avec
+des épisodes sortis pas encore vus = « En cours » ; tout ce qui est sorti est vu = « Terminé ».
+Une série « Terminé » repasse « En cours » dès qu'un nouvel épisode sort (vérifié à chaque
+action, au démarrage, une fois par jour et à chaque mise à jour) ; en attendant, son prochain
+épisode annoncé reste dans À regarder et le calendrier. Dans la fiche d'une série, on ne
+choisit donc que « Plus tard » ou « Arrêté » (gardés tant qu'on ne les change pas, sauf série
+finie entièrement vue : « Terminé ») ou le retour au statut automatique. Les séries dont la
+correspondance TVMaze est à vérifier gardent leur statut. Un film marqué vu (fiche, À regarder ou
 Accueil) passe en « Terminé » ; marqué non vu, il revient en « À voir » (« Annuler » remet son
 statut d'avant). Les films vus restés « À voir » (anciennes versions) sont corrigés au
 démarrage et à chaque mise à jour.
